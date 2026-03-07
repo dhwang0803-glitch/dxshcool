@@ -77,6 +77,8 @@ Database_Design/schema/
 | 벡터 저장소 | Milvus | 별도 팀에서 처리 |
 | ORM/마이그레이션 | SQLAlchemy (Python) | 요구사항 선택사항 |
 | 파티셔닝 | RANGE (strt_dt 기준 연도) | 시계열 조회 최적화 |
+| 실행 환경 | Docker (VPC) | 팀원 공유 PostgreSQL 협업 환경 |
+| 접속 정보 관리 | `.env` 파일 (Git 제외) | 보안을 위해 팀 내 별도 공유 |
 
 ---
 
@@ -131,7 +133,7 @@ Database_Design/schema/
 - [ ] Phase 2: 데이터 마이그레이션
   - [ ] PLAN_02 검토
   - [ ] migrate.py 작성
-  - [ ] 로컬 테스트 실행
+  - [ ] VPC DB 연결 테스트 (환경변수 확인)
   - [ ] 데이터 검증
 - [ ] Phase 3: 성능 테스트
   - [ ] PLAN_03 검토

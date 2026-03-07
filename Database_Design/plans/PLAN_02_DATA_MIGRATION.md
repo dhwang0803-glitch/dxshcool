@@ -6,6 +6,33 @@
 
 ---
 
+## 0. VPC 연결 설정
+
+### .env 파일 구성 (팀 내 별도 공유, Git 커밋 금지)
+```
+DB_HOST=<VPC_IP>
+DB_PORT=5432
+DB_NAME=vod_db
+DB_USER=<username>
+DB_PASSWORD=<password>
+```
+
+> `.gitignore`에 `.env` 추가 필수
+
+### 최초 1회 마이그레이션 절차
+```
+1. 담당자 1명이 CSV 파일을 scp로 VPC에 업로드
+   scp -r ./data user@<VPC_IP>:/home/user/vod_data/
+
+2. VPC에서 migrate.py 실행 (DB 적재)
+   python migrate.py
+
+3. 이후 팀원 전원은 .env 파일로 DB에 직접 접속
+   (CSV 파일 재업로드 불필요)
+```
+
+---
+
 ## 1. 마이그레이션 전략
 
 ### 적재 순서 (FK 의존성 고려)
@@ -128,16 +155,24 @@ VOD 추천 시스템 - PostgreSQL 마이그레이션 스크립트
 CSV 데이터 → PostgreSQL 3개 테이블 적재
 
 사용법:
-    python migrate.py --host localhost --port 5432 --db vod_db --user postgres
-    python migrate.py --config config.yaml  # 설정 파일 방식
+    python migrate.py  # .env 파일에서 연결 정보 자동 로드
 """
 
+import os
 import pandas as pd
 import psycopg2
 from psycopg2.extras import execute_values
 from sqlalchemy import create_engine
+from dotenv import load_dotenv
 import logging
 from pathlib import Path
+
+# .env 파일 로드
+load_dotenv()
+CONNECTION_STRING = (
+    f"postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}"
+    f"@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
+)
 
 # 설정
 DATA_DIR = Path("../data/prepared_data")
