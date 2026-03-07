@@ -130,11 +130,11 @@ Database_Design/schema/
   - [x] create_tables.sql 작성
   - [x] create_indexes.sql 작성
   - [x] DESIGN.md 작성
-- [ ] Phase 2: 데이터 마이그레이션
-  - [ ] PLAN_02 검토
-  - [ ] migrate.py 작성
-  - [ ] VPC DB 연결 테스트 (환경변수 확인)
-  - [ ] 데이터 검증
+- [x] Phase 2: 데이터 마이그레이션
+  - [x] PLAN_02 검토
+  - [x] migrate.py 작성
+  - [x] VPC DB 연결 테스트 (환경변수 확인)
+  - [ ] 데이터 검증 (CSV 적재 후 test_migration_db.sql 실행 필요)
 - [ ] Phase 3: 성능 테스트
   - [ ] PLAN_03 검토
   - [ ] performance_test.sql 작성
