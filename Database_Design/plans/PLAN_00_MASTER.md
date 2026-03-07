@@ -125,11 +125,11 @@ Database_Design/schema/
 
 ## 8. 진행 체크리스트
 
-- [ ] Phase 1: 핵심 스키마 DDL 작성
-  - [ ] PLAN_01 검토
-  - [ ] create_tables.sql 작성
-  - [ ] create_indexes.sql 작성
-  - [ ] DESIGN.md 작성
+- [x] Phase 1: 핵심 스키마 DDL 작성
+  - [x] PLAN_01 검토
+  - [x] create_tables.sql 작성
+  - [x] create_indexes.sql 작성
+  - [x] DESIGN.md 작성
 - [ ] Phase 2: 데이터 마이그레이션
   - [ ] PLAN_02 검토
   - [ ] migrate.py 작성
