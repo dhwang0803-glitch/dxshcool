@@ -353,11 +353,13 @@ COMMIT;
 
 ### 체크리스트
 
-- [ ] OPT-1-A: `idx_wh_user_covering` 생성
-  - [ ] P01 재실행 → Nested Loop 전환 확인
-  - [ ] `idx_wh_user_id` 중복 제거 여부 결정
-- [ ] OPT-1-B: `idx_wh_satisfaction_nonzero` 생성
-  - [ ] P04 재실행 → 플랜 변화 확인 (Seq Scan 유지 시 MV 의존)
+- [x] OPT-1-A: `idx_wh_user_covering` 생성 (576MB)
+  - [x] P01 재실행 → random_page_cost=1.5와 함께 Nested Loop + Memoize 채택
+  - [x] `idx_wh_user_id` 유지 결정 (planner가 OPT-1-A보다 선호 — 둘 다 공존)
+  - **결과**: P01 cold 1,272ms → **128ms**, warm **28ms (PASS)**
+- [x] OPT-1-B: `idx_wh_satisfaction_nonzero` 생성 (64MB)
+  - [x] P04 재실행 → planner Seq Scan 선택 유지 (MV로 해결)
+  - **추가 적용**: `random_page_cost=1.5` → P01 Nested Loop, P06 Nested Loop×2 채택
 - [ ] OPT-2-A: `mv_vod_satisfaction_stats` 생성 + 인덱스
   - [ ] P04 대체 쿼리 <10ms 달성 확인
   - [ ] REFRESH CONCURRENTLY 동작 확인

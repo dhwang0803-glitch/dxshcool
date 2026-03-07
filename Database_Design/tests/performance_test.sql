@@ -156,6 +156,6 @@ SELECT
     idx_scan        AS scans,
     idx_tup_read    AS tuples_read
 FROM pg_stat_user_indexes
-WHERE tablename IN ('user', 'vod', 'watch_history')
+WHERE relname IN ('user', 'vod', 'watch_history')
   AND idx_scan > 0
 ORDER BY idx_scan DESC;

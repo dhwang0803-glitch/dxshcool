@@ -1,8 +1,8 @@
 # Phase 3 결과 보고서
 
-**Phase**: Phase 3 - 성능 검증
+**Phase**: Phase 3 → Phase 3B - 성능 검증 + 성능 개선
 **작성일**: 2026-03-07
-**상태**: 완료 (P05 PASS, P01/P02/P03/P04/P06 FAIL - VPC 환경 한계 분석 완료)
+**상태**: Phase 3B 진행 중 (P01/P05 PASS, P04/P06 → OPT-2 MV로 해결 예정, P02/P03 → OPT-3 파티셔닝 대기)
 
 ---
 
@@ -20,7 +20,7 @@
 
 | 테이블 | 전체 | 데이터 | 인덱스 |
 |--------|------|--------|--------|
-| watch_history | 2,043 MB | 637 MB | 1,406 MB |
+| watch_history | 2,683 MB | 637 MB | 2,047 MB (OPT-1 인덱스 추가 후) |
 | vod | 141 MB | 82 MB | 60 MB |
 | user | 60 MB | 34 MB | 26 MB |
 
@@ -49,7 +49,9 @@
 | 3차 | 1GB | 16MB | shared_buffers 증설 |
 | 4차 | 1GB | 256MB | 두 설정 동시 적용 |
 | 5차 | 1GB | 32MB | + maintenance_work_mem=256MB, max_parallel_workers_per_gather=2 |
-| **최종** | **1GB** | **32MB** | **+ maintenance_work_mem=256MB, max_parallel_workers_per_gather=0** |
+| 6차 | 1GB | 32MB | + max_parallel_workers_per_gather=0 |
+| 7차 | 1GB | 32MB | + random_page_cost=1.0 (P02/P03 역효과로 기각) |
+| **최종** | **1GB** | **32MB** | **+ max_parallel_workers_per_gather=0, random_page_cost=1.5** |
 
 ### 1차 테스트 상세 결과 (기본 설정)
 
@@ -162,9 +164,11 @@ shared_buffers = 1GB                    # 적용됨
 work_mem = 32MB                         # 적용됨
 maintenance_work_mem = 256MB            # 적용됨
 max_parallel_workers_per_gather = 0     # 1코어 환경 병렬 비활성화 (적용됨)
+random_page_cost = 1.5                  # 적용됨 (warm cache 환경 반영)
 ```
 
-**0workers 적용 효과**: P02 warm -93%(1,714ms), P03 warm -32%(17,984ms), P04 warm -53%(19,532ms). P02/P03 최고 기록 갱신.
+**0workers 적용 효과**: P02 warm -93%(1,714ms), P03 warm -32%(17,984ms), P04 warm -53%(19,532ms).
+**random_page_cost=1.5 추가 효과**: P01 cold 1,051ms → **128ms(-88%)**, warm **28ms(PASS)**. P06 warm 31,288ms → **10,355ms(-67%)**.
 
 ### 중장기 (Phase 4 이후 검토)
 
@@ -187,17 +191,25 @@ CREATE UNIQUE INDEX ON mv_vod_satisfaction_stats(vod_id_fk);
 
 ## 5. 개선 내용 (실제 적용)
 
-### 적용된 최적화
+### Phase 3 적용된 최적화
 
 - `performance_test.sql`: `SET statement_timeout = '120s'` 추가 (무한 대기 방지)
 - `performance_test.sql`: ANALYZE 전처리 제거 (VPC 1코어에서 50분 이상 소요)
 - `work_mem = '256MB'` 세션 단위 적용 → P04 disk sort 제거 확인
 
-### 미적용 최적화 (권고)
+### Phase 3B OPT-1 적용된 최적화
 
-- 커버링 인덱스 (`idx_wh_user_covering`): Phase 4 진입 전 적용 권고
-- Materialized View: 추천 시스템(Phase 5) 연동 시 함께 설계 권고
-- 파티셔닝: 데이터 재적재 필요, 팀 협의 후 결정
+| 항목 | 내용 | 효과 |
+|------|------|------|
+| `idx_wh_user_covering` (576MB) | (user_id_fk, strt_dt DESC) INCLUDE (vod_id_fk, completion_rate, satisfaction) | P01 플래너 Nested Loop 전환 조건 제공 |
+| `idx_wh_satisfaction_nonzero` (64MB) | (satisfaction DESC) WHERE satisfaction > 0 | P04 부분 스캔 지원 (MV 적용 전 보조) |
+| `ANALYZE watch_history` | 통계 갱신 | P02 플랜 개선 (490ms 달성) |
+| `random_page_cost=1.5` | 플래너 랜덤 I/O 비용 조정 | P01 Nested Loop+Memoize 채택 → **28ms warm PASS** |
+
+### 미적용 최적화 (OPT-2, OPT-3 진행 예정)
+
+- Materialized View (`mv_vod_satisfaction_stats`, `mv_age_grp_vod_stats`): P04/P06 → <10ms 예상
+- 파티셔닝: P03 근본 해결, 데이터 재적재 필요 (팀 협의 후 결정)
 
 ---
 
@@ -205,20 +217,21 @@ CREATE UNIQUE INDEX ON mv_vod_satisfaction_stats(vod_id_fk);
 
 현재 성능 목표는 충분한 RAM을 갖춘 서버 기준으로 설정되어 있음. VPC(1core/4GB) 환경에서 현실적인 목표치 재설정을 권고함.
 
-| 조회 패턴 | 기존 목표 | VPC 현실적 목표 | 달성 방법 |
-|----------|----------|----------------|----------|
-| 사용자별 시청이력 | <100ms | <1,000ms | 커버링 인덱스 적용 시 개선 |
-| VOD별 통계 (일반) | <100ms | <500ms | 일반 VOD 기준 달성 가능 |
-| 날짜 범위 (1일) | <500ms | <1,000ms | 파티셔닝 적용 시 개선 |
-| 만족도 집계 | <500ms | Materialized View로 대체 | MV REFRESH 주기 설정 |
-| 복합 인덱스 조회 | <100ms | **9ms (달성)** | 현행 유지 |
-| 연령대별 집계 | <500ms | Materialized View로 대체 | MV REFRESH 주기 설정 |
+| 조회 패턴 | 기존 목표 | Phase 3B 현재 | 달성 방법 | 상태 |
+|----------|----------|--------------|----------|------|
+| 사용자별 시청이력 | <100ms | **28ms warm** | random_page_cost=1.5 + Nested Loop | **✅ PASS** |
+| VOD별 통계 (최다시청) | <100ms | 3,203ms warm | 구조적 한계 (71K rows) | ❌ |
+| 날짜 범위 (1주) | <500ms | 15,315ms warm | OPT-3 파티셔닝 후 개선 | ❌ |
+| 만족도 집계 | <500ms | 22,201ms cold | OPT-2 MV로 대체 예정 | ❌ |
+| 복합 인덱스 조회 | <100ms | **9~28ms** | 현행 유지 | **✅ PASS** |
+| 연령대별 집계 | <500ms | 10,355ms warm | OPT-2 MV로 대체 예정 | ❌ |
 
 ---
 
 ## 7. 다음 Phase 권고사항
 
-- **Phase 4 진입 조건**: 성능 목표 미달이나, VPC 환경 한계로 인한 구조적 문제임이 확인됨. Phase 4 진행 가능
-- **커버링 인덱스 선적용**: Phase 4 임베딩 테이블 DDL 작성 전 `idx_wh_user_covering` 생성 권고
+- **Phase 3B 진행 중**: OPT-1 완료(P01 PASS), OPT-2(MV) → OPT-3(파티셔닝) 순서로 진행
+- **OPT-2 다음 단계**: `mv_vod_satisfaction_stats`, `mv_age_grp_vod_stats` 생성 → P04/P06 <10ms 목표
 - **추천 시스템 아키텍처**: 집계 결과는 VPC가 아닌 로컬에서 계산 후 결과만 DB에 저장하는 현행 방향 유지
 - **Phase 4 참조 파일**: `Database_Design/plans/PLAN_04_EXTENSION_TABLES.md`
+- **Phase 3B 참조 파일**: `Database_Design/plans/PLAN_03B_PERFORMANCE_OPT.md`

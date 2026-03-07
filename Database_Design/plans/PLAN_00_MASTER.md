@@ -142,8 +142,8 @@ Database_Design/schema/
   - [x] EXPLAIN ANALYZE 실행 및 결과 기록 (P05 PASS, P01~P04/P06 VPC 환경 한계)
   - [x] VPC 설정 최적화 실험 6회 (최종: 1GB/32MB/0workers), 최고기록: P02 warm=1,714ms(-93%), P03 warm=17,984ms
 - [ ] Phase 3B: 성능 개선
-  - [ ] PLAN_03B 검토
-  - [ ] OPT-1: 커버링 인덱스 + 부분 인덱스 생성
+  - [x] PLAN_03B 검토
+  - [x] OPT-1: 커버링 인덱스 + 부분 인덱스 + random_page_cost=1.5 → P01 **28ms PASS**
   - [ ] OPT-2: Materialized View 생성 (mv_vod_satisfaction_stats, mv_age_grp_vod_stats)
   - [ ] OPT-3: 파티셔닝 (팀 협의 후)
 - [ ] Phase 4: 확장 테이블

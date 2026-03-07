@@ -100,16 +100,63 @@
 | P05 | 18ms | **11ms** | hit=155 (100%) | **-39%** |
 | P06 | 21,120ms | 31,288ms | hit=180,396+read=25,144 | 악화 — disk read 잔류 |
 
-## 전체 테스트 최고 기록
+---
+
+## Phase 3B OPT-1 결과 (커버링 인덱스 + random_page_cost 튜닝)
+
+**적용 내용**:
+- `idx_wh_user_covering` (576MB): watch_history (user_id_fk, strt_dt DESC) INCLUDE (vod_id_fk, completion_rate, satisfaction)
+- `idx_wh_satisfaction_nonzero` (64MB): watch_history (satisfaction DESC) WHERE satisfaction > 0
+- ANALYZE watch_history 실행 (통계 갱신)
+- `random_page_cost=1.0` 테스트 → P02/P03 역효과 확인
+- **최종 적용: `random_page_cost=1.5`**
+
+### random_page_cost=1.5 Cold Cache 결과
+
+| ID | 이전 Cold (0w) | OPT-1+rpc=1.5 Cold | 변화 | 플랜 |
+|----|--------------|-------------------|------|------|
+| **P01** | 1,051ms | **128ms** | **-88%** | Nested Loop + Memoize (Hits:6930/7181=96.5%) |
+| P02 | 24,565ms | 15,019ms | -39% | Bitmap Heap Scan 유지 |
+| P03 | 26,611ms | 32,705ms | 악화 | Bitmap Heap Scan 유지 (데이터 분포 이슈) |
+| P04 | 41,336ms | 22,201ms | -46% | Seq Scan + Hash Join |
+| P05 | 18ms | 82ms* | — | idx_wh_user_id (P01 선실행으로 warm) |
+| P06 | 21,120ms | 11,338ms | **-46%** | Nested Loop × 2 + Memoize |
+
+*P05 cold는 P01 선실행으로 watch_history 155 blocks warm 상태
+
+### random_page_cost=1.5 Warm Cache 결과
+
+| ID | Cold | Warm | Cache 상태 | 변화 | 판정 |
+|----|------|------|-----------|------|------|
+| **P01** | 128ms | **28ms** | hit=1,162 (100%) | **-78%** | **✅ PASS** |
+| P02 | 15,019ms | 3,203ms | hit=27,509 (100%) | -79% | ❌ |
+| P03 | 32,705ms | **15,315ms** | hit=57,112 (100%) | -53% | ❌ |
+| P04 | 22,201ms | 44,982ms | hit=68,864+read=23,059 | 악화* | ❌ |
+| **P05** | — | **28ms** | hit=155 (100%) | — | **✅ PASS** |
+| **P06** | 11,338ms | **10,355ms** | hit=192,023 (100%) | -9% | ❌ |
+
+*P04 warm: 2차 run이나 watch_history 23K blocks 미완충 (637MB > 가용 버퍼)
+
+### random_page_cost 단계별 P01 비교
+
+| rpc 설정 | P01 Cold | P01 Warm | 플랜 |
+|---------|---------|---------|------|
+| 4.0 (기본) | 1,051ms | 4,262ms | Hash Join + vod Seq Scan |
+| 1.0 | 115ms | 64ms | Nested Loop + Memoize |
+| **1.5 (채택)** | **128ms** | **28ms** | **Nested Loop + Memoize** |
+
+**채택 근거**: rpc=1.0은 P02/P03에서 Bitmap→Index Scan 전환으로 역효과. rpc=1.5는 P01 Nested Loop 유지하면서 P02/P03 Bitmap Heap Scan 보존.
+
+## 전체 테스트 최고 기록 (Phase 3B OPT-1 반영)
 
 | ID | 최고 기록 | 설정 | 판정 |
 |----|---------|------|------|
-| P01 | 937ms | 1GB/256MB cold | FAIL |
-| P02 | **1,714ms** | **1GB/32MB/0workers warm** | FAIL |
-| P03 | **17,984ms** | **1GB/32MB/0workers warm** | FAIL |
-| P04 | 15,703ms | 128MB/256MB cold | FAIL |
-| **P05** | **9ms** | 기본 설정 | **PASS** |
-| P06 | 12,746ms | 기본 설정 | FAIL |
+| **P01** | **28ms** | **OPT-1+rpc=1.5 warm** | **✅ PASS** |
+| P02 | 1,714ms | 1GB/32MB/0workers warm | FAIL |
+| P03 | **15,315ms** | **OPT-1+rpc=1.5 warm** | FAIL |
+| P04 | 15,703ms | 128MB/256MB cold | FAIL (→ OPT-2 MV로 해결 예정) |
+| **P05** | **9ms** | 기본 설정 | **✅ PASS** |
+| P06 | **10,355ms** | **OPT-1+rpc=1.5 warm** | FAIL (→ OPT-2 MV로 해결 예정) |
 
 ---
 
