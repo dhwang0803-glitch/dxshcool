@@ -40,6 +40,16 @@
 - **실행 환경**: PostgreSQL 15.4 (VPC Docker, 1core/4GB RAM)
 - **데이터**: user=242,702 / vod=166,159 / watch_history=3,992,530
 
+### VPC PostgreSQL 설정 이력
+
+| 설정 | shared_buffers | work_mem | 비고 |
+|------|---------------|----------|------|
+| 초기 | 128MB | 4MB | PostgreSQL 기본값 |
+| 2차 | 128MB | 256MB | 세션 단위 적용 |
+| 3차 | 1GB | 16MB | shared_buffers 증설 |
+| 4차 | 1GB | 256MB | 두 설정 동시 적용 |
+| **최종** | **1GB** | **32MB** | **+ maintenance_work_mem=256MB, max_parallel_workers_per_gather=2** |
+
 ### 1차 테스트 상세 결과 (기본 설정)
 
 | ID | 조회 패턴 | 목표 | 실제 | 판정 | 주요 플랜 |
@@ -51,17 +61,37 @@
 | **P05** | **복합 인덱스 (사용자+날짜)** | **<100ms** | **9ms** | **PASS** | Index Scan on idx_wh_user_id |
 | P06 | 연령대별 VOD (3-테이블 JOIN) | <500ms | 12,746ms | FAIL | Nested Loop + Parallel (138,380 loops) |
 
-### 2차 테스트 상세 결과 (work_mem=256MB)
+### 설정별 전체 비교 (Cold Cache)
 
-| ID | 1차 | 2차 | 개선율 | 변화 내용 |
-|----|-----|-----|--------|----------|
-| P01 | 1,272ms | 979ms | -23% | Hash 배치 4→1 (메모리 내 처리), disk sort 제거 |
-| P02 | 15,920ms | 9,559ms | -40% | 동일 플랜, 버퍼 캐시 워밍 효과 |
-| P04 | 23,292ms | 15,703ms | -33% | external merge(Disk) → in-memory HashAggregate 전환 |
+| ID | 기본(128/4MB) | work_mem=256MB | 1GB/16MB | 1GB/256MB | **1GB/32MB/2w** |
+|----|--------------|----------------|---------|----------|-----------------|
+| P01 | 1,272ms | 979ms | 1,006ms | 937ms | 1,067ms |
+| P02 | 15,920ms | 9,559ms | 21,404ms | 18,311ms | 17,403ms |
+| P03 | 30,679ms | - | 30,996ms | 43,935ms | 28,804ms |
+| P04 | 23,292ms | **15,703ms** | 87,565ms | 54,205ms | 50,340ms |
+| P05 | **9ms** | - | 11ms | 45ms | 33ms |
+| P06 | 12,746ms | - | 23,866ms | 21,863ms | 13,940ms |
+
+### Warm Cache 결과 (최종 설정 1GB/32MB/2workers, 2차 실행)
+
+| ID | Cold | Warm | Cache 상태 | 변화 |
+|----|------|------|-----------|------|
+| P01 | 1,067ms | 3,049ms | shared hit=10,597 (100%) | 악화 — 1코어 CPU 경합 |
+| P02 | 17,403ms | **7,004ms** | shared hit=27,509 (100%) | **-60%** |
+| P03 | 28,804ms | **25,894ms** | shared hit=57,112 (100%) | **-10%** |
+| P04 | 50,340ms | 60,377ms | hit=68,926+read=22,997 | 악화 — 637MB 미완충 |
+| P05 | 33ms | **15ms** | shared hit=155 (100%) | **-55%** |
+| P06 | 13,940ms | 17,611ms | shared hit=254,447 (100%) | 악화 — 1코어 CPU 경합 |
 
 ---
 
 ## 3. 오류 원인 분석
+
+### Warm Cache 역설 (P01, P04, P06)
+shared_buffers=1GB 설정 후 warm cache임에도 오히려 느려지는 현상 관찰:
+- **원인**: max_parallel_workers_per_gather=2로 병렬 워커 2개가 VPC 1코어를 경합
+- **P04**: watch_history 637MB가 1GB shared_buffers에 완전히 안 들어감 (다른 데이터와 공유) → 여전히 22K blocks disk read
+- **결론**: 1코어 환경에서 병렬 처리는 오히려 역효과. max_parallel_workers_per_gather=0으로 비활성화가 유리할 수 있음
 
 ### 근본 원인: VPC 환경 제약
 
@@ -91,19 +121,28 @@
 ### 단기 (즉시 적용)
 
 ```sql
--- 1. 서버 설정: work_mem 증가 (postgresql.conf 또는 세션 단위)
-SET work_mem = '256MB';
--- P04: 23,292ms → 15,703ms (-33%)
+-- 1. 1코어 환경 병렬 처리 비활성화 검토 (postgresql.conf)
+-- max_parallel_workers_per_gather = 0
+-- warm cache 역설(P01/P06 오히려 느려짐) 해소 가능
 
 -- 2. 부분 인덱스: satisfaction > 0 필터 최적화
 CREATE INDEX CONCURRENTLY idx_wh_satisfaction_nonzero
     ON watch_history (satisfaction DESC)
     WHERE satisfaction > 0;
 
--- 3. 커버링 인덱스: P01 vod JOIN 최적화 (vod Seq Scan 우회)
+-- 3. 커버링 인덱스: P01 vod Seq Scan 제거
 CREATE INDEX CONCURRENTLY idx_wh_user_covering
     ON watch_history (user_id_fk, strt_dt DESC)
     INCLUDE (vod_id_fk, completion_rate, satisfaction);
+```
+
+### 최종 권장 VPC 설정
+
+```
+shared_buffers = 1GB                    # 적용됨
+work_mem = 32MB                         # 적용됨
+maintenance_work_mem = 256MB            # 적용됨
+max_parallel_workers_per_gather = 0     # 1코어 환경 병렬 비활성화 권고
 ```
 
 ### 중장기 (Phase 4 이후 검토)
