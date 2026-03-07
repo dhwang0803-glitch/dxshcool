@@ -25,11 +25,12 @@
 ## 2. 개발 단계 (Phases)
 
 ```
-Phase 1: 핵심 스키마 DDL 작성        [PLAN_01_SCHEMA_DDL.md]
-Phase 2: 데이터 마이그레이션          [PLAN_02_DATA_MIGRATION.md]
-Phase 3: 성능 검증                   [PLAN_03_PERFORMANCE_TEST.md]
-Phase 4: 확장 테이블 설계             [PLAN_04_EXTENSION_TABLES.md]
-Phase 5: RAG 연동 DB 설계            [PLAN_05_RAG_DB_INTEGRATION.md]
+Phase 1:  핵심 스키마 DDL 작성        [PLAN_01_SCHEMA_DDL.md]
+Phase 2:  데이터 마이그레이션          [PLAN_02_DATA_MIGRATION.md]
+Phase 3:  성능 검증                   [PLAN_03_PERFORMANCE_TEST.md]
+Phase 3B: 성능 개선 (커버링인덱스/MV/파티셔닝) [PLAN_03B_PERFORMANCE_OPT.md]
+Phase 4:  확장 테이블 설계             [PLAN_04_EXTENSION_TABLES.md]
+Phase 5:  RAG 연동 DB 설계            [PLAN_05_RAG_DB_INTEGRATION.md]
 ```
 
 ---
@@ -140,6 +141,11 @@ Database_Design/schema/
   - [x] performance_test.sql 작성
   - [x] EXPLAIN ANALYZE 실행 및 결과 기록 (P05 PASS, P01~P04/P06 VPC 환경 한계)
   - [x] VPC 설정 최적화 실험 6회 (최종: 1GB/32MB/0workers), 최고기록: P02 warm=1,714ms(-93%), P03 warm=17,984ms
+- [ ] Phase 3B: 성능 개선
+  - [ ] PLAN_03B 검토
+  - [ ] OPT-1: 커버링 인덱스 + 부분 인덱스 생성
+  - [ ] OPT-2: Materialized View 생성 (mv_vod_satisfaction_stats, mv_age_grp_vod_stats)
+  - [ ] OPT-3: 파티셔닝 (팀 협의 후)
 - [ ] Phase 4: 확장 테이블
   - [ ] PLAN_04 검토
   - [ ] 임베딩/추천 테이블 DDL 작성
