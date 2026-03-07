@@ -48,7 +48,8 @@
 | 2차 | 128MB | 256MB | 세션 단위 적용 |
 | 3차 | 1GB | 16MB | shared_buffers 증설 |
 | 4차 | 1GB | 256MB | 두 설정 동시 적용 |
-| **최종** | **1GB** | **32MB** | **+ maintenance_work_mem=256MB, max_parallel_workers_per_gather=2** |
+| 5차 | 1GB | 32MB | + maintenance_work_mem=256MB, max_parallel_workers_per_gather=2 |
+| **최종** | **1GB** | **32MB** | **+ maintenance_work_mem=256MB, max_parallel_workers_per_gather=0** |
 
 ### 1차 테스트 상세 결과 (기본 설정)
 
@@ -63,16 +64,16 @@
 
 ### 설정별 전체 비교 (Cold Cache)
 
-| ID | 기본(128/4MB) | work_mem=256MB | 1GB/16MB | 1GB/256MB | **1GB/32MB/2w** |
-|----|--------------|----------------|---------|----------|-----------------|
-| P01 | 1,272ms | 979ms | 1,006ms | 937ms | 1,067ms |
-| P02 | 15,920ms | 9,559ms | 21,404ms | 18,311ms | 17,403ms |
-| P03 | 30,679ms | - | 30,996ms | 43,935ms | 28,804ms |
-| P04 | 23,292ms | **15,703ms** | 87,565ms | 54,205ms | 50,340ms |
-| P05 | **9ms** | - | 11ms | 45ms | 33ms |
-| P06 | 12,746ms | - | 23,866ms | 21,863ms | 13,940ms |
+| ID | 기본(128/4MB) | work_mem=256MB | 1GB/16MB | 1GB/256MB | 1GB/32MB/2w | **1GB/32MB/0w** |
+|----|--------------|----------------|---------|----------|-------------|-----------------|
+| P01 | 1,272ms | 979ms | 1,006ms | 937ms | 1,067ms | 1,051ms |
+| P02 | 15,920ms | 9,559ms | 21,404ms | 18,311ms | 17,403ms | 24,565ms |
+| P03 | 30,679ms | - | 30,996ms | 43,935ms | 28,804ms | 26,611ms |
+| P04 | 23,292ms | **15,703ms** | 87,565ms | 54,205ms | 50,340ms | 41,336ms |
+| P05 | **9ms** | - | 11ms | 45ms | 33ms | 18ms |
+| P06 | 12,746ms | - | 23,866ms | 21,863ms | 13,940ms | 21,120ms |
 
-### Warm Cache 결과 (최종 설정 1GB/32MB/2workers, 2차 실행)
+### Warm Cache 결과 (1GB/32MB/2workers, 2차 실행)
 
 | ID | Cold | Warm | Cache 상태 | 변화 |
 |----|------|------|-----------|------|
@@ -83,15 +84,33 @@
 | P05 | 33ms | **15ms** | shared hit=155 (100%) | **-55%** |
 | P06 | 13,940ms | 17,611ms | shared hit=254,447 (100%) | 악화 — 1코어 CPU 경합 |
 
+### Warm Cache 결과 (1GB/32MB/0workers, 2차 실행)
+
+| ID | Cold | Warm | Cache 상태 | 변화 |
+|----|------|------|-----------|------|
+| P01 | 1,051ms | 4,262ms | shared hit=10,597 (100%) | 악화 — vod Seq Scan CPU 처리 병목 |
+| P02 | 24,565ms | **1,714ms** | shared hit=27,509 (100%) | **-93%** |
+| P03 | 26,611ms | **17,984ms** | shared hit=57,112 (100%) | **-32%** |
+| P04 | 41,336ms | **19,532ms** | hit=66,747+read=25,176 | **-53%** (부분 캐시) |
+| P05 | 18ms | **11ms** | shared hit=155 (100%) | **-39%** |
+| P06 | 21,120ms | 31,288ms | hit=180,396+read=25,144 | 악화 — disk read 잔류 |
+
 ---
 
 ## 3. 오류 원인 분석
 
-### Warm Cache 역설 (P01, P04, P06)
-shared_buffers=1GB 설정 후 warm cache임에도 오히려 느려지는 현상 관찰:
+### Warm Cache 역설 분석
+
+**2workers 설정 (P01, P04, P06 악화)**
 - **원인**: max_parallel_workers_per_gather=2로 병렬 워커 2개가 VPC 1코어를 경합
-- **P04**: watch_history 637MB가 1GB shared_buffers에 완전히 안 들어감 (다른 데이터와 공유) → 여전히 22K blocks disk read
-- **결론**: 1코어 환경에서 병렬 처리는 오히려 역효과. max_parallel_workers_per_gather=0으로 비활성화가 유리할 수 있음
+- **P04**: watch_history 637MB가 1GB shared_buffers에 완전히 안 들어감 → 22K blocks disk read 잔류
+- **결론**: 1코어 환경에서 병렬 처리는 오히려 역효과
+
+**0workers 설정 결과 (max_parallel_workers_per_gather=0)**
+- **P02 warm -93%**: 24,565ms → 1,714ms. 병렬 없이 단순 Bitmap Heap Scan + GroupAggregate, 완전 캐시 효과 극대화
+- **P04 warm -53%**: 41,336ms → 19,532ms. HashAggregate(Batches:1 in-memory) + Hash Join, 부분 disk read(25K blocks) 잔류
+- **P01 warm 악화**: 1,051ms → 4,262ms. vod(166K rows) Seq Scan이 warm에서 4,067ms → 1코어 CPU 순차 처리 병목. 커버링 인덱스로 해결 가능
+- **P06 warm 악화**: 21,120ms → 31,288ms. watch_history Seq Scan 22,532ms + disk read 25,144 blocks 잔류. 데이터 볼륨 한계
 
 ### 근본 원인: VPC 환경 제약
 
@@ -142,8 +161,10 @@ CREATE INDEX CONCURRENTLY idx_wh_user_covering
 shared_buffers = 1GB                    # 적용됨
 work_mem = 32MB                         # 적용됨
 maintenance_work_mem = 256MB            # 적용됨
-max_parallel_workers_per_gather = 0     # 1코어 환경 병렬 비활성화 권고
+max_parallel_workers_per_gather = 0     # 1코어 환경 병렬 비활성화 (적용됨)
 ```
+
+**0workers 적용 효과**: P02 warm -93%(1,714ms), P03 warm -32%(17,984ms), P04 warm -53%(19,532ms). P02/P03 최고 기록 갱신.
 
 ### 중장기 (Phase 4 이후 검토)
 

@@ -139,6 +139,7 @@ Database_Design/schema/
   - [x] PLAN_03 검토
   - [x] performance_test.sql 작성
   - [x] EXPLAIN ANALYZE 실행 및 결과 기록 (P05 PASS, P01~P04/P06 VPC 환경 한계)
+  - [x] VPC 설정 최적화 실험 6회 (최종: 1GB/32MB/0workers), 최고기록: P02 warm=1,714ms(-93%), P03 warm=17,984ms
 - [ ] Phase 4: 확장 테이블
   - [ ] PLAN_04 검토
   - [ ] 임베딩/추천 테이블 DDL 작성

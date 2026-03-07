@@ -152,7 +152,7 @@ LIMIT 50;
 -- =============================================================
 \echo '--- 인덱스 사용률 ---'
 SELECT
-    indexname,
+    indexrelname AS indexname,
     idx_scan        AS scans,
     idx_tup_read    AS tuples_read
 FROM pg_stat_user_indexes
