@@ -8,7 +8,7 @@ CSV 데이터 → PostgreSQL 3개 테이블 적재
 적재 순서:
     1. user 테이블 (user_table.csv)
     2. vod 테이블 (vod_table.csv)
-    3. watch_history 테이블 (watch_history_table.csv, 10,000건 배치)
+    3. watch_history 테이블 (watch_history_table.csv, 5,000건 배치 / 배치당 새 연결)
 """
 
 import os
@@ -27,7 +27,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).parent.parent
 DATA_DIR = BASE_DIR / "data" / "prepared_data"
 LOG_FILE = Path(__file__).parent / "migration.log"
-BATCH_SIZE = 10_000
+BATCH_SIZE = 5_000
 
 # .env 파일 로드
 load_dotenv(BASE_DIR / ".env")
@@ -260,8 +260,8 @@ def load_vods(conn):
 # WATCH_HISTORY 적재 (배치)
 # =============================================================
 
-def load_watch_history(conn):
-    """WATCH_HISTORY 테이블 배치 적재 (watch_history_table.csv, 10,000건 단위)."""
+def load_watch_history():
+    """WATCH_HISTORY 테이블 배치 적재 (watch_history_table.csv, 배치마다 새 연결)."""
     csv_path = DATA_DIR / "watch_history_table.csv"
     logger.info(f"WATCH_HISTORY 적재 시작: {csv_path}")
 
@@ -300,21 +300,26 @@ def load_watch_history(conn):
             ON CONFLICT (user_id_fk, vod_id_fk, strt_dt) DO NOTHING
         """
 
+        # 배치마다 새 연결 생성 → VPC 장시간 연결 타임아웃 방지
+        conn = get_connection()
         try:
-            with conn.cursor() as cur:
-                execute_values(cur, sql, records)
-            conn.commit()
-            total_loaded += len(records)
-            logger.info(
-                f"WATCH_HISTORY 배치 {batch_no} 완료: {len(records):,}건 "
-                f"(누계 {total_loaded:,}건)"
-            )
-        except psycopg2.errors.ForeignKeyViolation as e:
-            conn.rollback()
-            logger.warning(
-                f"배치 {batch_no} FK 위반 발생 → 건별 재시도 후 스킵: {e}"
-            )
-            _insert_batch_skip_fk(conn, sql, col_str, records)
+            try:
+                with conn.cursor() as cur:
+                    execute_values(cur, sql, records)
+                conn.commit()
+                total_loaded += len(records)
+                logger.info(
+                    f"WATCH_HISTORY 배치 {batch_no} 완료: {len(records):,}건 "
+                    f"(누계 {total_loaded:,}건)"
+                )
+            except psycopg2.errors.ForeignKeyViolation as e:
+                conn.rollback()
+                logger.warning(
+                    f"배치 {batch_no} FK 위반 발생 → 건별 재시도 후 스킵: {e}"
+                )
+                _insert_batch_skip_fk(conn, sql, col_str, records)
+        finally:
+            conn.close()
 
     logger.info(f"WATCH_HISTORY 적재 완료: 총 {total_loaded:,}건")
 
@@ -369,13 +374,20 @@ def main():
     try:
         load_users(conn)
         load_vods(conn)
-        load_watch_history(conn)
-        validate_counts(conn)
-        logger.info("마이그레이션 완료")
     except Exception as e:
         conn.rollback()
         logger.error(f"마이그레이션 중 오류 발생: {e}", exc_info=True)
         raise
+    finally:
+        conn.close()
+
+    # watch_history는 배치마다 독립 연결 사용 (VPC 타임아웃 방지)
+    load_watch_history()
+
+    conn = get_connection()
+    try:
+        validate_counts(conn)
+        logger.info("마이그레이션 완료")
     finally:
         conn.close()
 

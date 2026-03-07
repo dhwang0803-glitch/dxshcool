@@ -258,10 +258,10 @@ BEGIN
     v_ratio := ROUND((v_valid::NUMERIC / v_total::NUMERIC) * 100, 2);
 
     IF v_ratio < v_min_ratio THEN
-        RAISE EXCEPTION '[T10 FAIL] disp_rtm_sec > 0 비율 부족. 기대값: >= %%, 실제값: %%',
+        RAISE EXCEPTION '[T10 FAIL] disp_rtm_sec > 0 비율 부족. 기대값: >= %, 실제값: %',
             v_min_ratio, v_ratio;
     END IF;
-    RAISE NOTICE '[T10 PASS] vod.disp_rtm_sec > 0 비율: %%  (유효: %건 / 전체: %건)',
+    RAISE NOTICE '[T10 PASS] vod.disp_rtm_sec > 0 비율: % (유효: %건 / 전체: %건)',
         v_ratio, v_valid, v_total;
 END $$;
 

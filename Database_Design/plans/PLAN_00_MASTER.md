@@ -134,7 +134,7 @@ Database_Design/schema/
   - [x] PLAN_02 검토
   - [x] migrate.py 작성
   - [x] VPC DB 연결 테스트 (환경변수 확인)
-  - [ ] 데이터 검증 (CSV 적재 후 test_migration_db.sql 실행 필요)
+  - [x] 데이터 검증 (test_migration_db.sql T01~T12 전체 PASS, 2026-03-07)
 - [ ] Phase 3: 성능 테스트
   - [ ] PLAN_03 검토
   - [ ] performance_test.sql 작성

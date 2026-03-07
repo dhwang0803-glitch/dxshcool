@@ -2,7 +2,7 @@
 
 **Phase**: Phase 2 - 데이터 마이그레이션 (CSV → PostgreSQL)
 **작성일**: 2026-03-07
-**상태**: 단위 테스트 PASS 완료 / 통합 테스트 대기 중 (CSV 데이터 적재 선행 필요)
+**상태**: 단위 테스트 15/15 PASS, 통합 테스트 12/12 PASS — Phase 2 완료
 
 ---
 
@@ -25,7 +25,7 @@
 - **clip_completion_rate**: completion_rate 값을 0.0 ~ 1.0 범위로 클리핑 (초과분 강제 조정)
 - **load_users**: user_table.csv 적재, 컬럼 소문자 변환 및 nfx_use_yn BOOLEAN 변환 후 `ON CONFLICT DO NOTHING`으로 삽입
 - **load_vods**: vod_table.csv 적재, disp_rtm_sec 초 단위 변환·smry 정제·NaN→None 처리 후 삽입
-- **load_watch_history**: watch_history_table.csv를 10,000건 배치 단위로 적재, FK 위반 레코드는 건별 재시도 후 스킵·로그 기록
+- **load_watch_history**: watch_history_table.csv를 5,000건 배치 단위로 적재, **배치마다 새 DB 연결 생성**(VPC 타임아웃 방지), FK 위반 레코드는 건별 재시도 후 스킵·로그 기록
 - **validate_counts**: 마이그레이션 완료 후 3개 테이블 건수를 기대값(user=242,702 / vod=166,159 / watch_history=3,992,530)과 비교 출력
 - **validate_data.py**: CSV 적재 전 사전 검증 (중복 PK, FK 무결성, completion_rate 범위, NULL 현황, 데이터 건수 요약)
 - **마이그레이션 로그**: `migration/migration.log` 파일에 실행 이력 및 경고 자동 기록
@@ -44,9 +44,9 @@
 | 단위 테스트 FAIL | 0건 |
 | 단위 테스트 오류율 | 0% |
 | 통합 테스트 전체 | 12건 |
-| 통합 테스트 PASS | - |
-| 통합 테스트 FAIL | - |
-| 통합 테스트 상태 | 대기 중 (CSV 데이터 적재 선행 필요) |
+| 통합 테스트 PASS | 12건 |
+| 통합 테스트 FAIL | 0건 |
+| 통합 테스트 오류율 | 0% |
 
 - **실행 환경**: PostgreSQL 15.4 (VPC Docker)
 - **단위 테스트 실행 파일**: `Database_Design/tests/test_migration_unit.py`
@@ -76,32 +76,38 @@
 
 | 테스트 ID | 테스트 항목 | 기대값 | 결과 |
 |-----------|------------|--------|------|
-| T01 | user 테이블 건수 검증 | 242,702건 | 대기 중 |
-| T02 | vod 테이블 건수 검증 | 166,159건 | 대기 중 |
-| T03 | watch_history 테이블 건수 검증 | 3,992,530건 | 대기 중 |
-| T04 | watch_history → user FK 무결성 (orphan 0건) | 0건 | 대기 중 |
-| T05 | watch_history → vod FK 무결성 (orphan 0건) | 0건 | 대기 중 |
-| T06 | completion_rate 범위 검증 (0~1 초과 0건) | 0건 | 대기 중 |
-| T07 | satisfaction 범위 검증 (0~1 초과 0건) | 0건 | 대기 중 |
-| T08 | use_tms 음수값 검증 (0건) | 0건 | 대기 중 |
-| T09 | user.nfx_use_yn BOOLEAN 변환 (NULL 0건) | 0건 | 대기 중 |
-| T10 | vod.disp_rtm_sec > 0 비율 >= 95% | 95% 이상 | 대기 중 |
-| T11 | satisfaction = 0 건수 (±5% 허용: 956,613~1,057,309건) | 1,006,961건 근사 | 대기 중 |
-| T12 | satisfaction > 0 건수 (±5% 허용: 2,836,291~3,134,848건) | 2,985,569건 근사 | 대기 중 |
+| T01 | user 테이블 건수 검증 | 242,702건 | PASS (실제: 242,702건) |
+| T02 | vod 테이블 건수 검증 | 166,159건 | PASS (실제: 166,159건) |
+| T03 | watch_history 테이블 건수 검증 | 3,992,530건 | PASS (실제: 3,992,530건) |
+| T04 | watch_history → user FK 무결성 (orphan 0건) | 0건 | PASS (orphan: 0건) |
+| T05 | watch_history → vod FK 무결성 (orphan 0건) | 0건 | PASS (orphan: 0건) |
+| T06 | completion_rate 범위 검증 (0~1 초과 0건) | 0건 | PASS (초과: 0건) |
+| T07 | satisfaction 범위 검증 (0~1 초과 0건) | 0건 | PASS (초과: 0건) |
+| T08 | use_tms 음수값 검증 (0건) | 0건 | PASS (음수: 0건) |
+| T09 | user.nfx_use_yn BOOLEAN 변환 (NULL 0건) | 0건 | PASS (NULL: 0건) |
+| T10 | vod.disp_rtm_sec > 0 비율 >= 95% | 95% 이상 | PASS (99.57% / 유효: 165,452건 / 전체: 166,159건) |
+| T11 | satisfaction = 0 건수 (±5% 허용: 956,612~1,057,310건) | 1,006,961건 근사 | PASS (실제: 1,006,961건) |
+| T12 | satisfaction > 0 건수 (±5% 허용: 2,836,290~3,134,848건) | 2,985,569건 근사 | PASS (실제: 2,985,569건) |
 
-> 통합 테스트는 watch_history 테이블 현재 0건으로, CSV 데이터 적재 완료 후 실행 예정입니다.
+> 실행 환경: PostgreSQL 15.4 (VPC Docker), 실행일: 2026-03-07
 
 ---
 
 ## 3. 오류 원인 분석
 
-해당 없음 (단위 테스트 15건 전체 PASS, FAIL 없음)
+### VPC 연결 타임아웃 (마이그레이션 중 발생)
+
+- **증상**: watch_history 배치 250번째 (~2,500,000건) 에서 `psycopg2.OperationalError: server closed the connection unexpectedly` 발생
+- **원인**: 단일 psycopg2 연결을 전체 watch_history 적재(약 33분) 동안 유지 → VPC(1core/4GB) 가 장시간 유휴 연결 종료
+- **test_migration_db.sql T10 구문 오류**: `RAISE EXCEPTION/NOTICE`에서 `%%`(리터럴 %)를 파라미터 슬롯으로 잘못 사용 → `too many parameters specified for RAISE`
 
 ---
 
 ## 4. 개선 방법
 
-해당 없음 (단위 테스트 15건 전체 PASS, FAIL 없음)
+- **migrate.py**: `load_watch_history(conn)` → `load_watch_history()` 로 변경, 배치마다 `get_connection()` / `conn.close()` 호출
+- **BATCH_SIZE**: 10,000 → 5,000 으로 축소하여 VPC 부하 감소
+- **test_migration_db.sql T10**: `RAISE EXCEPTION/NOTICE`의 `%%` → `%` 로 수정
 
 ---
 
@@ -109,11 +115,13 @@
 
 ### 버그 수정
 
-해당 없음
+- `migrate.py`: 배치 단위 DB 재연결 로직 추가 (VPC 타임아웃 방지)
+- `migrate.py`: BATCH_SIZE 10,000 → 5,000 축소
+- `test_migration_db.sql`: T10 RAISE 구문 `%%` → `%` 수정
 
 ### 리팩토링
 
-해당 없음 (초기 구현에서 바로 PASS 달성)
+해당 없음
 
 ---
 
