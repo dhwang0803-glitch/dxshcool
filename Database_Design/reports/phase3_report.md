@@ -2,7 +2,7 @@
 
 **Phase**: Phase 3 → Phase 3B - 성능 검증 + 성능 개선
 **작성일**: 2026-03-07
-**상태**: Phase 3B 진행 중 (P01/P05 PASS, P04/P06 → OPT-2 MV로 해결 예정, P02/P03 → OPT-3 파티셔닝 대기)
+**상태**: Phase 3B OPT-2 완료 (P01/P04/P05/P06 PASS, P02/P03 → OPT-3 파티셔닝 대기)
 
 ---
 
@@ -206,10 +206,18 @@ CREATE UNIQUE INDEX ON mv_vod_satisfaction_stats(vod_id_fk);
 | `ANALYZE watch_history` | 통계 갱신 | P02 플랜 개선 (490ms 달성) |
 | `random_page_cost=1.5` | 플래너 랜덤 I/O 비용 조정 | P01 Nested Loop+Memoize 채택 → **28ms warm PASS** |
 
-### 미적용 최적화 (OPT-2, OPT-3 진행 예정)
+### Phase 3B OPT-2 적용된 최적화 (Materialized View)
 
-- Materialized View (`mv_vod_satisfaction_stats`, `mv_age_grp_vod_stats`): P04/P06 → <10ms 예상
-- 파티셔닝: P03 근본 해결, 데이터 재적재 필요 (팀 협의 후 결정)
+| MV | 크기 | Rows | Cold | Warm | 대상 |
+|----|------|------|------|------|------|
+| `mv_vod_satisfaction_stats` | 7MB | 36,793 | **12.7ms** | **0.17ms** | P04 대체 |
+| `mv_age_grp_vod_stats` | 11MB | 57,491 | **0.44ms** | **0.12ms** | P06 대체 |
+
+REFRESH CONCURRENTLY 동작 확인 완료. 일 1회 실행 권장.
+
+### 미적용 최적화 (OPT-3 대기)
+
+- 파티셔닝 (`watch_history` 월별): P02/P03 근본 해결, 데이터 재적재 필요 (팀 협의 후 결정)
 
 ---
 
@@ -222,16 +230,16 @@ CREATE UNIQUE INDEX ON mv_vod_satisfaction_stats(vod_id_fk);
 | 사용자별 시청이력 | <100ms | **28ms warm** | random_page_cost=1.5 + Nested Loop | **✅ PASS** |
 | VOD별 통계 (최다시청) | <100ms | 3,203ms warm | 구조적 한계 (71K rows) | ❌ |
 | 날짜 범위 (1주) | <500ms | 15,315ms warm | OPT-3 파티셔닝 후 개선 | ❌ |
-| 만족도 집계 | <500ms | 22,201ms cold | OPT-2 MV로 대체 예정 | ❌ |
+| 만족도 집계 | <500ms | **0.17ms warm (MV)** | OPT-2 MV 적용 완료 | **✅ PASS** |
 | 복합 인덱스 조회 | <100ms | **9~28ms** | 현행 유지 | **✅ PASS** |
-| 연령대별 집계 | <500ms | 10,355ms warm | OPT-2 MV로 대체 예정 | ❌ |
+| 연령대별 집계 | <500ms | **0.12ms warm (MV)** | OPT-2 MV 적용 완료 | **✅ PASS** |
 
 ---
 
 ## 7. 다음 Phase 권고사항
 
-- **Phase 3B 진행 중**: OPT-1 완료(P01 PASS), OPT-2(MV) → OPT-3(파티셔닝) 순서로 진행
-- **OPT-2 다음 단계**: `mv_vod_satisfaction_stats`, `mv_age_grp_vod_stats` 생성 → P04/P06 <10ms 목표
+- **Phase 3B OPT-1/OPT-2 완료**: P01/P04/P05/P06 PASS. P02/P03 → OPT-3(파티셔닝) 대기
+- **OPT-3 조건**: 팀 협의 후 `watch_history` 월별 파티셔닝 → P03 근본 해결
 - **추천 시스템 아키텍처**: 집계 결과는 VPC가 아닌 로컬에서 계산 후 결과만 DB에 저장하는 현행 방향 유지
 - **Phase 4 참조 파일**: `Database_Design/plans/PLAN_04_EXTENSION_TABLES.md`
 - **Phase 3B 참조 파일**: `Database_Design/plans/PLAN_03B_PERFORMANCE_OPT.md`

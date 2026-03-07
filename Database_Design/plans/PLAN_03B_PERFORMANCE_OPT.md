@@ -360,11 +360,11 @@ COMMIT;
 - [x] OPT-1-B: `idx_wh_satisfaction_nonzero` 생성 (64MB)
   - [x] P04 재실행 → planner Seq Scan 선택 유지 (MV로 해결)
   - **추가 적용**: `random_page_cost=1.5` → P01 Nested Loop, P06 Nested Loop×2 채택
-- [ ] OPT-2-A: `mv_vod_satisfaction_stats` 생성 + 인덱스
-  - [ ] P04 대체 쿼리 <10ms 달성 확인
-  - [ ] REFRESH CONCURRENTLY 동작 확인
-- [ ] OPT-2-B: `mv_age_grp_vod_stats` 생성 + 인덱스
-  - [ ] P06 대체 쿼리 <10ms 달성 확인
+- [x] OPT-2-A: `mv_vod_satisfaction_stats` 생성 + 인덱스 (7MB, 36,793 rows)
+  - [x] P04 대체 쿼리: cold **12.7ms** / warm **0.17ms** (PASS)
+  - [x] REFRESH CONCURRENTLY 동작 확인
+- [x] OPT-2-B: `mv_age_grp_vod_stats` 생성 + 인덱스 (11MB, 57,491 rows)
+  - [x] P06 대체 쿼리: cold **0.44ms** / warm **0.12ms** (PASS)
 - [ ] OPT-3: 파티셔닝 (팀 협의 후)
   - [ ] 팀 내 작업 일정 공유
   - [ ] 파티션 테이블 생성 + 데이터 복사

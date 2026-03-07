@@ -147,16 +147,42 @@
 
 **채택 근거**: rpc=1.0은 P02/P03에서 Bitmap→Index Scan 전환으로 역효과. rpc=1.5는 P01 Nested Loop 유지하면서 P02/P03 Bitmap Heap Scan 보존.
 
-## 전체 테스트 최고 기록 (Phase 3B OPT-1 반영)
+## 전체 테스트 최고 기록 (Phase 3B OPT-2 반영)
 
 | ID | 최고 기록 | 설정 | 판정 |
 |----|---------|------|------|
-| **P01** | **28ms** | **OPT-1+rpc=1.5 warm** | **✅ PASS** |
-| P02 | 1,714ms | 1GB/32MB/0workers warm | FAIL |
-| P03 | **15,315ms** | **OPT-1+rpc=1.5 warm** | FAIL |
-| P04 | 15,703ms | 128MB/256MB cold | FAIL (→ OPT-2 MV로 해결 예정) |
+| **P01** | **28ms** | OPT-1+rpc=1.5 warm | **✅ PASS** |
+| P02 | 1,714ms | 1GB/32MB/0workers warm | FAIL (OPT-3 파티셔닝 대기) |
+| P03 | **15,315ms** | OPT-1+rpc=1.5 warm | FAIL (OPT-3 파티셔닝 대기) |
+| **P04** | **0.17ms** | **OPT-2 MV warm** | **✅ PASS** |
 | **P05** | **9ms** | 기본 설정 | **✅ PASS** |
-| P06 | **10,355ms** | **OPT-1+rpc=1.5 warm** | FAIL (→ OPT-2 MV로 해결 예정) |
+| **P06** | **0.12ms** | **OPT-2 MV warm** | **✅ PASS** |
+
+---
+
+## Phase 3B OPT-2 결과 (Materialized View)
+
+**생성된 MV**:
+- `mv_vod_satisfaction_stats` (7MB, 36,793 rows): P04 대체
+- `mv_age_grp_vod_stats` (11MB, 57,491 rows): P06 대체
+
+### P04/P06 MV 대체 쿼리 성능
+
+| ID | 원본 쿼리 (cold) | MV Cold | MV Warm | 개선 | 판정 |
+|----|----------------|---------|---------|------|------|
+| **P04** | 22,201ms | **12.7ms** | **0.17ms** | **-99.9%** | **✅ PASS** |
+| **P06** | 11,338ms | **0.44ms** | **0.12ms** | **-99.9%** | **✅ PASS** |
+
+**P04 MV 플랜**: Index Scan on `mv_vod_satisfaction_stats_avg_satisfaction_idx` → 102 buffers
+**P06 MV 플랜**: Index Scan on `mv_age_grp_vod_stats_age_grp10_avg_satisfaction_idx` (age_grp10='30대') → 53 buffers
+
+### REFRESH 전략
+
+```sql
+-- 일 1회 실행 (읽기 락 없음, 운영 중 실행 가능)
+REFRESH MATERIALIZED VIEW CONCURRENTLY mv_vod_satisfaction_stats;
+REFRESH MATERIALIZED VIEW CONCURRENTLY mv_age_grp_vod_stats;
+```
 
 ---
 

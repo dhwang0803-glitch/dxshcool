@@ -144,7 +144,7 @@ Database_Design/schema/
 - [ ] Phase 3B: 성능 개선
   - [x] PLAN_03B 검토
   - [x] OPT-1: 커버링 인덱스 + 부분 인덱스 + random_page_cost=1.5 → P01 **28ms PASS**
-  - [ ] OPT-2: Materialized View 생성 (mv_vod_satisfaction_stats, mv_age_grp_vod_stats)
+  - [x] OPT-2: MV 생성 완료 → P04 0.17ms PASS / P06 0.12ms PASS
   - [ ] OPT-3: 파티셔닝 (팀 협의 후)
 - [ ] Phase 4: 확장 테이블
   - [ ] PLAN_04 검토
