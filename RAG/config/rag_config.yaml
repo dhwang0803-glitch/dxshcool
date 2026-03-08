@@ -8,7 +8,7 @@ pipeline:
 
 llm:
   host: "http://localhost:11434"
-  model: "kullm:12b-instruct-q4_0"
+  model: "exaone3.5:7.8b"
   temperature: 0.2
   max_tokens: 100
 
