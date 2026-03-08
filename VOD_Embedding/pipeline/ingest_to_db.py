@@ -26,16 +26,33 @@ sys.stdout.reconfigure(encoding='utf-8')
 PROJECT_ROOT = Path(__file__).parent.parent
 DATA_DIR     = PROJECT_ROOT / "data"
 
-COMMIT_INTERVAL = 1000   # N건마다 COMMIT
-MODEL_NAME      = "clip-ViT-B-32"
+COMMIT_INTERVAL  = 1000         # N건마다 COMMIT
+MODEL_VERSION    = "clip-ViT-B-32"
+EMBEDDING_TYPE   = "VISUAL"     # VISUAL / CONTENT / HYBRID
+EMBEDDING_DIM    = 512
+FRAME_COUNT      = 10           # batch_embed.py N_FRAMES와 동일
+SOURCE_TYPE      = "TRAILER"    # TRAILER / FULL
 
+# ON CONFLICT 기준: vod_id_fk UNIQUE (Database_Design 스키마 기준)
 INSERT_SQL = """
-INSERT INTO vod_embedding (vod_id_fk, embedding, model_name, vector_magnitude)
-VALUES (%(vod_id)s, %(embedding)s::vector, %(model_name)s, %(magnitude)s)
-ON CONFLICT (vod_id_fk, model_name)
+INSERT INTO vod_embedding (
+    vod_id_fk, embedding,
+    embedding_type, embedding_dim, model_version,
+    vector_magnitude, frame_count, source_type
+)
+VALUES (
+    %(vod_id)s, %(embedding)s::vector,
+    %(embedding_type)s, %(embedding_dim)s, %(model_version)s,
+    %(magnitude)s, %(frame_count)s, %(source_type)s
+)
+ON CONFLICT (vod_id_fk)
 DO UPDATE SET
     embedding        = EXCLUDED.embedding,
+    embedding_type   = EXCLUDED.embedding_type,
+    model_version    = EXCLUDED.model_version,
     vector_magnitude = EXCLUDED.vector_magnitude,
+    frame_count      = EXCLUDED.frame_count,
+    source_type      = EXCLUDED.source_type,
     updated_at       = NOW()
 """
 
@@ -97,16 +114,25 @@ def check_pgvector(conn) -> bool:
         return False
 
 
+# Database_Design/schema/create_embedding_tables.sql 과 동일한 스키마
+# VPC에서는 create_embedding_tables.sql로 생성. 로컬 개발 시에만 여기서 자동 생성.
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS vod_embedding (
-    vod_embedding_id  BIGSERIAL PRIMARY KEY,
-    vod_id_fk         VARCHAR(64) NOT NULL,
-    embedding         VECTOR(512) NOT NULL,
-    model_name        VARCHAR(100) NOT NULL DEFAULT 'clip-ViT-B-32',
-    vector_magnitude  FLOAT,
-    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_vod_embedding UNIQUE (vod_id_fk, model_name)
+    vod_embedding_id    BIGINT          GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    vod_id_fk           VARCHAR(64)     NOT NULL UNIQUE,
+    embedding           VECTOR(512)     NOT NULL,
+    embedding_type      VARCHAR(32)     NOT NULL DEFAULT 'VISUAL',
+    embedding_dim       INTEGER         NOT NULL DEFAULT 512,
+    model_version       VARCHAR(64)     NOT NULL DEFAULT 'clip-ViT-B-32',
+    vector_magnitude    REAL,
+    frame_count         SMALLINT,
+    source_type         VARCHAR(32)     NOT NULL DEFAULT 'TRAILER',
+    source_url          TEXT,
+    created_at          TIMESTAMPTZ     DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ     DEFAULT NOW(),
+    CONSTRAINT chk_embedding_type CHECK (embedding_type IN ('VISUAL', 'CONTENT', 'HYBRID')),
+    CONSTRAINT chk_source_type    CHECK (source_type IN ('TRAILER', 'FULL')),
+    CONSTRAINT chk_embedding_dim  CHECK (embedding_dim > 0)
 );
 """
 
@@ -160,10 +186,14 @@ def ingest_batch_file(conn, pkl_path: Path, dry_run: bool) -> tuple:
             continue
 
         params = {
-            "vod_id":     vod_id,
-            "embedding":  to_pgvector_str(vec),
-            "model_name": MODEL_NAME,
-            "magnitude":  float(np.linalg.norm(vec)),
+            "vod_id":          vod_id,
+            "embedding":       to_pgvector_str(vec),
+            "embedding_type":  EMBEDDING_TYPE,
+            "embedding_dim":   EMBEDDING_DIM,
+            "model_version":   MODEL_VERSION,
+            "magnitude":       float(np.linalg.norm(vec)),
+            "frame_count":     FRAME_COUNT,
+            "source_type":     SOURCE_TYPE,
         }
 
         if dry_run:
