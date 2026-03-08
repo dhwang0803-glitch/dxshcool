@@ -29,6 +29,33 @@
 
 ---
 
+## 파일럿 실행 (100개 검증)
+
+전체 실행 전 시간·성공률·디스크 사용량 검증:
+
+```bash
+conda activate myenv
+
+# Step 1: ct_cl 층화 100개 트레일러 수집
+python pipeline/crawl_trailers.py --pilot
+
+# Step 2: 임베딩 후 영상 즉시 삭제
+python pipeline/batch_embed.py --delete-after-embed
+
+# Step 3: pgvector 적재
+python pipeline/ingest_to_db.py
+
+# 결과 확인
+python pipeline/ingest_to_db.py --verify
+```
+
+파일럿 완료 후 확인 지표:
+- YouTube 검색 성공률 (ct_cl별)
+- VOD 1개당 평균 처리 시간
+- 예상 전체 소요 시간 (성공률 기반 재계산)
+
+---
+
 ## 핵심 제약 및 전제
 
 ### 데이터 현황

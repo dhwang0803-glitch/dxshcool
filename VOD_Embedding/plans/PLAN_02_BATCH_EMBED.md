@@ -72,7 +72,10 @@ def get_video_embedding(video_path: str, model) -> np.ndarray:
 
 ## 배치 처리 전략
 
-- 배치 크기: **1,000개** (`BATCH_SIZE = 1000`)
+- 배치 크기: **100개** (`BATCH_SIZE = 100`)
+  - 100개 × 125MB = 최대 12.5GB 동시 점유 (100GB 디스크 여유 기준)
+  - 임베딩 완료 즉시 영상 삭제 (`--delete-after-embed`)
+  - pkl 파일은 유지 (배치당 ~1MB)
 - 배치 파일명: `data/video_embs_batch_001.pkl`, `_002.pkl`, ...
 - 체크포인트: 배치 완료 시 `data/embed_status.json` 갱신
 
@@ -153,11 +156,14 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 ```bash
 conda activate myenv
 
-# 전체 실행 (자동 재시작 지원)
+# 전체 실행 — 임베딩 후 영상 즉시 삭제 (권장)
+python pipeline/batch_embed.py --delete-after-embed
+
+# 영상 보존하며 실행 (디스크 여유 있을 때)
 python pipeline/batch_embed.py
 
 # 특정 배치 범위만 처리
-python pipeline/batch_embed.py --start-batch 3 --end-batch 10
+python pipeline/batch_embed.py --start-batch 3 --end-batch 10 --delete-after-embed
 
 # 진행 상황 확인
 python pipeline/batch_embed.py --status

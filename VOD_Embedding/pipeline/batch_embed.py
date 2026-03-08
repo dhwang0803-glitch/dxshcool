@@ -27,7 +27,7 @@ DATA_DIR     = PROJECT_ROOT / "data"
 TRAILERS_DIR = PROJECT_ROOT.parent / "trailers"
 STATUS_FILE  = DATA_DIR / "embed_status.json"
 
-BATCH_SIZE    = 1000
+BATCH_SIZE    = 100
 N_FRAMES      = 10
 MODEL_PATH    = "C:/Users/daewo/DX_prod_2nd/my_clip_model"
 MODEL_FALLBACK = "clip-ViT-B-32"   # HuggingFace Hub fallback
@@ -188,11 +188,22 @@ def print_status(status: dict):
     print()
 
 
+def delete_video_file(filepath: str):
+    """임베딩 완료된 영상 파일 삭제"""
+    p = Path(filepath)
+    if p.exists():
+        size_mb = p.stat().st_size / (1024 * 1024)
+        p.unlink()
+        log.info(f"영상 삭제: {p.name} ({size_mb:.1f}MB 회수)")
+
+
 def main():
     parser = argparse.ArgumentParser(description="CLIP 배치 임베딩")
     parser.add_argument('--start-batch', type=int, default=1, help='시작 배치 번호')
     parser.add_argument('--end-batch',   type=int, default=0, help='종료 배치 번호 (0=전체)')
     parser.add_argument('--status', action='store_true', help='진행 상황만 출력')
+    parser.add_argument('--delete-after-embed', action='store_true',
+                        help='임베딩 완료 후 영상 파일 즉시 삭제 (디스크 절약)')
     args = parser.parse_args()
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -247,6 +258,7 @@ def main():
         vod_id    = item["vod_id"]
         filepath  = item["filepath"]
 
+        embed_ok = False
         try:
             vec = get_video_embedding(filepath, model)
             if not check_vector_quality(vec):
@@ -262,11 +274,16 @@ def main():
             })
             status["success"] = status.get("success", 0) + 1
             log.info(f"[{i+1}/{len(work_list)}] OK  {vod_id}")
+            embed_ok = True
 
         except Exception as e:
             status["failed"] = status.get("failed", 0) + 1
             status.setdefault("failed_vods", {})[vod_id] = str(e)
             log.warning(f"[{i+1}/{len(work_list)}] FAIL {vod_id}: {e}")
+
+        # 임베딩 성공 후 영상 삭제 (--delete-after-embed 옵션)
+        if embed_ok and args.delete_after_embed:
+            delete_video_file(filepath)
 
         status["processed"] = status.get("processed", 0) + 1
 

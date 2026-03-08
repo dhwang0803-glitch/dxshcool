@@ -27,7 +27,7 @@ DATA_DIR     = PROJECT_ROOT / "data"
 TRAILERS_DIR = PROJECT_ROOT.parent / "trailers"   # 기존 로컬 trailers 폴더와 동일
 STATUS_FILE  = DATA_DIR / "crawl_status.json"
 
-BATCH_SAVE_INTERVAL = 100      # 체크포인트 저장 주기
+BATCH_SAVE_INTERVAL = 20       # 체크포인트 저장 주기 (파일럿: 20, 전체: 100)
 REQUEST_DELAY_MIN   = 1.5      # 요청 간 최소 대기 (초)
 REQUEST_DELAY_MAX   = 3.0      # 요청 간 최대 대기 (초)
 DURATION_MIN_SEC    = 30
@@ -192,7 +192,7 @@ def try_download(vod_id: str, queries: list, output_dir: Path, dry_run: bool) ->
 
 
 def fetch_vod_list(ct_cl_filter=None) -> list:
-    """vod 테이블에서 처리 대상 목록 조회"""
+    """vod 테이블에서 처리 대상 목록 조회 (ct_cl 오름차순 → full_asset_id 오름차순)"""
     conn = get_db_conn()
     try:
         cur = conn.cursor()
@@ -200,14 +200,16 @@ def fetch_vod_list(ct_cl_filter=None) -> list:
             placeholders = ','.join(['%s'] * len(ct_cl_filter))
             cur.execute(
                 f"SELECT full_asset_id, asset_nm, ct_cl, genre "
-                f"FROM vod WHERE ct_cl IN ({placeholders}) ORDER BY full_asset_id",
+                f"FROM vod WHERE ct_cl IN ({placeholders}) "
+                f"ORDER BY ct_cl, full_asset_id",
                 ct_cl_filter
             )
         else:
             excluded = tuple(EXCLUDE_CT_CL)
             cur.execute(
                 "SELECT full_asset_id, asset_nm, ct_cl, genre "
-                "FROM vod WHERE ct_cl NOT IN %s ORDER BY full_asset_id",
+                "FROM vod WHERE ct_cl NOT IN %s "
+                "ORDER BY ct_cl, full_asset_id",
                 (excluded,)
             )
         rows = cur.fetchall()
@@ -217,6 +219,54 @@ def fetch_vod_list(ct_cl_filter=None) -> list:
         ]
     finally:
         conn.close()
+
+
+# 파일럿용 ct_cl별 샘플 비율 (합계 100개)
+PILOT_SAMPLE_PLAN = {
+    "영화":      40,
+    "드라마":    30,
+    "예능":      15,
+    "애니메이션": 8,
+    "다큐멘터리":  5,
+    "_others":    2,   # 위에 없는 ct_cl 합산
+}
+
+def stratified_sample(vod_list: list, total: int = 100) -> list:
+    """
+    ct_cl 계층별 층화 샘플 추출.
+    PILOT_SAMPLE_PLAN 비율로 각 카테고리에서 균등 추출.
+    """
+    from collections import defaultdict
+    buckets = defaultdict(list)
+    for v in vod_list:
+        ct = v["ct_cl"]
+        if ct in PILOT_SAMPLE_PLAN:
+            buckets[ct].append(v)
+        else:
+            buckets["_others"].append(v)
+
+    result = []
+    for ct, quota in PILOT_SAMPLE_PLAN.items():
+        pool = buckets.get(ct, [])
+        result.extend(pool[:quota])   # 앞에서 quota개 (full_asset_id 오름차순)
+
+    # quota 합산이 total에 못 미치면 나머지로 채움
+    if len(result) < total:
+        sampled_ids = {v["vod_id"] for v in result}
+        for v in vod_list:
+            if len(result) >= total:
+                break
+            if v["vod_id"] not in sampled_ids:
+                result.append(v)
+
+    log.info(f"층화 샘플 구성:")
+    ct_counts = {}
+    for v in result:
+        ct_counts[v["ct_cl"]] = ct_counts.get(v["ct_cl"], 0) + 1
+    for ct, cnt in sorted(ct_counts.items()):
+        log.info(f"  {ct}: {cnt}개")
+
+    return result[:total]
 
 
 def print_status(status: dict):
@@ -241,6 +291,8 @@ def main():
     parser.add_argument('--limit', type=int, default=0, help='처리 건수 제한 (테스트용)')
     parser.add_argument('--ct-cl', nargs='+', help='특정 ct_cl만 처리 (예: 영화 드라마)')
     parser.add_argument('--status', action='store_true', help='진행 상황만 출력')
+    parser.add_argument('--pilot', action='store_true',
+                        help='ct_cl 층화 100개 파일럿 실행 (시간/성공률 검증용)')
     args = parser.parse_args()
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -262,12 +314,17 @@ def main():
             {"vod_id": "TEST002", "asset_nm": "기생충", "ct_cl": "영화", "genre": "드라마"},
         ]
 
-    status["total"] = len(vod_list)
-    log.info(f"대상 VOD: {len(vod_list):,}개")
-
-    if args.limit > 0:
+    # --pilot: ct_cl 층화 100개 샘플
+    if args.pilot:
+        log.info("=== 파일럿 모드: ct_cl 층화 100개 샘플 ===")
+        vod_list = stratified_sample(vod_list, total=100)
+        status["mode"] = "pilot"
+    elif args.limit > 0:
         vod_list = vod_list[:args.limit]
         log.info(f"--limit {args.limit} 적용")
+
+    status["total"] = len(vod_list)
+    log.info(f"대상 VOD: {len(vod_list):,}개")
 
     done_count = 0
     for i, vod in enumerate(vod_list):
