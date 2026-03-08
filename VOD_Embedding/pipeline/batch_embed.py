@@ -22,10 +22,10 @@ import numpy as np
 
 sys.stdout.reconfigure(encoding='utf-8')
 
-PROJECT_ROOT = Path(__file__).parent.parent
-DATA_DIR     = PROJECT_ROOT / "data"
-TRAILERS_DIR = PROJECT_ROOT.parent / "trailers"
-STATUS_FILE  = DATA_DIR / "embed_status.json"
+PROJECT_ROOT         = Path(__file__).parent.parent
+DATA_DIR             = PROJECT_ROOT / "data"
+DEFAULT_TRAILERS_DIR = Path("C:/Users/daewo/DX_prod_2nd/trailers")
+STATUS_FILE          = DATA_DIR / "embed_status.json"
 
 BATCH_SIZE    = 100
 N_FRAMES      = 10
@@ -127,7 +127,7 @@ def load_crawl_status() -> dict:
     return {}
 
 
-def build_work_list(crawl_vods: dict, done_vod_ids: set) -> list:
+def build_work_list(crawl_vods: dict, done_vod_ids: set, trailers_dir: Path) -> list:
     """
     성공적으로 다운로드된 트레일러 목록 반환.
     이미 임베딩 완료된 vod_id는 제외.
@@ -139,7 +139,7 @@ def build_work_list(crawl_vods: dict, done_vod_ids: set) -> list:
         if vod_id in done_vod_ids:
             continue
         filename = info.get("filename", "")
-        filepath = TRAILERS_DIR / filename
+        filepath = trailers_dir / filename
         if filepath.exists():
             work.append({
                 "vod_id":   vod_id,
@@ -204,7 +204,10 @@ def main():
     parser.add_argument('--status', action='store_true', help='진행 상황만 출력')
     parser.add_argument('--delete-after-embed', action='store_true',
                         help='임베딩 완료 후 영상 파일 즉시 삭제 (디스크 절약)')
+    parser.add_argument('--trailers-dir', type=str, default=str(DEFAULT_TRAILERS_DIR),
+                        help=f'트레일러 경로 (기본: {DEFAULT_TRAILERS_DIR})')
     args = parser.parse_args()
+    TRAILERS_DIR = Path(args.trailers_dir)
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     status = load_status()
@@ -230,7 +233,7 @@ def main():
                 "title": f.stem,
             }
 
-    work_list = build_work_list(crawl_vods, done_ids)
+    work_list = build_work_list(crawl_vods, done_ids, TRAILERS_DIR)
     status["total_trailers"] = len(crawl_vods)
     log.info(f"임베딩 대상: {len(work_list):,}개")
 

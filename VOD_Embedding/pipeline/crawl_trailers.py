@@ -24,7 +24,8 @@ sys.stdout.reconfigure(encoding='utf-8')
 # 프로젝트 루트 기준 경로
 PROJECT_ROOT = Path(__file__).parent.parent
 DATA_DIR     = PROJECT_ROOT / "data"
-TRAILERS_DIR = PROJECT_ROOT.parent / "trailers"   # 기존 로컬 trailers 폴더와 동일
+# 기본 trailers 경로 — --trailers-dir 인자로 덮어쓸 수 있음
+DEFAULT_TRAILERS_DIR = Path("C:/Users/daewo/DX_prod_2nd/trailers")
 STATUS_FILE  = DATA_DIR / "crawl_status.json"
 
 BATCH_SAVE_INTERVAL = 20       # 체크포인트 저장 주기 (파일럿: 20, 전체: 100)
@@ -34,7 +35,8 @@ DURATION_MIN_SEC    = 30
 DURATION_MAX_SEC    = 300
 MAX_FILESIZE_BYTES  = 50 * 1024 * 1024   # 50MB
 
-EXCLUDE_CT_CL = {'홈쇼핑'}
+# 실제 vod 테이블 ct_cl 값 기준 제외 목록
+EXCLUDE_CT_CL = {'키즈', '우리동네', '미분류'}
 
 logging.basicConfig(
     level=logging.INFO,
@@ -97,24 +99,70 @@ def save_status(status: dict):
         json.dump(status, f, ensure_ascii=False, indent=2)
 
 
+import re as _re
+
+def normalize_title(name: str) -> str:
+    """
+    DB 저장 제목의 붙여쓰기를 검색 친화적으로 정규화.
+    예) '1724기방난동사건' → '1724 기방난동사건'
+        '2001스페이스오디세이' → '2001 스페이스오디세이'
+    """
+    # 숫자↔한글 경계에 공백 삽입
+    name = _re.sub(r'(\d)([가-힣])', r'\1 \2', name)
+    name = _re.sub(r'([가-힣])(\d)', r'\1 \2', name)
+    return name.strip()
+
+
+def strip_episode_suffix(asset_nm: str) -> str:
+    """
+    개별 에피소드 정보를 제거해 시리즈 제목만 추출.
+    예) '황제의 딸 1 01회'  → '황제의 딸 1'
+        '런닝맨 500회'      → '런닝맨'
+        '미스터 션샤인 3화'  → '미스터 션샤인'
+        '스파이더맨'         → '스파이더맨' (변경 없음)
+    """
+    # ' N회', 'N화', 'EP.N' 패턴 제거 — 공백 없이 붙은 경우도 처리 (대소문자 무관)
+    name = _re.sub(r'\s*\d+\s*[회화]\.?$', '', asset_nm, flags=_re.IGNORECASE)
+    name = _re.sub(r'\s+ep\.?\s*\d+$', '', name, flags=_re.IGNORECASE)
+    name = _re.sub(r'\s+\d+\s*e\d*$', '', name, flags=_re.IGNORECASE)
+    return name.strip()
+
+
 def build_search_queries(asset_nm: str, ct_cl: str, genre: str) -> list:
     queries = []
-    name = asset_nm.strip()
-
-    queries.append(f"{name} 예고편")
-    queries.append(f"{name} trailer")
+    name     = asset_nm.strip()
+    norm     = normalize_title(name)       # 숫자-한글 공백 정규화
+    series   = strip_episode_suffix(name)  # 에피소드 번호 제거한 시리즈명
 
     if ct_cl == '영화':
-        queries.append(f"{name} official trailer")
-        queries.append(f"{name} 공식 예고편")
-    elif ct_cl in ('드라마', '예능'):
-        queries.append(f"{name} 하이라이트")
+        queries.append(f"{norm} 예고편")
+        if norm != name:                   # 정규화로 달라진 경우만 원본도 추가
+            queries.append(f"{name} 예고편")
+        queries.append(f"{norm} official trailer")
+        queries.append(f"{norm} 공식 예고편")
+        queries.append(f"{norm} trailer")
+    elif ct_cl in ('TV드라마', 'TV 연예/오락', 'TV 시사/교양'):
+        # 시리즈 단위로 검색 (개별 회차 검색하면 결과 없음)
+        queries.append(f"{series} 예고편")
+        queries.append(f"{series} 하이라이트")
+        queries.append(f"{series} 1회")
+        queries.append(f"{series} trailer")
+    elif ct_cl == 'TV애니메이션':
+        queries.append(f"{series} 예고편")
+        queries.append(f"{series} trailer")
+        queries.append(f"{series} PV")
+    else:
+        queries.append(f"{name} 예고편")
+        queries.append(f"{name} trailer")
 
     return queries
 
 
 def duration_filter(info, incomplete):
-    """yt-dlp match_filter: 30초~5분 영상만 허용"""
+    """yt-dlp match_filter: 30초~5분 영상만 허용.
+    incomplete=True(검색 결과 초기 단계)에서는 duration 미확인이므로 통과시킴."""
+    if incomplete:
+        return None
     duration = info.get('duration') or 0
     if duration < DURATION_MIN_SEC:
         return f"너무 짧음 ({duration}초)"
@@ -221,20 +269,41 @@ def fetch_vod_list(ct_cl_filter=None) -> list:
         conn.close()
 
 
-# 파일럿용 ct_cl별 샘플 비율 (합계 100개)
+# 파일럿용 ct_cl별 샘플 비율 (합계 100개) — 실제 vod 테이블 ct_cl 기준
 PILOT_SAMPLE_PLAN = {
-    "영화":      40,
-    "드라마":    30,
-    "예능":      15,
-    "애니메이션": 8,
-    "다큐멘터리":  5,
-    "_others":    2,   # 위에 없는 ct_cl 합산
+    "TV드라마":      40,
+    "영화":          25,
+    "TV 연예/오락":  15,
+    "TV애니메이션":   8,
+    "TV 시사/교양":   5,
+    "다큐":           4,
+    "_others":        3,   # 위에 없는 ct_cl (교육, 스포츠, 공연/음악 등)
 }
+
+# 시리즈 단위 dedup이 필요한 ct_cl (에피소드가 여러 개인 콘텐츠)
+SERIES_CT_CL = {'TV드라마', 'TV 연예/오락', 'TV 시사/교양', 'TV애니메이션'}
+
+def dedup_by_series(pool: list) -> list:
+    """
+    같은 시리즈명(strip_episode_suffix 기준)에서 full_asset_id가 가장 낮은
+    에피소드 1개만 남긴다. pool은 full_asset_id 오름차순 정렬된 상태여야 함.
+    예) '황제의 딸 1 01회' ~ '황제의 딸 1 40회' → '황제의 딸 1 01회' 1개만 유지
+    """
+    seen_series = set()
+    result = []
+    for v in pool:
+        series_key = strip_episode_suffix(v["asset_nm"])
+        if series_key not in seen_series:
+            seen_series.add(series_key)
+            result.append(v)
+    return result
+
 
 def stratified_sample(vod_list: list, total: int = 100) -> list:
     """
     ct_cl 계층별 층화 샘플 추출.
-    PILOT_SAMPLE_PLAN 비율로 각 카테고리에서 균등 추출.
+    PILOT_SAMPLE_PLAN 비율로 각 카테고리에서 추출.
+    TV 계열은 시리즈 단위 dedup 후 quota개 선택 (같은 시리즈 중복 방지).
     """
     from collections import defaultdict
     buckets = defaultdict(list)
@@ -248,7 +317,9 @@ def stratified_sample(vod_list: list, total: int = 100) -> list:
     result = []
     for ct, quota in PILOT_SAMPLE_PLAN.items():
         pool = buckets.get(ct, [])
-        result.extend(pool[:quota])   # 앞에서 quota개 (full_asset_id 오름차순)
+        if ct in SERIES_CT_CL:
+            pool = dedup_by_series(pool)   # 시리즈 단위 중복 제거
+        result.extend(pool[:quota])
 
     # quota 합산이 total에 못 미치면 나머지로 채움
     if len(result) < total:
@@ -293,7 +364,10 @@ def main():
     parser.add_argument('--status', action='store_true', help='진행 상황만 출력')
     parser.add_argument('--pilot', action='store_true',
                         help='ct_cl 층화 100개 파일럿 실행 (시간/성공률 검증용)')
+    parser.add_argument('--trailers-dir', type=str, default=str(DEFAULT_TRAILERS_DIR),
+                        help=f'트레일러 저장 경로 (기본: {DEFAULT_TRAILERS_DIR})')
     args = parser.parse_args()
+    TRAILERS_DIR = Path(args.trailers_dir)
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     status = load_status()

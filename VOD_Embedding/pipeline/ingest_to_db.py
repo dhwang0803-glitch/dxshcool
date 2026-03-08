@@ -97,15 +97,30 @@ def check_pgvector(conn) -> bool:
         return False
 
 
-def check_table_exists(conn) -> bool:
+CREATE_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS vod_embedding (
+    vod_embedding_id  BIGSERIAL PRIMARY KEY,
+    vod_id_fk         VARCHAR(64) NOT NULL,
+    embedding         VECTOR(512) NOT NULL,
+    model_name        VARCHAR(100) NOT NULL DEFAULT 'clip-ViT-B-32',
+    vector_magnitude  FLOAT,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_vod_embedding UNIQUE (vod_id_fk, model_name)
+);
+"""
+
+def ensure_table(conn):
+    """vod_embedding 테이블 없으면 자동 생성"""
     cur = conn.cursor()
-    cur.execute(
-        "SELECT to_regclass('public.vod_embedding') IS NOT NULL"
-    )
-    exists = cur.fetchone()[0]
-    if not exists:
-        log.error("vod_embedding 테이블 없음 — Database_Design/schema/create_embedding_tables.sql 실행 필요")
-    return exists
+    cur.execute("SELECT to_regclass('public.vod_embedding')")
+    if cur.fetchone()[0] is None:
+        log.info("vod_embedding 테이블 생성 중...")
+        cur.execute(CREATE_TABLE_SQL)
+        conn.commit()
+        log.info("테이블 생성 완료")
+    else:
+        log.info("vod_embedding 테이블 확인됨")
 
 
 def get_batch_files(data_dir: Path, specific_file: str = None) -> list:
@@ -237,8 +252,7 @@ def main():
 
         if not check_pgvector(conn):
             sys.exit(1)
-        if not check_table_exists(conn):
-            sys.exit(1)
+        ensure_table(conn)
 
         batch_files = get_batch_files(DATA_DIR, args.batch)
         if not batch_files:
