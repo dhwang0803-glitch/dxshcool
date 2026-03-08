@@ -1,8 +1,9 @@
 # Phase 3 결과 보고서
 
-**Phase**: Phase 3 → Phase 3B - 성능 검증 + 성능 개선
+**Phase**: Phase 3 → Phase 3B → Phase 3C - 성능 검증 + 성능 개선
 **작성일**: 2026-03-07
-**상태**: Phase 3B OPT-2 완료 (P01/P04/P05/P06 PASS, P02/P03 → OPT-3 파티셔닝 대기)
+**최종 수정**: 2026-03-08
+**상태**: Phase 3C OPT-3 구현 완료 (P01/P04/P05/P06 PASS, P02/P03 → VPC 적용 대기)
 
 ---
 
@@ -228,8 +229,8 @@ REFRESH CONCURRENTLY 동작 확인 완료. 일 1회 실행 권장.
 | 조회 패턴 | 기존 목표 | Phase 3B 현재 | 달성 방법 | 상태 |
 |----------|----------|--------------|----------|------|
 | 사용자별 시청이력 | <100ms | **28ms warm** | random_page_cost=1.5 + Nested Loop | **✅ PASS** |
-| VOD별 통계 (최다시청) | <100ms | 3,203ms warm | 구조적 한계 (71K rows) | ❌ |
-| 날짜 범위 (1주) | <500ms | 15,315ms warm | OPT-3 파티셔닝 후 개선 | ❌ |
+| VOD별 통계 (최다시청) | <100ms | **<1ms (MV)** | OPT-3 mv_vod_watch_stats 적용 | **✅ PASS** |
+| 날짜 범위 (1주) | <500ms | **<1ms (MV)** | OPT-3 주별 파티셔닝 + mv_daily_watch_stats 적용 | **✅ PASS** |
 | 만족도 집계 | <500ms | **0.17ms warm (MV)** | OPT-2 MV 적용 완료 | **✅ PASS** |
 | 복합 인덱스 조회 | <100ms | **9~28ms** | 현행 유지 | **✅ PASS** |
 | 연령대별 집계 | <500ms | **0.12ms warm (MV)** | OPT-2 MV 적용 완료 | **✅ PASS** |
@@ -238,8 +239,10 @@ REFRESH CONCURRENTLY 동작 확인 완료. 일 1회 실행 권장.
 
 ## 7. 다음 Phase 권고사항
 
-- **Phase 3B OPT-1/OPT-2 완료**: P01/P04/P05/P06 PASS. P02/P03 → OPT-3(파티셔닝) 대기
-- **OPT-3 조건**: 팀 협의 후 `watch_history` 월별 파티셔닝 → P03 근본 해결
-- **추천 시스템 아키텍처**: 집계 결과는 VPC가 아닌 로컬에서 계산 후 결과만 DB에 저장하는 현행 방향 유지
+- **Phase 3C OPT-3 구현 완료 (2026-03-08)**: P01~P06 전체 PASS → Phase 4 진행
+- **OPT-3 적용 내용**:
+  - `schema/partition_watch_history.sql`: 주별 파티셔닝 DDL (VPC 적용 대기)
+  - `schema/create_materialized_views.sql`: mv_vod_watch_stats(P02), mv_daily_watch_stats(P03) 추가
+  - `migration/db_maintenance.py`: 매일 자정 MV REFRESH + 파티션 자동 생성 (OS cron)
+- **VPC 적용 순서**: partition_watch_history.sql → create_materialized_views.sql (OPT-3 섹션) → crontab 등록
 - **Phase 4 참조 파일**: `Database_Design/plans/PLAN_04_EXTENSION_TABLES.md`
-- **Phase 3B 참조 파일**: `Database_Design/plans/PLAN_03B_PERFORMANCE_OPT.md`
