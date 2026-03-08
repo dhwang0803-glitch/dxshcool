@@ -2,8 +2,13 @@
 
 **단계**: Phase 4 / 5
 **목표**: 추천 시스템 확장을 위한 임베딩 및 추천 결과 테이블 설계
-**산출물**: `schema/create_embedding_tables.sql`, `schema/create_recommendation_table.sql`
+**산출물**: `schema/create_embedding_tables.sql`
 **선행 조건**: Phase 1~3 완료 후 진행
+
+> **아키텍처 결정 (2026-03-08 팀 협의 완료)**
+> 벡터 저장소를 **pgvector 단일화**로 결정. 외부 벡터 DB(Milvus) 미사용.
+> 실제 벡터(`VECTOR(512)`)와 메타데이터를 PostgreSQL `vod_embedding` 테이블에 함께 저장.
+> VOD_Embedding 브랜치의 파이프라인이 이 테이블에 직접 적재.
 
 ---
 
@@ -11,118 +16,45 @@
 
 | 테이블명 | 목적 | 의존 테이블 |
 |---------|------|-----------|
-| vod_embedding | VOD 벡터 임베딩 메타데이터 | vod |
-| user_embedding | 사용자 임베딩 메타데이터 | user |
+| vod_embedding | VOD 벡터 임베딩 (벡터 + 메타데이터) | vod |
 | vod_recommendation | 추천 결과 캐시 (TTL 7일) | user, vod |
 
-> **주의**: 실제 벡터 데이터는 Milvus에 저장. PostgreSQL에는 메타데이터만 저장.
+> **참고**: `user_embedding`은 사용자 행동 기반 벡터로 추후 Phase 5 이후 설계 예정.
 
 ---
 
 ## 2. vod_embedding 테이블
 
 ### 목적
-Milvus에 저장된 VOD 벡터의 메타데이터 관리 및 버전 추적
+VOD 벡터 임베딩 저장 (pgvector `VECTOR(512)`) 및 메타데이터 관리.
+VOD_Embedding 브랜치의 `ingest_to_db.py`가 이 테이블에 직접 적재.
 
-### DDL (PostgreSQL)
+### DDL
+`schema/create_embedding_tables.sql` 참조 (실제 실행 파일).
 
+### 주요 컬럼
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| `embedding` | `VECTOR(512)` | CLIP ViT-B/32 벡터, 10프레임 평균 |
+| `embedding_type` | VARCHAR(32) | `VISUAL` / `CONTENT` / `HYBRID` |
+| `model_version` | VARCHAR(64) | `clip-ViT-B-32` |
+| `source_type` | VARCHAR(32) | `TRAILER` / `FULL` |
+| `frame_count` | SMALLINT | 임베딩에 사용된 프레임 수 |
+| `vector_magnitude` | REAL | L2 norm (품질 지표) |
+
+### 벡터 검색 인덱스
 ```sql
-CREATE TABLE vod_embedding (
-    vod_embedding_id    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    vod_id_fk           VARCHAR(64) NOT NULL UNIQUE,
-
-    -- Milvus 참조
-    milvus_collection   VARCHAR(128),       -- 예: "vod_content_v1"
-    milvus_vector_id    BIGINT,             -- Milvus 내부 PK
-
-    -- 임베딩 정보
-    embedding_type      VARCHAR(32) NOT NULL,   -- CONTENT / METADATA / VISUAL / HYBRID
-    embedding_dim       INTEGER NOT NULL,        -- 1536, 384, 512, 2432
-    model_version       VARCHAR(64),            -- 예: "openai-embedding-3-large"
-
-    -- 벡터 통계 (선택적 최적화)
-    vector_magnitude    REAL,               -- L2 norm
-
-    -- 시간 정보
-    created_at          TIMESTAMPTZ DEFAULT NOW(),
-    updated_at          TIMESTAMPTZ DEFAULT NOW(),
-
-    -- FK
-    CONSTRAINT fk_vod_embedding_vod
-        FOREIGN KEY (vod_id_fk) REFERENCES vod (full_asset_id) ON DELETE CASCADE
-);
-
--- 인덱스
-CREATE INDEX idx_vod_emb_type ON vod_embedding (embedding_type);
-CREATE INDEX idx_vod_emb_updated ON vod_embedding (updated_at);
-
--- updated_at 트리거
-CREATE TRIGGER trg_vod_embedding_updated_at
-    BEFORE UPDATE ON vod_embedding
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_column();
-
--- 코멘트
-COMMENT ON TABLE vod_embedding IS 'Milvus VOD 벡터 임베딩 메타데이터 (실제 벡터는 Milvus에 저장)';
-COMMENT ON COLUMN vod_embedding.embedding_type IS 'CONTENT: 콘텐츠 벡터(1536차원), METADATA: 텍스트 벡터(384차원), VISUAL: 이미지 벡터(512차원), HYBRID: 복합 벡터(2432차원)';
+-- IVF_FLAT, lists=100 (sqrt(10,000) 기준), 코사인 유사도
+CREATE INDEX idx_vod_emb_ivfflat
+    ON vod_embedding USING ivfflat (embedding vector_cosine_ops)
+    WITH (lists = 100);
+-- 검색 시: SET ivfflat.probes = 10;
 ```
 
 ---
 
-## 3. user_embedding 테이블
-
-### 목적
-사용자 행동 기반 벡터 임베딩의 메타데이터 및 생성 이력 관리
-
-### DDL (PostgreSQL)
-
-```sql
-CREATE TABLE user_embedding (
-    user_embedding_id   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    user_id_fk          VARCHAR(64) NOT NULL,
-
-    -- Milvus 참조
-    milvus_collection   VARCHAR(128),
-    milvus_vector_id    BIGINT,
-
-    -- 임베딩 정보
-    embedding_type      VARCHAR(32) NOT NULL,   -- BEHAVIOR / PREFERENCE / DEMOGRAPHIC / HYBRID
-    embedding_dim       INTEGER NOT NULL,        -- 256, 128, 64, 448
-    model_version       VARCHAR(64),
-
-    -- 생성 기반 정보
-    base_record_count   INTEGER,    -- 임베딩 생성에 사용된 watch_history 건수
-    base_date_from      DATE,       -- 데이터 기준 시작일
-    base_date_to        DATE,       -- 데이터 기준 종료일
-
-    -- 시간 정보
-    created_at          TIMESTAMPTZ DEFAULT NOW(),
-    updated_at          TIMESTAMPTZ DEFAULT NOW(),
-
-    -- 제약조건
-    CONSTRAINT fk_user_embedding_user
-        FOREIGN KEY (user_id_fk) REFERENCES "user" (sha2_hash) ON DELETE CASCADE,
-    CONSTRAINT uq_user_embedding_type
-        UNIQUE (user_id_fk, embedding_type)     -- 사용자당 타입별 1개만
-);
-
--- 인덱스
-CREATE INDEX idx_user_emb_type ON user_embedding (embedding_type);
-CREATE INDEX idx_user_emb_updated ON user_embedding (updated_at);
-
--- updated_at 트리거
-CREATE TRIGGER trg_user_embedding_updated_at
-    BEFORE UPDATE ON user_embedding
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_column();
-
-COMMENT ON TABLE user_embedding IS '사용자 행동 기반 벡터 임베딩 메타데이터 (실제 벡터는 Milvus에 저장)';
-COMMENT ON COLUMN user_embedding.embedding_type IS 'BEHAVIOR: 시청 패턴(256차원), PREFERENCE: 장르 선호도(128차원), DEMOGRAPHIC: 인구통계(64차원), HYBRID: 복합(448차원)';
-```
-
----
-
-## 4. vod_recommendation 테이블
+## 3. vod_recommendation 테이블
 
 ### 목적
 Milvus 벡터 검색 + Re-Ranking 결과를 캐시 (TTL: 7일)
@@ -220,13 +152,13 @@ CREATE TRIGGER trg_rec_set_expiry
 
 ---
 
-## 5. 확장 테이블 작업 시 주의사항
+## 4. 확장 테이블 작업 시 주의사항
 
 1. **Phase 1 완료 후 진행**: vod, user 테이블이 먼저 생성되어야 FK 설정 가능
-2. **Milvus 연동 별도**: 실제 벡터 저장/검색은 RAG 팀 또는 별도 서비스에서 담당
-3. **vod_recommendation 캐시 전략**: Redis L1 캐시(1시간) + PostgreSQL L2 캐시(7일) 이중 캐싱 설계
-4. **JSONB 선택 이유**: PostgreSQL에서 JSON보다 JSONB가 인덱싱 및 조회 성능 우수
-5. **부분 인덱스 `idx_rec_active`**: 만료된 레코드는 인덱스에서 제외하여 효율성 향상 (단, `NOW()` 기준이므로 인덱스 갱신 필요)
+2. **pgvector 확장 설치 필요**: VPC PostgreSQL에서 `CREATE EXTENSION IF NOT EXISTS vector` 선행 실행
+3. **IVFFlat 인덱스 생성 시점**: 데이터 INSERT 완료 후 생성해야 인덱스 품질이 보장됨
+4. **vod_recommendation 캐시 전략**: Redis L1 캐시(1시간) + PostgreSQL L2 캐시(7일) 이중 캐싱 설계
+5. **두 브랜치 스키마 동기화**: VOD_Embedding의 `ingest_to_db.py`가 이 DDL 기준으로 정렬됨
 
 ---
 
