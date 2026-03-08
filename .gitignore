@@ -138,6 +138,12 @@ celerybeat.pid
 .env
 .envrc
 .venv
+
+# RAG Pipeline secrets & generated data
+RAG/config/api_keys.env
+RAG/config/chroma_db/
+RAG/config/embeddings_cache/
+RAG/config/checkpoint.json
 env/
 venv/
 ENV/
