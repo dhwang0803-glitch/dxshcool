@@ -210,14 +210,15 @@ def _build_queries(series: str, original: str) -> list:
     spaced = re.sub(r'([가-힣A-Za-z])(\d)', r'\1 \2', series)
     # 서브제목 제거: ': X', '- X', ' with X'
     no_sub = re.split(r'\s*(?:[:\-]|with\s)', series, maxsplit=1)[0].strip()
-    # 한글 붙여쓰기 공백 삽입: 3자 이상 붙은 한글 → 2자 단위로 쪼개기 시도
-    # (예: 명탐정코난 → 명탐정 코난, 식샤를합시다 → 식샤를 합시다)
-    spaced_ko = re.sub(r'([가-힣]{2})([가-힣])', r'\1 \2', series)
-    return list(dict.fromkeys(q for q in [series, spaced, no_sub, spaced_ko, original] if q))
+    # 공백 제거 버전: TMDB 퍼지 검색이 내부적으로 띄어쓰기를 처리하도록
+    # (예: "내손을잡아" → TMDB가 "내 손을 잡아"로 매칭)
+    nospace = series.replace(' ', '')
+    return list(dict.fromkeys(q for q in [series, spaced, no_sub, nospace, original] if q))
 
 
 def _title_similarity(a: str, b: str) -> float:
-    a, b = a.lower().strip(), b.lower().strip()
+    # 공백 제거 후 비교: 붙여쓰기 타이틀과 TMDB 결과 간 공백 차이 무시
+    a, b = a.lower().strip().replace(' ', ''), b.lower().strip().replace(' ', '')
     if not a or not b:
         return 0.0
     if a == b:
