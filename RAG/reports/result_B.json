@@ -3,15 +3,15 @@
     "approach": "B_v3",
     "description": "TMDB 시리즈 캐시 + ct_cl 분기 (임베딩/LLM 없음)",
     "total": 100,
-    "cast_lead_found": 58,
-    "rating_found": 47,
-    "release_date_found": 69,
-    "director_found": 46,
-    "cast_lead_rate": 0.58,
-    "rating_rate": 0.47,
-    "release_date_rate": 0.69,
-    "director_rate": 0.46,
-    "avg_elapsed_sec": 2.57,
+    "cast_lead_found": 64,
+    "rating_found": 53,
+    "release_date_found": 75,
+    "director_found": 49,
+    "cast_lead_rate": 0.64,
+    "rating_rate": 0.53,
+    "release_date_rate": 0.75,
+    "director_rate": 0.49,
+    "avg_elapsed_sec": 4.85,
     "variety_count": 12,
     "errors": 0,
     "cache_stats": "캐시 히트 2/100건 (2%)"
@@ -33,7 +33,7 @@
       "tmdb_id": 108124,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 2.1,
+      "elapsed_sec": 1.92,
       "error": null
     },
     {
@@ -52,7 +52,7 @@
       "tmdb_id": 110723,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.61,
+      "elapsed_sec": 1.77,
       "error": null
     },
     {
@@ -71,7 +71,7 @@
       "tmdb_id": 75387,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.62,
+      "elapsed_sec": 1.86,
       "error": null
     },
     {
@@ -90,7 +90,7 @@
       "tmdb_id": 117549,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.6,
+      "elapsed_sec": 1.73,
       "error": null
     },
     {
@@ -98,18 +98,18 @@
       "asset_nm": "식샤를합시다 시즌2 04회",
       "ct_cl": "TV드라마",
       "genre": "드라마",
-      "cast_lead": null,
-      "rating": null,
-      "release_date": null,
-      "director": null,
-      "cast_lead_source": null,
-      "rating_source": null,
-      "release_date_source": null,
-      "director_source": null,
-      "tmdb_id": null,
-      "tmdb_media_type": null,
+      "cast_lead": "[\"윤두준\", \"백진희\", \"안우연\", \"이주우\"]",
+      "rating": "15세이상관람가",
+      "release_date": "2013-11-28",
+      "director": "김아영",
+      "cast_lead_source": "TMDB",
+      "rating_source": "TMDB",
+      "release_date_source": "TMDB",
+      "director_source": "TMDB",
+      "tmdb_id": 62411,
+      "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 4.95,
+      "elapsed_sec": 4.75,
       "error": null
     },
     {
@@ -128,7 +128,7 @@
       "tmdb_id": 197891,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.54,
+      "elapsed_sec": 1.77,
       "error": null
     },
     {
@@ -147,7 +147,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 4.72,
+      "elapsed_sec": 16.99,
       "error": null
     },
     {
@@ -166,7 +166,7 @@
       "tmdb_id": 63692,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.6,
+      "elapsed_sec": 1.83,
       "error": null
     },
     {
@@ -185,7 +185,7 @@
       "tmdb_id": 129582,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 2.4,
+      "elapsed_sec": 3.61,
       "error": null
     },
     {
@@ -204,7 +204,7 @@
       "tmdb_id": 115548,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.54,
+      "elapsed_sec": 1.77,
       "error": null
     },
     {
@@ -223,7 +223,7 @@
       "tmdb_id": 84448,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.55,
+      "elapsed_sec": 1.72,
       "error": null
     },
     {
@@ -242,7 +242,7 @@
       "tmdb_id": 157638,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.6,
+      "elapsed_sec": 1.84,
       "error": null
     },
     {
@@ -261,7 +261,7 @@
       "tmdb_id": 128958,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.56,
+      "elapsed_sec": 1.89,
       "error": null
     },
     {
@@ -280,7 +280,7 @@
       "tmdb_id": 83940,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.56,
+      "elapsed_sec": 1.7,
       "error": null
     },
     {
@@ -299,7 +299,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 4.79,
+      "elapsed_sec": 10.97,
       "error": null
     },
     {
@@ -318,7 +318,7 @@
       "tmdb_id": 87164,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.58,
+      "elapsed_sec": 1.84,
       "error": null
     },
     {
@@ -337,7 +337,7 @@
       "tmdb_id": 26117,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.63,
+      "elapsed_sec": 1.76,
       "error": null
     },
     {
@@ -356,7 +356,7 @@
       "tmdb_id": 85413,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.74,
+      "elapsed_sec": 1.82,
       "error": null
     },
     {
@@ -375,7 +375,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 3.21,
+      "elapsed_sec": 3.54,
       "error": null
     },
     {
@@ -394,7 +394,7 @@
       "tmdb_id": 153375,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.58,
+      "elapsed_sec": 1.71,
       "error": null
     },
     {
@@ -413,7 +413,7 @@
       "tmdb_id": 64532,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.86,
+      "elapsed_sec": 1.72,
       "error": null
     },
     {
@@ -432,7 +432,7 @@
       "tmdb_id": 790,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.88,
+      "elapsed_sec": 1.72,
       "error": null
     },
     {
@@ -451,7 +451,7 @@
       "tmdb_id": 3824,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 2.46,
+      "elapsed_sec": 1.76,
       "error": null
     },
     {
@@ -470,7 +470,7 @@
       "tmdb_id": 85412,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 2.28,
+      "elapsed_sec": 1.73,
       "error": null
     },
     {
@@ -489,7 +489,7 @@
       "tmdb_id": 128883,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.8,
+      "elapsed_sec": 1.85,
       "error": null
     },
     {
@@ -508,7 +508,7 @@
       "tmdb_id": 119449,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.73,
+      "elapsed_sec": 1.77,
       "error": null
     },
     {
@@ -527,7 +527,7 @@
       "tmdb_id": 95216,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.55,
+      "elapsed_sec": 1.74,
       "error": null
     },
     {
@@ -546,7 +546,7 @@
       "tmdb_id": 61706,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.56,
+      "elapsed_sec": 1.67,
       "error": null
     },
     {
@@ -565,7 +565,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 6.49,
+      "elapsed_sec": 17.19,
       "error": null
     },
     {
@@ -584,7 +584,7 @@
       "tmdb_id": 206937,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.57,
+      "elapsed_sec": 1.71,
       "error": null
     },
     {
@@ -603,7 +603,7 @@
       "tmdb_id": 62915,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.72,
+      "elapsed_sec": 1.76,
       "error": null
     },
     {
@@ -622,7 +622,7 @@
       "tmdb_id": 57788,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 2.54,
+      "elapsed_sec": 3.64,
       "error": null
     },
     {
@@ -641,7 +641,7 @@
       "tmdb_id": 135286,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.57,
+      "elapsed_sec": 1.86,
       "error": null
     },
     {
@@ -660,7 +660,7 @@
       "tmdb_id": 105748,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.64,
+      "elapsed_sec": 1.7,
       "error": null
     },
     {
@@ -698,7 +698,7 @@
       "tmdb_id": 70957,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.88,
+      "elapsed_sec": 1.73,
       "error": null
     },
     {
@@ -717,7 +717,7 @@
       "tmdb_id": 259467,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 2.73,
+      "elapsed_sec": 1.79,
       "error": null
     },
     {
@@ -725,18 +725,18 @@
       "asset_nm": "명탐정코난 19기 59회",
       "ct_cl": "TV애니메이션",
       "genre": "추리/미스터리",
-      "cast_lead": null,
-      "rating": null,
-      "release_date": null,
+      "cast_lead": "[\"타카야마 미나미\", \"야마구치 캇페이\", \"야마자키 와카나\", \"카미야 아키라\"]",
+      "rating": "15세이상관람가",
+      "release_date": "1996-01-08",
       "director": null,
-      "cast_lead_source": null,
-      "rating_source": null,
-      "release_date_source": null,
+      "cast_lead_source": "TMDB",
+      "rating_source": "TMDB",
+      "release_date_source": "TMDB",
       "director_source": null,
-      "tmdb_id": null,
-      "tmdb_media_type": null,
+      "tmdb_id": 30983,
+      "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 7.01,
+      "elapsed_sec": 4.65,
       "error": null
     },
     {
@@ -755,7 +755,7 @@
       "tmdb_id": 61459,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.7,
+      "elapsed_sec": 1.8,
       "error": null
     },
     {
@@ -774,7 +774,7 @@
       "tmdb_id": 98034,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 2.18,
+      "elapsed_sec": 1.95,
       "error": null
     },
     {
@@ -793,7 +793,7 @@
       "tmdb_id": 45207,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.89,
+      "elapsed_sec": 1.74,
       "error": null
     },
     {
@@ -812,7 +812,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 4.92,
+      "elapsed_sec": 10.92,
       "error": null
     },
     {
@@ -831,7 +831,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 6.36,
+      "elapsed_sec": 19.17,
       "error": null
     },
     {
@@ -850,7 +850,7 @@
       "tmdb_id": 19239,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.63,
+      "elapsed_sec": 1.79,
       "error": null
     },
     {
@@ -869,7 +869,7 @@
       "tmdb_id": 123525,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.72,
+      "elapsed_sec": 1.74,
       "error": null
     },
     {
@@ -877,16 +877,16 @@
       "asset_nm": "명탐정코난 17기 15회",
       "ct_cl": "TV애니메이션",
       "genre": "추리/미스터리",
-      "cast_lead": null,
-      "rating": null,
-      "release_date": null,
+      "cast_lead": "[\"타카야마 미나미\", \"야마구치 캇페이\", \"야마자키 와카나\", \"카미야 아키라\"]",
+      "rating": "15세이상관람가",
+      "release_date": "1996-01-08",
       "director": null,
-      "cast_lead_source": null,
-      "rating_source": null,
-      "release_date_source": null,
+      "cast_lead_source": "TMDB",
+      "rating_source": "TMDB",
+      "release_date_source": "TMDB",
       "director_source": null,
-      "tmdb_id": null,
-      "tmdb_media_type": null,
+      "tmdb_id": 30983,
+      "tmdb_media_type": "tv",
       "is_variety": false,
       "elapsed_sec": 0.0,
       "error": null
@@ -907,7 +907,7 @@
       "tmdb_id": 116168,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.61,
+      "elapsed_sec": 1.74,
       "error": null
     },
     {
@@ -915,16 +915,16 @@
       "asset_nm": "명탐정코난 20기 18회",
       "ct_cl": "TV애니메이션",
       "genre": "추리/미스터리",
-      "cast_lead": null,
-      "rating": null,
-      "release_date": null,
+      "cast_lead": "[\"타카야마 미나미\", \"야마구치 캇페이\", \"야마자키 와카나\", \"카미야 아키라\"]",
+      "rating": "15세이상관람가",
+      "release_date": "1996-01-08",
       "director": null,
-      "cast_lead_source": null,
-      "rating_source": null,
-      "release_date_source": null,
+      "cast_lead_source": "TMDB",
+      "rating_source": "TMDB",
+      "release_date_source": "TMDB",
       "director_source": null,
-      "tmdb_id": null,
-      "tmdb_media_type": null,
+      "tmdb_id": 30983,
+      "tmdb_media_type": "tv",
       "is_variety": false,
       "elapsed_sec": 0.0,
       "error": null
@@ -945,7 +945,7 @@
       "tmdb_id": 244660,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.59,
+      "elapsed_sec": 1.71,
       "error": null
     },
     {
@@ -964,7 +964,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 4.91,
+      "elapsed_sec": 20.48,
       "error": null
     },
     {
@@ -983,7 +983,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 5.17,
+      "elapsed_sec": 6.98,
       "error": null
     },
     {
@@ -1002,7 +1002,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 4.96,
+      "elapsed_sec": 16.31,
       "error": null
     },
     {
@@ -1021,7 +1021,7 @@
       "tmdb_id": 154930,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.68,
+      "elapsed_sec": 1.7,
       "error": null
     },
     {
@@ -1040,7 +1040,7 @@
       "tmdb_id": 136416,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.68,
+      "elapsed_sec": 1.65,
       "error": null
     },
     {
@@ -1059,7 +1059,7 @@
       "tmdb_id": 195515,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.75,
+      "elapsed_sec": 1.72,
       "error": null
     },
     {
@@ -1078,7 +1078,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 5.1,
+      "elapsed_sec": 14.77,
       "error": null
     },
     {
@@ -1097,7 +1097,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 4.83,
+      "elapsed_sec": 7.9,
       "error": null
     },
     {
@@ -1116,7 +1116,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 4.87,
+      "elapsed_sec": 18.56,
       "error": null
     },
     {
@@ -1135,7 +1135,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 1.6,
+      "elapsed_sec": 7.29,
       "error": null
     },
     {
@@ -1154,7 +1154,7 @@
       "tmdb_id": 154384,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.66,
+      "elapsed_sec": 1.79,
       "error": null
     },
     {
@@ -1173,7 +1173,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 4.94,
+      "elapsed_sec": 14.36,
       "error": null
     },
     {
@@ -1192,7 +1192,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 4.88,
+      "elapsed_sec": 14.55,
       "error": null
     },
     {
@@ -1211,7 +1211,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 4.76,
+      "elapsed_sec": 17.3,
       "error": null
     },
     {
@@ -1230,7 +1230,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": true,
-      "elapsed_sec": 4.96,
+      "elapsed_sec": 14.76,
       "error": null
     },
     {
@@ -1249,7 +1249,7 @@
       "tmdb_id": 31175,
       "tmdb_media_type": "tv",
       "is_variety": true,
-      "elapsed_sec": 1.54,
+      "elapsed_sec": 1.7,
       "error": null
     },
     {
@@ -1268,7 +1268,7 @@
       "tmdb_id": 132670,
       "tmdb_media_type": "tv",
       "is_variety": true,
-      "elapsed_sec": 1.56,
+      "elapsed_sec": 1.64,
       "error": null
     },
     {
@@ -1287,7 +1287,7 @@
       "tmdb_id": 129719,
       "tmdb_media_type": "tv",
       "is_variety": true,
-      "elapsed_sec": 1.53,
+      "elapsed_sec": 1.69,
       "error": null
     },
     {
@@ -1306,7 +1306,7 @@
       "tmdb_id": 97714,
       "tmdb_media_type": "tv",
       "is_variety": true,
-      "elapsed_sec": 1.57,
+      "elapsed_sec": 1.67,
       "error": null
     },
     {
@@ -1325,7 +1325,7 @@
       "tmdb_id": 86623,
       "tmdb_media_type": "tv",
       "is_variety": true,
-      "elapsed_sec": 1.55,
+      "elapsed_sec": 1.65,
       "error": null
     },
     {
@@ -1344,7 +1344,7 @@
       "tmdb_id": 136254,
       "tmdb_media_type": "tv",
       "is_variety": true,
-      "elapsed_sec": 1.71,
+      "elapsed_sec": 1.79,
       "error": null
     },
     {
@@ -1363,7 +1363,7 @@
       "tmdb_id": 96046,
       "tmdb_media_type": "tv",
       "is_variety": true,
-      "elapsed_sec": 1.58,
+      "elapsed_sec": 1.76,
       "error": null
     },
     {
@@ -1390,18 +1390,18 @@
       "asset_nm": "슈퍼맨이돌아왔다 55회",
       "ct_cl": "TV 연예/오락",
       "genre": "연예/오락",
-      "cast_lead": null,
-      "rating": null,
-      "release_date": null,
-      "director": null,
-      "cast_lead_source": null,
-      "rating_source": null,
-      "release_date_source": null,
-      "director_source": null,
-      "tmdb_id": null,
-      "tmdb_media_type": null,
+      "cast_lead": "[\"Park Joo-ho\", \"박지영\", \"Park Na-eun\", \"박수홍\"]",
+      "rating": "12세이상관람가",
+      "release_date": "2013-11-03",
+      "director": "박지영",
+      "cast_lead_source": "TMDB",
+      "rating_source": "TMDB",
+      "release_date_source": "TMDB",
+      "director_source": "TMDB",
+      "tmdb_id": 64356,
+      "tmdb_media_type": "tv",
       "is_variety": true,
-      "elapsed_sec": 4.94,
+      "elapsed_sec": 5.49,
       "error": null
     },
     {
@@ -1420,7 +1420,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": true,
-      "elapsed_sec": 6.29,
+      "elapsed_sec": 16.03,
       "error": null
     },
     {
@@ -1439,7 +1439,7 @@
       "tmdb_id": 154125,
       "tmdb_media_type": "tv",
       "is_variety": true,
-      "elapsed_sec": 1.57,
+      "elapsed_sec": 1.78,
       "error": null
     },
     {
@@ -1458,7 +1458,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 3.22,
+      "elapsed_sec": 13.51,
       "error": null
     },
     {
@@ -1477,7 +1477,7 @@
       "tmdb_id": 2062,
       "tmdb_media_type": "movie",
       "is_variety": false,
-      "elapsed_sec": 1.64,
+      "elapsed_sec": 1.75,
       "error": null
     },
     {
@@ -1496,7 +1496,7 @@
       "tmdb_id": 509932,
       "tmdb_media_type": "movie",
       "is_variety": false,
-      "elapsed_sec": 1.63,
+      "elapsed_sec": 1.67,
       "error": null
     },
     {
@@ -1504,18 +1504,18 @@
       "asset_nm": "28세미성년",
       "ct_cl": "영화",
       "genre": "로맨틱코미디",
-      "cast_lead": null,
-      "rating": null,
-      "release_date": null,
-      "director": null,
-      "cast_lead_source": null,
-      "rating_source": null,
-      "release_date_source": null,
-      "director_source": null,
-      "tmdb_id": null,
-      "tmdb_media_type": null,
+      "cast_lead": "[\"예니\", \"곽건화\", \"왕대륙\", \"劉瓊\"]",
+      "rating": "15세이상관람가",
+      "release_date": "2016-12-09",
+      "director": "张末",
+      "cast_lead_source": "TMDB",
+      "rating_source": "TMDB",
+      "release_date_source": "TMDB",
+      "director_source": "TMDB",
+      "tmdb_id": 422390,
+      "tmdb_media_type": "movie",
       "is_variety": false,
-      "elapsed_sec": 3.16,
+      "elapsed_sec": 2.72,
       "error": null
     },
     {
@@ -1534,7 +1534,7 @@
       "tmdb_id": 597,
       "tmdb_media_type": "movie",
       "is_variety": false,
-      "elapsed_sec": 1.58,
+      "elapsed_sec": 1.72,
       "error": null
     },
     {
@@ -1542,18 +1542,18 @@
       "asset_nm": "겨울왕국2",
       "ct_cl": "영화",
       "genre": "애니메이션",
-      "cast_lead": "[\"이디나 멘젤\", \"크리스틴 벨\", \"조시 게드\", \"조나단 그로프\"]",
+      "cast_lead": "[\"크리스틴 벨\", \"이디나 멘젤\", \"조시 게드\", \"제니퍼 리\"]",
       "rating": "전체관람가",
-      "release_date": "2019-11-20",
-      "director": "제니퍼 리",
+      "release_date": "2020-06-26",
+      "director": "Megan Harding",
       "cast_lead_source": "TMDB",
       "rating_source": "TMDB",
       "release_date_source": "TMDB",
       "director_source": "TMDB",
-      "tmdb_id": 330457,
-      "tmdb_media_type": "movie",
+      "tmdb_id": 103465,
+      "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 2.59,
+      "elapsed_sec": 1.67,
       "error": null
     },
     {
@@ -1572,7 +1572,7 @@
       "tmdb_id": 531428,
       "tmdb_media_type": "movie",
       "is_variety": false,
-      "elapsed_sec": 1.55,
+      "elapsed_sec": 1.63,
       "error": null
     },
     {
@@ -1591,7 +1591,7 @@
       "tmdb_id": 946614,
       "tmdb_media_type": "movie",
       "is_variety": false,
-      "elapsed_sec": 1.63,
+      "elapsed_sec": 1.68,
       "error": null
     },
     {
@@ -1610,7 +1610,7 @@
       "tmdb_id": 437103,
       "tmdb_media_type": "movie",
       "is_variety": false,
-      "elapsed_sec": 1.68,
+      "elapsed_sec": 1.63,
       "error": null
     },
     {
@@ -1629,7 +1629,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 3.24,
+      "elapsed_sec": 16.85,
       "error": null
     },
     {
@@ -1648,7 +1648,7 @@
       "tmdb_id": 604362,
       "tmdb_media_type": "movie",
       "is_variety": false,
-      "elapsed_sec": 1.63,
+      "elapsed_sec": 2.02,
       "error": null
     },
     {
@@ -1667,7 +1667,7 @@
       "tmdb_id": 72725,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.59,
+      "elapsed_sec": 1.8,
       "error": null
     },
     {
@@ -1686,7 +1686,7 @@
       "tmdb_id": 195762,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.65,
+      "elapsed_sec": 1.83,
       "error": null
     },
     {
@@ -1705,7 +1705,7 @@
       "tmdb_id": 79091,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.77,
+      "elapsed_sec": 1.91,
       "error": null
     },
     {
@@ -1724,7 +1724,7 @@
       "tmdb_id": 132256,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.59,
+      "elapsed_sec": 1.75,
       "error": null
     },
     {
@@ -1743,7 +1743,7 @@
       "tmdb_id": 664809,
       "tmdb_media_type": "movie",
       "is_variety": false,
-      "elapsed_sec": 2.0,
+      "elapsed_sec": 1.86,
       "error": null
     },
     {
@@ -1762,7 +1762,7 @@
       "tmdb_id": 273779,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 2.08,
+      "elapsed_sec": 2.02,
       "error": null
     },
     {
@@ -1781,7 +1781,7 @@
       "tmdb_id": 5371,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.62,
+      "elapsed_sec": 2.0,
       "error": null
     },
     {
@@ -1800,7 +1800,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 4.69,
+      "elapsed_sec": 10.43,
       "error": null
     },
     {
@@ -1819,7 +1819,7 @@
       "tmdb_id": 64696,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 1.57,
+      "elapsed_sec": 1.77,
       "error": null
     },
     {
@@ -1838,7 +1838,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 3.87,
+      "elapsed_sec": 3.46,
       "error": null
     },
     {
@@ -1857,7 +1857,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 3.49,
+      "elapsed_sec": 9.54,
       "error": null
     },
     {
@@ -1876,7 +1876,7 @@
       "tmdb_id": 127380,
       "tmdb_media_type": "movie",
       "is_variety": false,
-      "elapsed_sec": 1.59,
+      "elapsed_sec": 1.73,
       "error": null
     },
     {
@@ -1895,7 +1895,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 4.97,
+      "elapsed_sec": 14.92,
       "error": null
     },
     {
@@ -1914,7 +1914,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 5.25,
+      "elapsed_sec": 23.87,
       "error": null
     }
   ]

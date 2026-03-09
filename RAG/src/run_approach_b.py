@@ -204,16 +204,28 @@ def _series_name(title: str) -> str:
     return t if t else title.strip()
 
 
+def _ko_single_space_variants(s: str) -> list:
+    """한글-한글 경계마다 공백을 하나씩 삽입한 변형 목록.
+    예: 명탐정코난 → ['명 탐정코난', '명탐 정코난', '명탐정 코난', '명탐정코 난']
+    TMDB 검색 API가 공백 없는 한글을 인식 못할 때 대안 쿼리로 사용.
+    """
+    variants = []
+    for i in range(1, len(s)):
+        if '\uAC00' <= s[i - 1] <= '\uD7A3' and '\uAC00' <= s[i] <= '\uD7A3':
+            variants.append(s[:i] + ' ' + s[i:])
+    return variants
+
+
 def _build_queries(series: str, original: str) -> list:
     """검색 쿼리 변형 목록 (중복 제거, 순서 유지)."""
     # 숫자-한글 사이 공백
     spaced = re.sub(r'([가-힣A-Za-z])(\d)', r'\1 \2', series)
     # 서브제목 제거: ': X', '- X', ' with X'
     no_sub = re.split(r'\s*(?:[:\-]|with\s)', series, maxsplit=1)[0].strip()
-    # 공백 제거 버전: TMDB 퍼지 검색이 내부적으로 띄어쓰기를 처리하도록
-    # (예: "내손을잡아" → TMDB가 "내 손을 잡아"로 매칭)
-    nospace = series.replace(' ', '')
-    return list(dict.fromkeys(q for q in [series, spaced, no_sub, nospace, original] if q))
+    # 한글 붙여쓰기 → 단일 공백 삽입 변형 (TMDB가 공백 없는 한글을 못 찾을 때)
+    space_variants = _ko_single_space_variants(series)
+    base = [series, spaced, no_sub] + space_variants + [original]
+    return list(dict.fromkeys(q for q in base if q))
 
 
 def _title_similarity(a: str, b: str) -> float:
