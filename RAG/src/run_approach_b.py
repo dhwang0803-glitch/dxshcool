@@ -330,6 +330,33 @@ def _tmdb_series_detail(item: dict) -> Optional[dict]:
 # 필드 추출
 # ─────────────────────────────────────────
 
+def _extract_smry(detail: dict) -> Optional[str]:
+    """TMDB overview → smry. 한국어(ko-KR) 우선, 10자 이상만 허용."""
+    overview = (detail.get("overview") or "").strip()
+    return overview if len(overview) >= 10 else None
+
+
+def _extract_series_nm(detail: dict) -> Optional[str]:
+    """TMDB name/title → series_nm."""
+    media_type = detail.get("_media_type", "movie")
+    name = (detail.get("name") or detail.get("title") or "").strip()
+    return name if name else None
+
+
+def _extract_disp_rtm(detail: dict) -> Optional[str]:
+    """TMDB runtime(분) → 'HH:MM' 형식 문자열.
+    영화: runtime(int), TV: episode_run_time(list) 첫 번째 값 사용."""
+    media_type = detail.get("_media_type", "movie")
+    if media_type == "movie":
+        minutes = detail.get("runtime")
+    else:
+        rts = detail.get("episode_run_time", [])
+        minutes = rts[0] if rts else None
+    if not minutes or not isinstance(minutes, int) or minutes <= 0:
+        return None
+    return f"{minutes // 60:02d}:{minutes % 60:02d}"
+
+
 def _extract_cast(detail: dict) -> Optional[List[str]]:
     cast = [c["name"] for c in detail.get("credits", {}).get("cast", [])[:4]]
     valid = [n for n in cast if validate_director(n)]
@@ -476,6 +503,7 @@ def _fetch_series_data(series: str, original: str, ct_cl: str) -> dict:
         "tmdb_id": None, "media_type": None,
         "cast_lead": None, "director": None,
         "release_date": None, "rating": None,
+        "smry": None, "series_nm": None, "disp_rtm": None,
         "source": None,
     }
 
@@ -488,6 +516,9 @@ def _fetch_series_data(series: str, original: str, ct_cl: str) -> dict:
             result["director"]     = _extract_director(detail)
             result["release_date"] = _extract_release_date(detail)
             result["rating"]       = _extract_rating(detail)
+            result["smry"]         = _extract_smry(detail)
+            result["series_nm"]    = _extract_series_nm(detail)
+            result["disp_rtm"]     = _extract_disp_rtm(detail)
             result["source"]       = "TMDB"
 
     # KMDB 폴백 (TMDB 미매칭 or 필드 누락 시)
@@ -523,10 +554,16 @@ def process_one(row: dict) -> dict:
         "rating":              None,
         "release_date":        None,
         "director":            None,
+        "smry":                None,
+        "series_nm":           None,
+        "disp_rtm":            None,
         "cast_lead_source":    None,
         "rating_source":       None,
         "release_date_source": None,
         "director_source":     None,
+        "smry_source":         None,
+        "series_nm_source":    None,
+        "disp_rtm_source":     None,
         "tmdb_id":             None,
         "tmdb_media_type":     None,
         "is_variety":          ct_cl in _VARIETY_TYPES,
@@ -558,6 +595,18 @@ def process_one(row: dict) -> dict:
             result["rating"]        = data["rating"]
             result["rating_source"] = src
 
+        if data["smry"]:
+            result["smry"]        = data["smry"]
+            result["smry_source"] = src
+
+        if data["series_nm"]:
+            result["series_nm"]        = data["series_nm"]
+            result["series_nm_source"] = src
+
+        if data["disp_rtm"]:
+            result["disp_rtm"]        = data["disp_rtm"]
+            result["disp_rtm_source"] = src
+
         # TV 연예/오락: Step 2에서 episode-level guest_stars 추가 예정
         # result["needs_guest_fetch"] = True 로 마킹됨 (is_variety 필드)
 
@@ -586,50 +635,66 @@ def main():
 
         cast_ok = "O" if res["cast_lead"]    else "-"
         rate_ok = "O" if res["rating"]       else "-"
-        date_ok = "O" if res["release_date"] else "-"
-        dir_ok  = "O" if res["director"]     else "-"
+        date_ok   = "O" if res["release_date"] else "-"
+        dir_ok    = "O" if res["director"]     else "-"
+        smry_ok   = "O" if res["smry"]         else "-"
+        snm_ok    = "O" if res["series_nm"]    else "-"
+        rtm_ok    = "O" if res["disp_rtm"]     else "-"
         cached  = "(캐시)" if res["elapsed_sec"] < 0.1 else ""
         err     = f" ERR:{res['error'][:40]}" if res["error"] else ""
         print(f"[{i:3d}/100] {res['asset_nm'][:22]:22s} "
               f"cast={cast_ok} rate={rate_ok} date={date_ok} dir={dir_ok} "
+              f"smry={smry_ok} snm={snm_ok} rtm={rtm_ok} "
               f"{res['elapsed_sec']:.1f}s{cached}{err}")
 
-    n       = len(results)
-    cast_ok = sum(1 for r in results if r["cast_lead"])
-    rate_ok = sum(1 for r in results if r["rating"])
-    date_ok = sum(1 for r in results if r["release_date"])
-    dir_ok  = sum(1 for r in results if r["director"])
-    avg_sec = sum(r["elapsed_sec"] for r in results) / n
-    variety = sum(1 for r in results if r["is_variety"])
-    errors  = sum(1 for r in results if r["error"])
+    n        = len(results)
+    cast_ok  = sum(1 for r in results if r["cast_lead"])
+    rate_ok  = sum(1 for r in results if r["rating"])
+    date_ok  = sum(1 for r in results if r["release_date"])
+    dir_ok   = sum(1 for r in results if r["director"])
+    smry_ok  = sum(1 for r in results if r["smry"])
+    snm_ok   = sum(1 for r in results if r["series_nm"])
+    rtm_ok   = sum(1 for r in results if r["disp_rtm"])
+    avg_sec  = sum(r["elapsed_sec"] for r in results) / n
+    variety  = sum(1 for r in results if r["is_variety"])
+    errors   = sum(1 for r in results if r["error"])
 
     summary = {
-        "approach":           "B_v3",
-        "description":        "TMDB 시리즈 캐시 + ct_cl 분기 (임베딩/LLM 없음)",
-        "total":              n,
-        "cast_lead_found":    cast_ok,
-        "rating_found":       rate_ok,
-        "release_date_found": date_ok,
-        "director_found":     dir_ok,
-        "cast_lead_rate":     round(cast_ok / n, 3),
-        "rating_rate":        round(rate_ok / n, 3),
-        "release_date_rate":  round(date_ok / n, 3),
-        "director_rate":      round(dir_ok / n, 3),
-        "avg_elapsed_sec":    round(avg_sec, 2),
-        "variety_count":      variety,
-        "errors":             errors,
-        "cache_stats":        _cache.stats(),
+        "approach":            "B_v5",
+        "description":         "TMDB 시리즈 캐시 + ct_cl 분기 (임베딩/LLM 없음)",
+        "total":               n,
+        "cast_lead_found":     cast_ok,
+        "rating_found":        rate_ok,
+        "release_date_found":  date_ok,
+        "director_found":      dir_ok,
+        "smry_found":          smry_ok,
+        "series_nm_found":     snm_ok,
+        "disp_rtm_found":      rtm_ok,
+        "cast_lead_rate":      round(cast_ok / n, 3),
+        "rating_rate":         round(rate_ok / n, 3),
+        "release_date_rate":   round(date_ok / n, 3),
+        "director_rate":       round(dir_ok / n, 3),
+        "smry_rate":           round(smry_ok / n, 3),
+        "series_nm_rate":      round(snm_ok / n, 3),
+        "disp_rtm_rate":       round(rtm_ok / n, 3),
+        "avg_elapsed_sec":     round(avg_sec, 2),
+        "variety_count":       variety,
+        "errors":              errors,
+        "cache_stats":         _cache.stats(),
     }
 
     with open(OUTPUT_JSON, "w", encoding="utf-8") as f:
         json.dump({"summary": summary, "results": results}, f,
                   ensure_ascii=False, indent=2)
 
-    print(f"\n=== 접근법 B v3 완료 ===")
+    print(f"\n=== 접근법 B v5 완료 ===")
     print(f"cast_lead : {cast_ok}/{n} ({cast_ok/n*100:.1f}%)")
     print(f"rating    : {rate_ok}/{n} ({rate_ok/n*100:.1f}%)")
     print(f"release_dt: {date_ok}/{n} ({date_ok/n*100:.1f}%)")
     print(f"director  : {dir_ok}/{n} ({dir_ok/n*100:.1f}%)")
+    print(f"smry      : {smry_ok}/{n} ({smry_ok/n*100:.1f}%)")
+    print(f"series_nm : {snm_ok}/{n} ({snm_ok/n*100:.1f}%)")
+    print(f"disp_rtm  : {rtm_ok}/{n} ({rtm_ok/n*100:.1f}%)")
     print(f"평균 시간  : {avg_sec:.2f}초/건")
     print(f"예능(게스트 Step2 대상): {variety}건")
     print(f"{_cache.stats()}")
