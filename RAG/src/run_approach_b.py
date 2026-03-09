@@ -59,6 +59,15 @@ _KMDB_VALID_RATINGS = {
     "전체관람가", "12세이상관람가", "15세이상관람가",
     "18세이상관람가", "청소년관람불가",
 }
+# KMDB 반환값 → validation 표준 등급 변환
+# 출처: 영화상세정보API.txt 출력값 21번 rating 샘플
+_KMDB_RATING_MAP = {
+    "전체관람가":   "전체관람가",
+    "12세관람가":   "12세이상관람가",
+    "15세관람가":   "15세이상관람가",
+    "18세관람가":   "18세이상관람가",
+    "청소년관람불가": "청소년관람불가",
+}
 
 # ─────────────────────────────────────────
 # 국가별 등급 → 한국 등급 변환 테이블
@@ -445,8 +454,8 @@ def _kmdb_search(series: str) -> Optional[dict]:
         r = requests.get(
             _KMDB_URL,
             params={
-                "collection": "kmdb_all", "query": series,
-                "detail": "Y", "ServiceKey": KMDB_API_KEY, "listCount": 1,
+                "collection": "kmdb_new2", "query": series,
+                "detail": "Y", "ServiceKey": KMDB_API_KEY, "listCount": 3,
             },
             headers=_HEADERS, timeout=REQUEST_TIMEOUT,
         )
@@ -478,8 +487,9 @@ def _parse_kmdb(item: dict) -> dict:
         if validate_date(date_str):
             out["release_date"] = date_str
     rating_raw = item.get("rating", "").strip()
-    if rating_raw in _KMDB_VALID_RATINGS:
-        out["rating"] = rating_raw
+    mapped_rating = _KMDB_RATING_MAP.get(rating_raw, rating_raw)
+    if mapped_rating in _KMDB_VALID_RATINGS:
+        out["rating"] = mapped_rating
     return out
 
 
