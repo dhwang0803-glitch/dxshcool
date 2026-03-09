@@ -10,8 +10,9 @@ from typing import List
 # ─────────────────────────────────────────
 
 VALID_RATINGS = {
-    # 한국
-    '전체관람가', '12세이상관람가', '15세이상관람가', '18세이상관람가', '청소년관람불가',
+    # 한국 (KMRB 공식)
+    '전체관람가', '7세이상관람가', '12세이상관람가', '14세이상관람가',
+    '15세이상관람가', '18세이상관람가', '청소년관람불가',
     # 미국
     'G', 'PG', 'PG-13', 'R', 'NC-17',
 }
@@ -26,11 +27,27 @@ _SOURCE_BASE = {
 
 # 컬럼별 형식 패턴 (일치하면 +보너스)
 _COLUMN_PATTERN = {
-    'director':     re.compile(r'^[\w\s·\-]{2,30}$'),
-    'cast_lead':    re.compile(r'^[\w\s·\-]{2,30}$'),
+    'director':     re.compile(r'^[\w\s·\-]{2,40}$'),
+    'cast_lead':    re.compile(r'^[\w\s·\-]{2,40}$'),
     'rating':       None,   # VALID_RATINGS 집합으로 검증
     'release_date': re.compile(r'^\d{4}-\d{2}-\d{2}$'),
 }
+
+
+# ─────────────────────────────────────────
+# 이름 공통 검증 (감독/배우 공통)
+# ─────────────────────────────────────────
+
+def _validate_name(name: str) -> bool:
+    """이름 단위 유효성 — 한국어/영어/중국어 음차/숫자/공백/·-.' 허용 (2~40자)."""
+    if not name or not name.strip():
+        return False
+    name = name.strip()
+    if not (2 <= len(name) <= 40):
+        return False
+    if not re.match(r"^[\uAC00-\uD7A3\u4E00-\u9FFFa-zA-Z0-9\s·\-\.']+$", name):
+        return False
+    return True
 
 
 # ─────────────────────────────────────────
@@ -40,18 +57,9 @@ _COLUMN_PATTERN = {
 def validate_director(name: str) -> bool:
     """
     감독명 유효성 검증.
-    - 2~30자
-    - 한국어 / 영어 / 숫자 / 공백 / 점·하이픈 허용
+    - 2~40자, 한국어/영어/중국어 음차/숫자/공백/·-.' 허용
     """
-    if not name or not name.strip():
-        return False
-    name = name.strip()
-    if not (2 <= len(name) <= 30):
-        return False
-    # 한국어, 영문, 숫자, 공백, 특수(·-.) 허용
-    if not re.match(r'^[\uAC00-\uD7A3a-zA-Z0-9\s·\-\.]+$', name):
-        return False
-    return True
+    return _validate_name(name)
 
 
 # ─────────────────────────────────────────
@@ -61,14 +69,15 @@ def validate_director(name: str) -> bool:
 def validate_cast(names: List[str]) -> bool:
     """
     배우 리스트 유효성 검증.
-    - 1명 이상 3명 이하
-    - 각 이름은 validate_director 기준 동일
+    - 1명 이상 5명 이하 (중국/일본 드라마 등 다수 출연진 허용)
+    - 한국어·영어·중국어 음차 이름 모두 허용
+    - 각 이름: 2~40자, 한글/영문/숫자/공백/·-. 허용
     """
     if not names or not isinstance(names, list):
         return False
-    if not (1 <= len(names) <= 3):
+    if not (1 <= len(names) <= 5):
         return False
-    return all(validate_director(n) for n in names)
+    return all(_validate_name(n) for n in names)
 
 
 # ─────────────────────────────────────────
