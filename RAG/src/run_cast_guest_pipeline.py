@@ -52,10 +52,33 @@ def _fetch_cast_guest_tmdb(series: str, tmdb_id: int, media_type: str) -> Option
         return None
 
 
+def _load_variety_series() -> set:
+    """DB에서 TV 연예/오락 시리즈명 목록 로드 — Stage 1 제외 대상."""
+    import psycopg2
+    conn = psycopg2.connect(
+        host=os.getenv("DB_HOST"), port=int(os.getenv("DB_PORT", "5432")),
+        dbname=os.getenv("DB_NAME"), user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD"),
+    )
+    cur = conn.cursor()
+    cur.execute("SELECT DISTINCT asset_nm FROM vod WHERE ct_cl = 'TV 연예/오락'")
+    asset_nms = {row[0] for row in cur.fetchall()}
+    cur.close()
+    conn.close()
+    # asset_nm → series_nm 변환 (run_approach_b._series_name 사용)
+    return {rab._series_name(nm) for nm in asset_nms}
+
+
 def run_stage1_tmdb_guest(cache: dict) -> dict:
-    """series_cache의 tmdb_id가 있는 시리즈에서 cast_guest 추출."""
-    todo = {s: d for s, d in cache.items() if d.get("tmdb_id")}
-    print(f"\nStage 1 (TMDB cast_guest): {len(todo):,}개 시리즈 조회")
+    """series_cache의 tmdb_id가 있는 시리즈에서 cast_guest 추출.
+    TV 연예/오락은 에피소드별 게스트가 다르므로 Stage 1 제외 → Stage 2(smry)에서 처리.
+    """
+    variety_series = _load_variety_series()
+    todo = {s: d for s, d in cache.items()
+            if d.get("tmdb_id") and s not in variety_series}
+    excluded = sum(1 for s in cache if s in variety_series)
+    print(f"\nStage 1 (TMDB cast_guest): {len(todo):,}개 시리즈 조회"
+          f" (TV 연예/오락 {excluded:,}개 제외 → Stage 2 smry 처리)")
 
     guest_map: dict = {}
     lock = threading.Lock()
@@ -305,13 +328,15 @@ def run_stage3_update_db(
 
     for full_asset_id, asset_nm, ct_cl in tqdm(rows, desc="DB-UPDATE", unit="건",
                                                  dynamic_ncols=True):
-        # Stage 2(smry) 우선
-        guests = smry_guest_map.get(full_asset_id)
-
-        # Stage 1(TMDB) fallback
-        if not guests:
-            series = rab._series_name(asset_nm)
-            guests = series_guest_map.get(series)
+        # TV 연예/오락: Stage 2(smry) 결과만 사용 — 에피소드별 게스트가 다르므로 시리즈 캐시 사용 금지
+        if ct_cl == "TV 연예/오락":
+            guests = smry_guest_map.get(full_asset_id)
+        else:
+            # 그 외: Stage 2(smry) 우선, Stage 1(TMDB) fallback
+            guests = smry_guest_map.get(full_asset_id)
+            if not guests:
+                series = rab._series_name(asset_nm)
+                guests = series_guest_map.get(series)
 
         if not guests:
             continue
