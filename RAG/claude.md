@@ -490,6 +490,59 @@ rag_pipeline.py, validation.py, monitoring.py
 
 ---
 
+## 🔒 보안 감사 규칙 (MANDATORY)
+
+### Pre-commit 필수 보안 점검
+
+**Claude Code는 git commit 또는 파일 수정 전 반드시 아래 항목을 검증해야 한다.**
+
+#### 1. 하드코딩된 자격증명 금지
+```python
+# ❌ 절대 금지 — 실제 API 키/비밀번호 직접 기입
+TMDB_API_KEY = "abcd1234..."
+DB_PASSWORD = "mysecret"
+
+# ✅ 올바른 방식 — 환경변수에서 로드
+TMDB_API_KEY = os.getenv("TMDB_API_KEY", "")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+```
+
+#### 2. os.getenv() 기본값에 실제 인프라 정보 금지
+```python
+# ❌ 절대 금지 — 기본값에 실제 서버 IP, DB명, 사용자명 노출
+host=os.getenv("DB_HOST", "10.0.0.1")   # 실제 IP 노출
+dbname=os.getenv("DB_NAME", "prod_db")   # 실제 DB명 노출
+user=os.getenv("DB_USER", "dbadmin")          # 실제 사용자명 노출
+
+# ✅ 올바른 방식 — 기본값 없이 None 반환
+host=os.getenv("DB_HOST")
+dbname=os.getenv("DB_NAME")
+user=os.getenv("DB_USER")
+# 단, 공개 표준 포트는 허용
+port=int(os.getenv("DB_PORT", "5432"))
+```
+
+#### 3. 비밀 파일 .gitignore 확인
+- `.env` 파일: `.gitignore`에 반드시 포함
+- `RAG/config/api_keys.env`: `.gitignore`에 포함 (`.env.example`만 추적)
+- `*.pem`, `*.key`, `credentials.json` 류: `.gitignore`에 포함
+
+#### 4. 로그/컨텍스트에 비밀 노출 금지
+- 실제 API 키, DB 패스워드, IP 주소는 응답/로그에 출력하지 않음
+- `.env` 파일 내용 전체를 출력하거나 context에 포함하지 않음
+
+#### 5. Claude Code 적용 절차
+```
+파일 수정/생성 시 →
+  Grep으로 "os.getenv.*," 패턴 스캔 →
+    기본값에 실제 인프라 정보 있으면 즉시 제거 →
+      commit 전 보안 점검 결과 명시적으로 보고
+```
+
+**위반 시**: 커밋 중단, 즉시 수정 후 재커밋
+
+---
+
 ## 🚀 Claude Code 활용 팁
 
 ### API 통합

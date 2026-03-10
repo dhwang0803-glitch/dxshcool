@@ -319,11 +319,11 @@ def load_rows_csv() -> List[dict]:
 def load_rows_db() -> List[dict]:
     import psycopg2
     conn = psycopg2.connect(
-        host=os.getenv("DB_HOST", "10.0.0.1"),
+        host=os.getenv("DB_HOST"),
         port=int(os.getenv("DB_PORT", "5432")),
-        dbname=os.getenv("DB_NAME", "prod_db"),
-        user=os.getenv("DB_USER", "dbadmin"),
-        password=os.getenv("DB_PASSWORD", ""),
+        dbname=os.getenv("DB_NAME"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD"),
     )
     cur = conn.cursor()
     cur.execute("""
@@ -360,11 +360,11 @@ _DB_COLUMN_MAP = {
 def update_db(batch_size: int = 500) -> int:
     import psycopg2
     conn = psycopg2.connect(
-        host=os.getenv("DB_HOST", "10.0.0.1"),
+        host=os.getenv("DB_HOST"),
         port=int(os.getenv("DB_PORT", "5432")),
-        dbname=os.getenv("DB_NAME", "prod_db"),
-        user=os.getenv("DB_USER", "dbadmin"),
-        password=os.getenv("DB_PASSWORD", ""),
+        dbname=os.getenv("DB_NAME"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD"),
     )
     cur = conn.cursor()
     updated = 0
