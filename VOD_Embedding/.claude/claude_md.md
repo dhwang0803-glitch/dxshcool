@@ -102,9 +102,45 @@ Database_Design/
 
 ---
 
+## 팀원 협업 — 분산 임베딩 규칙
+
+### 출력 포맷 (DB 쓰기 권한 없는 팀원)
+- 팀원은 `--output parquet` 플래그로 실행 → `.parquet` 파일 제출
+- pkl 모드(`--output pkl`, 기본값)는 오너 전용 (DB 직접 적재)
+- 코드 수정 없이 플래그만 변경
+
+### 임베딩 컬럼 규칙
+- `embedding` 컬럼 타입: **float32 리스트** (float64 변환 금지 — 메모리 2배)
+- 차원: **반드시 512** (CLIP ViT-B/32 고정)
+- `vod_id`: vod 테이블의 `vod_id_fk`와 동일한 문자열 그대로 사용
+
+### 코드에서 반드시 지켜야 할 것
+- `save_parquet()` 함수 내 검증 3개는 절대 제거하지 말 것:
+  1. `len(embedding) == 512` — 차원 검증
+  2. `vod_id` 중복 없음
+  3. NULL 없음 (assert 이전 단계에서 `check_vector_quality` 통과한 것만 저장됨)
+- `get_video_embedding()` 반환값은 항상 `.astype(np.float32)` 유지
+
+### migration (오너 전용)
+팀원 parquet 수령 후 아래 코드로 DB 적재:
+```python
+import pandas as pd, psycopg2
+from psycopg2.extras import execute_values
+
+df = pd.read_parquet("embeddings_홍길동.parquet")
+rows = [(r["vod_id"], r["embedding"]) for _, r in df.iterrows()]
+execute_values(cur,
+    "INSERT INTO vod_embedding (vod_id_fk, embedding) VALUES %s "
+    "ON CONFLICT (vod_id_fk) DO UPDATE SET embedding = EXCLUDED.embedding",
+    rows, template="(%s, %s::vector)")
+```
+
+---
+
 ## 참조 문서
 
 - `Database_Design/plans/PLAN_04_EXTENSION_TABLES.md` — vod_embedding 스키마 설계
 - `Database_Design/schema/create_embedding_tables.sql` — DDL
 - `docs/COLLABORATION.md` — 전체 팀 역할 분담
 - `VOD_Embedding/plans/PLAN_00_MASTER.md` — 이 브랜치 전체 계획
+- `VOD_Embedding/README.md` — 팀원 온보딩 가이드

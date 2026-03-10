@@ -1,12 +1,15 @@
 """
 PLAN_02: CLIP 배치 임베딩
-trailers/*.webm → CLIP ViT-B/32 → data/video_embs_batch_*.pkl
+trailers/*.webm → CLIP ViT-B/32 → data/video_embs_batch_*.pkl (기본)
+                                 → embeddings_output.parquet   (팀원 협업용)
 
 실행:
     conda activate myenv
-    python pipeline/batch_embed.py
+    python pipeline/batch_embed.py                          # pkl 모드 (DB 직접 적재용)
     python pipeline/batch_embed.py --start-batch 3
     python pipeline/batch_embed.py --status
+    python pipeline/batch_embed.py --output parquet         # 팀원 제출용
+    python pipeline/batch_embed.py --output parquet --out-file embeddings_홍길동.parquet
 """
 
 import sys
@@ -160,6 +163,28 @@ def save_batch(batch_data: list, batch_num: int) -> str:
     return filename
 
 
+def save_parquet(results: list, out_file: str):
+    """임베딩 결과를 parquet으로 저장 (팀원 제출용).
+
+    출력 컬럼:
+        vod_id    (str)          — DB vod_id_fk 와 동일
+        embedding (list[float32]) — 512차원 벡터
+    """
+    import pandas as pd
+
+    rows = [{"vod_id": r["vod_id"], "embedding": r["vector"].tolist()} for r in results]
+    df = pd.DataFrame(rows)
+
+    # 검증
+    assert df["embedding"].apply(len).eq(512).all(), "512차원 아닌 행 존재"
+    assert df["vod_id"].is_unique, "vod_id 중복 존재"
+
+    out_path = Path(out_file)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(out_path, index=False)
+    log.info(f"parquet 저장 완료: {out_path} ({len(df):,}건)")
+
+
 def already_embedded_vod_ids(status: dict) -> set:
     """완료된 배치 pkl에서 vod_id 목록 복원"""
     done_ids = set()
@@ -206,6 +231,10 @@ def main():
                         help='임베딩 완료 후 영상 파일 즉시 삭제 (디스크 절약)')
     parser.add_argument('--trailers-dir', type=str, default=str(DEFAULT_TRAILERS_DIR),
                         help=f'트레일러 경로 (기본: {DEFAULT_TRAILERS_DIR})')
+    parser.add_argument('--output', choices=['pkl', 'parquet'], default='pkl',
+                        help='출력 포맷: pkl(기본, DB 적재용) / parquet(팀원 제출용)')
+    parser.add_argument('--out-file', type=str, default='',
+                        help='parquet 출력 파일명 (기본: data/embeddings_output.parquet)')
     args = parser.parse_args()
     TRAILERS_DIR = Path(args.trailers_dir)
 
@@ -247,14 +276,17 @@ def main():
     model = load_clip_model()
     log.info("모델 로드 완료")
 
-    # 배치 번호 계산
+    use_parquet = (args.output == 'parquet')
+    parquet_results = [] if use_parquet else None
+
+    # pkl 모드: 배치 번호 계산 및 이어서 처리
     completed_batches = len(status.get("batches_completed", []))
     batch_num   = max(args.start_batch, completed_batches + 1)
     batch_data  = []
 
     for i, item in enumerate(work_list):
-        # end-batch 제한
-        if args.end_batch > 0 and batch_num > args.end_batch:
+        # end-batch 제한 (pkl 모드 전용)
+        if not use_parquet and args.end_batch > 0 and batch_num > args.end_batch:
             log.info(f"--end-batch {args.end_batch} 도달, 중단")
             break
 
@@ -267,14 +299,19 @@ def main():
             if not check_vector_quality(vec):
                 raise ValueError(f"이상 벡터 (magnitude={float(np.linalg.norm(vec)):.4f})")
 
-            batch_data.append({
+            record = {
                 "vod_id":       vod_id,
                 "title":        item["title"],
                 "video_file":   item["filename"],
                 "vector":       vec,
                 "magnitude":    float(np.linalg.norm(vec)),
                 "embedded_at":  datetime.now().isoformat(),
-            })
+            }
+            if use_parquet:
+                parquet_results.append(record)
+            else:
+                batch_data.append(record)
+
             status["success"] = status.get("success", 0) + 1
             log.info(f"[{i+1}/{len(work_list)}] OK  {vod_id}")
             embed_ok = True
@@ -290,18 +327,23 @@ def main():
 
         status["processed"] = status.get("processed", 0) + 1
 
-        # 배치 저장
-        if len(batch_data) >= BATCH_SIZE:
+        # pkl 모드: 배치 단위 저장
+        if not use_parquet and len(batch_data) >= BATCH_SIZE:
             fname = save_batch(batch_data, batch_num)
             status.setdefault("batches_completed", []).append(fname)
             save_status(status)
             batch_data = []
             batch_num  += 1
 
-    # 남은 항목 저장
-    if batch_data:
+    # pkl 모드: 남은 항목 저장
+    if not use_parquet and batch_data:
         fname = save_batch(batch_data, batch_num)
         status.setdefault("batches_completed", []).append(fname)
+
+    # parquet 모드: 전체 결과 한 번에 저장
+    if use_parquet and parquet_results:
+        out_file = args.out_file or str(DATA_DIR / "embeddings_output.parquet")
+        save_parquet(parquet_results, out_file)
 
     save_status(status)
     print_status(status)
