@@ -495,6 +495,13 @@ def _extract_cast(detail: dict) -> Optional[List[str]]:
     return valid if valid else None
 
 
+def _extract_cast_guest(detail: dict) -> Optional[List[str]]:
+    """TMDB credits 5~8번째 출연진 → cast_guest."""
+    cast = [c["name"] for c in detail.get("credits", {}).get("cast", [])[4:8]]
+    valid = [n for n in cast if validate_director(n)]
+    return valid if valid else None
+
+
 def _extract_director(detail: dict) -> Optional[str]:
     media_type = detail.get("_media_type", "movie")
     crew = detail.get("credits", {}).get("crew", [])
