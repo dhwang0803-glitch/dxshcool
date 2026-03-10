@@ -292,28 +292,22 @@ def _series_name(title: str) -> str:
     return t if t else title.strip()
 
 
-def _ko_single_space_variants(s: str) -> list:
-    """한글-한글 경계마다 공백을 하나씩 삽입한 변형 목록.
-    예: 명탐정코난 → ['명 탐정코난', '명탐 정코난', '명탐정 코난', '명탐정코 난']
-    TMDB 검색 API가 공백 없는 한글을 인식 못할 때 대안 쿼리로 사용.
+def _core_queries(series: str, original: str) -> list:
+    """핵심 쿼리 목록 — 최대 3개로 제한 (160k 대량 처리 최적화).
+
+    제거된 항목:
+    - space_variants: 10글자 한글 → 최대 9개 변형 쿼리 생성. 그러나 _title_similarity()가
+      이미 공백 제거 후 비교하므로 검색 결과 품질 개선 효과 미미.
+      TMDB 미등록 콘텐츠(~25%)에서 26회 HTTP를 소비하는 주 원인.
+    - spaced(숫자-한글 공백): series에 이미 포함되거나 no_sub로 커버됨.
+
+    유지된 항목:
+    - series:  시리즈명 (에피소드 제거 후)
+    - no_sub:  서브타이틀 제거 (': ', '- ')
+    - original: 원본 타이틀 (series와 다를 때만 추가)
     """
-    variants = []
-    for i in range(1, len(s)):
-        if '\uAC00' <= s[i - 1] <= '\uD7A3' and '\uAC00' <= s[i] <= '\uD7A3':
-            variants.append(s[:i] + ' ' + s[i:])
-    return variants
-
-
-def _build_queries(series: str, original: str) -> list:
-    """검색 쿼리 변형 목록 (중복 제거, 순서 유지)."""
-    # 숫자-한글 사이 공백
-    spaced = re.sub(r'([가-힣A-Za-z])(\d)', r'\1 \2', series)
-    # 서브제목 제거: ': X', '- X', ' with X'
     no_sub = re.split(r'\s*(?:[:\-]|with\s)', series, maxsplit=1)[0].strip()
-    # 한글 붙여쓰기 → 단일 공백 삽입 변형 (TMDB가 공백 없는 한글을 못 찾을 때)
-    space_variants = _ko_single_space_variants(series)
-    base = [series, spaced, no_sub] + space_variants + [original]
-    return list(dict.fromkeys(q for q in base if q))
+    return list(dict.fromkeys(q for q in [series, no_sub, original] if q))
 
 
 def _title_similarity(a: str, b: str) -> float:
@@ -349,39 +343,68 @@ def _tmdb_params(extra: dict = None) -> dict:
 
 
 def _tmdb_search(series: str, original: str, prefer_movie: bool = False) -> Optional[dict]:
-    """TMDB search/multi → 최고 유사도 결과. ko-KR → en-US 순."""
+    """TMDB search/multi → 최고 유사도 결과.
+
+    2단계 쿼리 전략 (HTTP 호출 최소화):
+      Phase 1: 핵심 쿼리 최대 3개 × ko-KR/en-US
+               첫 sim > 0.3 즉시 반환 → 히트 케이스 1-2회 HTTP
+      Phase 2: 핵심 쿼리 전부 실패 시에만 — 한글 붙여쓰기 변형 최대 3개(ko-KR)
+               균등 분할(n//4, n//2, 3n//4) → 최악 케이스 6+3=9회 HTTP
+               (기존 _build_queries: 최악 26회 → 65% 감소)
+
+    Phase 2 적용 조건:
+      - 4글자 이상 순수 한글 제목 (공백 없음)
+      - 예: "명탐정코난" → "명 탐정코난", "명탐정 코난", "명탐정코 난"
+    """
     want_type = "movie" if prefer_movie else "tv"
-    for lang in ["ko-KR", "en-US"]:
-        for query in _build_queries(series, original):
-            try:
-                with _sem_tmdb:
-                    r = requests.get(
-                        f"{_TMDB_URL}/search/multi",
-                        params=_tmdb_params({"query": query, "language": lang, "page": 1}),
-                        headers=_tmdb_headers(),
-                        timeout=REQUEST_TIMEOUT,
-                    )
-                results = r.json().get("results", [])
+    queries = _core_queries(series, original)
 
-                # 원하는 타입 우선, 없으면 다른 타입도 허용
-                candidates = [i for i in results if i.get("media_type") == want_type]
-                if not candidates:
-                    candidates = [i for i in results if i.get("media_type") in ("movie", "tv")]
-                if not candidates:
-                    continue
+    def _try_query(query: str, lang: str) -> Optional[dict]:
+        try:
+            with _sem_tmdb:
+                r = requests.get(
+                    f"{_TMDB_URL}/search/multi",
+                    params=_tmdb_params({"query": query, "language": lang, "page": 1}),
+                    headers=_tmdb_headers(),
+                    timeout=REQUEST_TIMEOUT,
+                )
+            results = r.json().get("results", [])
+            candidates = [i for i in results if i.get("media_type") == want_type]
+            if not candidates:
+                candidates = [i for i in results if i.get("media_type") in ("movie", "tv")]
+            if not candidates:
+                return None
+            # 클로저 캡처 버그 방지: q를 기본값으로 바인딩
+            def _sim(item: dict, q: str = query) -> float:
+                names = [
+                    item.get("title") or "", item.get("name") or "",
+                    item.get("original_title") or "", item.get("original_name") or "",
+                ]
+                return max((_title_similarity(q, n) for n in names if n), default=0.0)
+            best = max(candidates, key=_sim)
+            return best if _sim(best) > 0.3 else None
+        except Exception:
+            return None
 
-                def _sim(item: dict) -> float:
-                    names = [
-                        item.get("title") or "", item.get("name") or "",
-                        item.get("original_title") or "", item.get("original_name") or "",
-                    ]
-                    return max((_title_similarity(query, n) for n in names if n), default=0.0)
+    # Phase 1: 핵심 쿼리 (ko-KR → en-US)
+    for lang in ("ko-KR", "en-US"):
+        for query in queries:
+            result = _try_query(query, lang)
+            if result:
+                return result
 
-                best = max(candidates, key=_sim)
-                if _sim(best) > 0.3:
-                    return best
-            except Exception:
-                continue
+    # Phase 2: 한글 붙여쓰기 변형 (Phase 1 전부 실패 시에만)
+    # 4글자 이상 순수 한글 제목에서 균등 분할 3곳만 시도
+    _HAN = ('\uAC00', '\uD7A3')
+    if len(series) >= 4 and ' ' not in series and all(_HAN[0] <= c <= _HAN[1] for c in series):
+        n = len(series)
+        positions = sorted({n // 4, n // 2, 3 * n // 4} & set(range(1, n)))
+        for pos in positions:
+            variant = series[:pos] + ' ' + series[pos:]
+            result = _try_query(variant, "ko-KR")
+            if result:
+                return result
+
     return None
 
 
@@ -556,7 +579,7 @@ def _kmdb_search(series: str) -> Optional[dict]:
                 _KMDB_URL,
                 params={
                     "collection": "kmdb_new2", "query": series,
-                    "detail": "Y", "ServiceKey": KMDB_API_KEY, "listCount": 3,
+                    "detail": "Y", "ServiceKey": KMDB_API_KEY, "listCount": 1,
                 },
                 headers=_HEADERS, timeout=REQUEST_TIMEOUT,
             )
