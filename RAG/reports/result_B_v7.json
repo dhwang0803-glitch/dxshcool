@@ -1,24 +1,23 @@
 {
   "summary": {
-    "approach": "B_v8",
-    "description": "TMDB 시리즈 캐시 + ct_cl 분기 + KMDB/JW/DATA_GO + ThreadPoolExecutor",
+    "approach": "B_v5",
+    "description": "TMDB 시리즈 캐시 + ct_cl 분기 (임베딩/LLM 없음)",
     "total": 100,
-    "max_workers": 30,
-    "cast_lead_found": 81,
-    "rating_found": 67,
+    "cast_lead_found": 72,
+    "rating_found": 60,
     "release_date_found": 76,
-    "director_found": 68,
-    "smry_found": 84,
-    "series_nm_found": 74,
-    "disp_rtm_found": 80,
-    "cast_lead_rate": 0.81,
-    "rating_rate": 0.67,
+    "director_found": 57,
+    "smry_found": 74,
+    "series_nm_found": 75,
+    "disp_rtm_found": 69,
+    "cast_lead_rate": 0.72,
+    "rating_rate": 0.6,
     "release_date_rate": 0.76,
-    "director_rate": 0.68,
-    "smry_rate": 0.84,
-    "series_nm_rate": 0.74,
-    "disp_rtm_rate": 0.8,
-    "avg_elapsed_sec": 26.61,
+    "director_rate": 0.57,
+    "smry_rate": 0.74,
+    "series_nm_rate": 0.75,
+    "disp_rtm_rate": 0.69,
+    "avg_elapsed_sec": 6.01,
     "variety_count": 12,
     "errors": 0,
     "cache_stats": "캐시 히트 2/100건 (2%)"
@@ -46,7 +45,7 @@
       "tmdb_id": 108124,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 11.83,
+      "elapsed_sec": 1.88,
       "error": null
     },
     {
@@ -71,7 +70,7 @@
       "tmdb_id": 110723,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 14.36,
+      "elapsed_sec": 1.77,
       "error": null
     },
     {
@@ -96,7 +95,7 @@
       "tmdb_id": 75387,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 5.34,
+      "elapsed_sec": 1.76,
       "error": null
     },
     {
@@ -121,7 +120,7 @@
       "tmdb_id": 117549,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 37.09,
+      "elapsed_sec": 3.25,
       "error": null
     },
     {
@@ -146,7 +145,7 @@
       "tmdb_id": 62411,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 51.51,
+      "elapsed_sec": 5.67,
       "error": null
     },
     {
@@ -171,7 +170,7 @@
       "tmdb_id": 197891,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 21.81,
+      "elapsed_sec": 4.06,
       "error": null
     },
     {
@@ -179,24 +178,24 @@
       "asset_nm": "평일 오후 세시의 연인 프리뷰 02회",
       "ct_cl": "TV드라마",
       "genre": "드라마",
-      "cast_lead": "[\"Lee Sang-yeob\", \"Park Ha-seon\", \"Ye Ji-won\", \"Cho Dong-hyuk\"]",
-      "rating": "15세이상관람가",
+      "cast_lead": null,
+      "rating": null,
       "release_date": null,
-      "director": "Kim Jung-min",
-      "smry": "불륜을 혐오하던 여자는 그토록 경멸하던 끔찍한 불륜에 빠지고 불륜을 스포츠처럼 즐기던 여자는 예상치 못한 지독한 사랑에 빠진다. 금기된 사랑으로 인해 혹독한 홍역을 겪는 어른들의 성장 드라마.",
+      "director": null,
+      "smry": null,
       "series_nm": null,
-      "disp_rtm": "01:03",
-      "cast_lead_source": "JustWatch",
-      "rating_source": "JustWatch",
+      "disp_rtm": null,
+      "cast_lead_source": null,
+      "rating_source": null,
       "release_date_source": null,
-      "director_source": "JustWatch",
-      "smry_source": "JustWatch",
+      "director_source": null,
+      "smry_source": null,
       "series_nm_source": null,
-      "disp_rtm_source": "JustWatch",
+      "disp_rtm_source": null,
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 30.2,
+      "elapsed_sec": 17.15,
       "error": null
     },
     {
@@ -221,7 +220,7 @@
       "tmdb_id": 63692,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 20.5,
+      "elapsed_sec": 3.12,
       "error": null
     },
     {
@@ -246,7 +245,7 @@
       "tmdb_id": 129582,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 68.7,
+      "elapsed_sec": 7.25,
       "error": null
     },
     {
@@ -271,7 +270,7 @@
       "tmdb_id": 115548,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 17.13,
+      "elapsed_sec": 3.23,
       "error": null
     },
     {
@@ -296,7 +295,7 @@
       "tmdb_id": 84448,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 9.93,
+      "elapsed_sec": 1.88,
       "error": null
     },
     {
@@ -321,7 +320,7 @@
       "tmdb_id": 157638,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 12.93,
+      "elapsed_sec": 1.74,
       "error": null
     },
     {
@@ -346,7 +345,7 @@
       "tmdb_id": 128958,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 14.71,
+      "elapsed_sec": 1.99,
       "error": null
     },
     {
@@ -371,7 +370,7 @@
       "tmdb_id": 83940,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 12.81,
+      "elapsed_sec": 1.7,
       "error": null
     },
     {
@@ -379,24 +378,24 @@
       "asset_nm": "내손을잡아 104회",
       "ct_cl": "TV드라마",
       "genre": "드라마",
-      "cast_lead": "[\"Park Si-eun\", \"Jin Tae-hyeon\", \"Bae Geu-rin\", \"Lee Jae-hwang\"]",
-      "rating": "15세이상관람가",
+      "cast_lead": "[\"박호용\"]",
+      "rating": "전체관람가",
       "release_date": null,
-      "director": "Lee Gye-joon",
-      "smry": "어머니를 죽인 살인자라는 누명을 쓰고 모든 것을 빼앗긴 한 여자가 현실과 당당하게 싸우면서 진실과 행복을 찾아가는 이야기",
+      "director": "박호용",
+      "smry": null,
       "series_nm": null,
-      "disp_rtm": "00:32",
-      "cast_lead_source": "JustWatch",
-      "rating_source": "JustWatch",
+      "disp_rtm": "00:03",
+      "cast_lead_source": "DATA_GO",
+      "rating_source": "DATA_GO",
       "release_date_source": null,
-      "director_source": "JustWatch",
-      "smry_source": "JustWatch",
+      "director_source": "DATA_GO",
+      "smry_source": null,
       "series_nm_source": null,
-      "disp_rtm_source": "JustWatch",
+      "disp_rtm_source": "DATA_GO",
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 54.46,
+      "elapsed_sec": 11.95,
       "error": null
     },
     {
@@ -421,7 +420,7 @@
       "tmdb_id": 87164,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 14.71,
+      "elapsed_sec": 1.69,
       "error": null
     },
     {
@@ -446,7 +445,7 @@
       "tmdb_id": 26117,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 30.33,
+      "elapsed_sec": 2.96,
       "error": null
     },
     {
@@ -471,7 +470,7 @@
       "tmdb_id": 85413,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 7.97,
+      "elapsed_sec": 1.69,
       "error": null
     },
     {
@@ -479,24 +478,24 @@
       "asset_nm": "팬 암 1 14회.",
       "ct_cl": "TV드라마",
       "genre": "외화 시리즈",
-      "cast_lead": "[\"Christina Ricci\", \"Margot Robbie\", \"Karine Vanasse\", \"Kelli Garner\"]",
+      "cast_lead": null,
       "rating": null,
       "release_date": null,
-      "director": "John David Coles",
-      "smry": "1960년대, 호황기의 미국 최대 항공사였던 팬 암. 화려하고 럭셔리한 비행기 그리고 인기 스타인 조종사들과 승무원들이 있는 팬 암 항공사의 이야기가 펼쳐진다.",
+      "director": null,
+      "smry": null,
       "series_nm": null,
-      "disp_rtm": "00:42",
-      "cast_lead_source": "JustWatch",
+      "disp_rtm": null,
+      "cast_lead_source": null,
       "rating_source": null,
       "release_date_source": null,
-      "director_source": "JustWatch",
-      "smry_source": "JustWatch",
+      "director_source": null,
+      "smry_source": null,
       "series_nm_source": null,
-      "disp_rtm_source": "JustWatch",
+      "disp_rtm_source": null,
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 40.92,
+      "elapsed_sec": 5.16,
       "error": null
     },
     {
@@ -521,7 +520,7 @@
       "tmdb_id": 153375,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 39.36,
+      "elapsed_sec": 4.17,
       "error": null
     },
     {
@@ -546,7 +545,7 @@
       "tmdb_id": 64532,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 8.93,
+      "elapsed_sec": 1.77,
       "error": null
     },
     {
@@ -571,7 +570,7 @@
       "tmdb_id": 790,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 9.23,
+      "elapsed_sec": 1.95,
       "error": null
     },
     {
@@ -596,7 +595,7 @@
       "tmdb_id": 3824,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 20.6,
+      "elapsed_sec": 1.98,
       "error": null
     },
     {
@@ -605,23 +604,23 @@
       "ct_cl": "TV드라마",
       "genre": "드라마",
       "cast_lead": "[\"이수경\", \"진태현\", \"하연주\", \"김진우\"]",
-      "rating": "15세이상관람가",
+      "rating": null,
       "release_date": "2019-01-02",
       "director": "Kim Myung-wook",
-      "smry": "충격적인 사고로 다른 사람의 인생을 살게 된 남자와 신혼여행지에서 사라진 남편을 찾아 헤매는 여자, 뒤엉킨 욕망 속에서 두 남녀가 자신들의 진짜 사랑과 가족을 찾아가는 반전 멜로 드라마",
+      "smry": null,
       "series_nm": "왼손잡이 아내",
       "disp_rtm": "00:35",
-      "cast_lead_source": "TMDB+JW",
-      "rating_source": "TMDB+JW",
-      "release_date_source": "TMDB+JW",
-      "director_source": "TMDB+JW",
-      "smry_source": "TMDB+JW",
-      "series_nm_source": "TMDB+JW",
-      "disp_rtm_source": "TMDB+JW",
+      "cast_lead_source": "TMDB",
+      "rating_source": null,
+      "release_date_source": "TMDB",
+      "director_source": "TMDB",
+      "smry_source": null,
+      "series_nm_source": "TMDB",
+      "disp_rtm_source": "TMDB",
       "tmdb_id": 85412,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 20.94,
+      "elapsed_sec": 3.33,
       "error": null
     },
     {
@@ -646,7 +645,7 @@
       "tmdb_id": 128883,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 15.06,
+      "elapsed_sec": 1.66,
       "error": null
     },
     {
@@ -660,18 +659,18 @@
       "director": null,
       "smry": "소청이 뇌봉탑에 갇힌 언니 백사를 구하기 위해 옥황상제의 보물 정병을 훔치자 정병을 지키던 연화동자 나타는 인간계로 쫓겨난다. 한편 항주성 명문가인 포가에서는 막 태어난 아기 포인이 항주성에 재난을 가져올 재앙이니 죽여야 한다는 예언을 듣게 되는데…",
       "series_nm": "백사후전",
-      "disp_rtm": "00:45",
-      "cast_lead_source": "TMDB+JW",
-      "rating_source": "TMDB+JW",
-      "release_date_source": "TMDB+JW",
+      "disp_rtm": null,
+      "cast_lead_source": "TMDB",
+      "rating_source": "TMDB",
+      "release_date_source": "TMDB",
       "director_source": null,
-      "smry_source": "TMDB+JW",
-      "series_nm_source": "TMDB+JW",
-      "disp_rtm_source": "TMDB+JW",
+      "smry_source": "TMDB",
+      "series_nm_source": "TMDB",
+      "disp_rtm_source": null,
       "tmdb_id": 119449,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 26.72,
+      "elapsed_sec": 4.52,
       "error": null
     },
     {
@@ -696,7 +695,7 @@
       "tmdb_id": 95216,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 24.96,
+      "elapsed_sec": 3.91,
       "error": null
     },
     {
@@ -721,7 +720,7 @@
       "tmdb_id": 61706,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 32.52,
+      "elapsed_sec": 4.73,
       "error": null
     },
     {
@@ -746,7 +745,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 43.13,
+      "elapsed_sec": 18.27,
       "error": null
     },
     {
@@ -760,18 +759,18 @@
       "director": "Siu-Kit Wong",
       "smry": "청나라 시대에 남자에게 순종해야 한다는 여자의 삶을 거부하고 스스로의 운명을 개척하면서 살아가는 이야기를 그린 드라마",
       "series_nm": "매괴강호",
-      "disp_rtm": "00:46",
-      "cast_lead_source": "TMDB+JW",
-      "rating_source": "TMDB+JW",
-      "release_date_source": "TMDB+JW",
-      "director_source": "TMDB+JW",
-      "smry_source": "TMDB+JW",
-      "series_nm_source": "TMDB+JW",
-      "disp_rtm_source": "TMDB+JW",
+      "disp_rtm": null,
+      "cast_lead_source": "TMDB",
+      "rating_source": "TMDB",
+      "release_date_source": "TMDB",
+      "director_source": "TMDB",
+      "smry_source": "TMDB",
+      "series_nm_source": "TMDB",
+      "disp_rtm_source": null,
       "tmdb_id": 206937,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 24.84,
+      "elapsed_sec": 4.44,
       "error": null
     },
     {
@@ -796,7 +795,7 @@
       "tmdb_id": 62915,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 31.14,
+      "elapsed_sec": 3.16,
       "error": null
     },
     {
@@ -810,18 +809,18 @@
       "director": "Kim Keun-Hong",
       "smry": "조선시대 명의 허준의 일대기를 다뤘던 인기 사극 '허준'을 리메이크한 드라마",
       "series_nm": "구암 허준",
-      "disp_rtm": "00:31",
-      "cast_lead_source": "TMDB+JW",
+      "disp_rtm": null,
+      "cast_lead_source": "TMDB",
       "rating_source": null,
-      "release_date_source": "TMDB+JW",
-      "director_source": "TMDB+JW",
-      "smry_source": "TMDB+JW",
-      "series_nm_source": "TMDB+JW",
-      "disp_rtm_source": "TMDB+JW",
+      "release_date_source": "TMDB",
+      "director_source": "TMDB",
+      "smry_source": "TMDB",
+      "series_nm_source": "TMDB",
+      "disp_rtm_source": null,
       "tmdb_id": 57788,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 64.81,
+      "elapsed_sec": 5.84,
       "error": null
     },
     {
@@ -846,7 +845,7 @@
       "tmdb_id": 135286,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 23.54,
+      "elapsed_sec": 3.06,
       "error": null
     },
     {
@@ -871,7 +870,7 @@
       "tmdb_id": 105748,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 11.6,
+      "elapsed_sec": 1.7,
       "error": null
     },
     {
@@ -896,7 +895,7 @@
       "tmdb_id": 130265,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 23.75,
+      "elapsed_sec": 1.6,
       "error": null
     },
     {
@@ -921,7 +920,7 @@
       "tmdb_id": 70957,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 18.1,
+      "elapsed_sec": 1.77,
       "error": null
     },
     {
@@ -946,7 +945,7 @@
       "tmdb_id": 259467,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 19.59,
+      "elapsed_sec": 2.66,
       "error": null
     },
     {
@@ -957,21 +956,21 @@
       "cast_lead": "[\"타카야마 미나미\", \"야마구치 캇페이\", \"야마자키 와카나\", \"카미야 아키라\"]",
       "rating": "15세이상관람가",
       "release_date": "1996-01-08",
-      "director": "Kojin Ochi",
+      "director": null,
       "smry": "검은 조직의 약물에 당해서 초등학생의 몸이 된 고등학생 쿠도 신이치가 에도가와 코난이라는 가명을 사용하여 소꿉친구인 란의 아버지가 운영하는 탐정사무소에서 얹혀 살며 사건을 해결하는 이야기를 다루고 있다.",
       "series_nm": "명탐정 코난",
       "disp_rtm": "00:25",
-      "cast_lead_source": "TMDB+JW",
-      "rating_source": "TMDB+JW",
-      "release_date_source": "TMDB+JW",
-      "director_source": "TMDB+JW",
-      "smry_source": "TMDB+JW",
-      "series_nm_source": "TMDB+JW",
-      "disp_rtm_source": "TMDB+JW",
+      "cast_lead_source": "TMDB",
+      "rating_source": "TMDB",
+      "release_date_source": "TMDB",
+      "director_source": null,
+      "smry_source": "TMDB",
+      "series_nm_source": "TMDB",
+      "disp_rtm_source": "TMDB",
       "tmdb_id": 30983,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 63.44,
+      "elapsed_sec": 5.82,
       "error": null
     },
     {
@@ -996,7 +995,7 @@
       "tmdb_id": 61459,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 15.49,
+      "elapsed_sec": 1.8,
       "error": null
     },
     {
@@ -1021,7 +1020,7 @@
       "tmdb_id": 98034,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 11.93,
+      "elapsed_sec": 1.76,
       "error": null
     },
     {
@@ -1046,7 +1045,7 @@
       "tmdb_id": 45207,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 17.73,
+      "elapsed_sec": 1.79,
       "error": null
     },
     {
@@ -1071,7 +1070,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 32.02,
+      "elapsed_sec": 12.4,
       "error": null
     },
     {
@@ -1079,24 +1078,24 @@
       "asset_nm": "던전에서 만남을 추구하면...3 09회",
       "ct_cl": "TV애니메이션",
       "genre": "무협/환타지",
-      "cast_lead": "[\"Yoshitsugu Matsuoka\", \"Inori Minase\", \"Maaya Uchida\", \"Yoshimasa Hosoya\"]",
-      "rating": "청소년관람불가",
+      "cast_lead": null,
+      "rating": null,
       "release_date": null,
-      "director": "Kohei Kuratomi",
-      "smry": "통칭 ‘던전’이라 불리는 장대한 지하 미궁을 보유한 거대 도시, 오라리오. 미지라는 이름의 흥분, 찬란한 영예, 로맨스 이 모든 꿈과 욕망이 숨죽인 이곳에서 소년은 한 ‘신’과 만난다. 모든 파밀리아(Familia)에서 문전박대를 당했던 모험가 지망생 소년 벨과 조직원 0명인 여신, 헤스티아의 운명적인 만남. 지금 새로운 신화(Familia Myth)가 시작된다!",
+      "director": null,
+      "smry": null,
       "series_nm": null,
-      "disp_rtm": "00:23",
-      "cast_lead_source": "JustWatch",
-      "rating_source": "JustWatch",
+      "disp_rtm": null,
+      "cast_lead_source": null,
+      "rating_source": null,
       "release_date_source": null,
-      "director_source": "JustWatch",
-      "smry_source": "JustWatch",
+      "director_source": null,
+      "smry_source": null,
       "series_nm_source": null,
-      "disp_rtm_source": "JustWatch",
+      "disp_rtm_source": null,
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 26.93,
+      "elapsed_sec": 22.48,
       "error": null
     },
     {
@@ -1121,7 +1120,7 @@
       "tmdb_id": 19239,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 18.14,
+      "elapsed_sec": 1.73,
       "error": null
     },
     {
@@ -1146,7 +1145,7 @@
       "tmdb_id": 123525,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 20.54,
+      "elapsed_sec": 1.84,
       "error": null
     },
     {
@@ -1157,21 +1156,21 @@
       "cast_lead": "[\"타카야마 미나미\", \"야마구치 캇페이\", \"야마자키 와카나\", \"카미야 아키라\"]",
       "rating": "15세이상관람가",
       "release_date": "1996-01-08",
-      "director": "Kojin Ochi",
+      "director": null,
       "smry": "검은 조직의 약물에 당해서 초등학생의 몸이 된 고등학생 쿠도 신이치가 에도가와 코난이라는 가명을 사용하여 소꿉친구인 란의 아버지가 운영하는 탐정사무소에서 얹혀 살며 사건을 해결하는 이야기를 다루고 있다.",
       "series_nm": "명탐정 코난",
       "disp_rtm": "00:25",
-      "cast_lead_source": "TMDB+JW",
-      "rating_source": "TMDB+JW",
-      "release_date_source": "TMDB+JW",
-      "director_source": "TMDB+JW",
-      "smry_source": "TMDB+JW",
-      "series_nm_source": "TMDB+JW",
-      "disp_rtm_source": "TMDB+JW",
+      "cast_lead_source": "TMDB",
+      "rating_source": "TMDB",
+      "release_date_source": "TMDB",
+      "director_source": null,
+      "smry_source": "TMDB",
+      "series_nm_source": "TMDB",
+      "disp_rtm_source": "TMDB",
       "tmdb_id": 30983,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 55.52,
+      "elapsed_sec": 0.0,
       "error": null
     },
     {
@@ -1196,7 +1195,7 @@
       "tmdb_id": 116168,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 20.2,
+      "elapsed_sec": 1.71,
       "error": null
     },
     {
@@ -1207,21 +1206,21 @@
       "cast_lead": "[\"타카야마 미나미\", \"야마구치 캇페이\", \"야마자키 와카나\", \"카미야 아키라\"]",
       "rating": "15세이상관람가",
       "release_date": "1996-01-08",
-      "director": "Kojin Ochi",
+      "director": null,
       "smry": "검은 조직의 약물에 당해서 초등학생의 몸이 된 고등학생 쿠도 신이치가 에도가와 코난이라는 가명을 사용하여 소꿉친구인 란의 아버지가 운영하는 탐정사무소에서 얹혀 살며 사건을 해결하는 이야기를 다루고 있다.",
       "series_nm": "명탐정 코난",
       "disp_rtm": "00:25",
-      "cast_lead_source": "TMDB+JW",
-      "rating_source": "TMDB+JW",
-      "release_date_source": "TMDB+JW",
-      "director_source": "TMDB+JW",
-      "smry_source": "TMDB+JW",
-      "series_nm_source": "TMDB+JW",
-      "disp_rtm_source": "TMDB+JW",
+      "cast_lead_source": "TMDB",
+      "rating_source": "TMDB",
+      "release_date_source": "TMDB",
+      "director_source": null,
+      "smry_source": "TMDB",
+      "series_nm_source": "TMDB",
+      "disp_rtm_source": "TMDB",
       "tmdb_id": 30983,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 54.57,
+      "elapsed_sec": 0.0,
       "error": null
     },
     {
@@ -1246,7 +1245,7 @@
       "tmdb_id": 244660,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 20.19,
+      "elapsed_sec": 3.91,
       "error": null
     },
     {
@@ -1254,24 +1253,24 @@
       "asset_nm": "선배가 짜증나는 후배이야기 06회",
       "ct_cl": "TV애니메이션",
       "genre": "명랑/코믹",
-      "cast_lead": "[\"Tomori Kusunoki\", \"Shunsuke Takeuchi\", \"Saori Hayami\", \"Reiou Tsuchida\"]",
-      "rating": "15세이상관람가",
+      "cast_lead": null,
+      "rating": null,
       "release_date": null,
-      "director": "Jun Takada",
-      "smry": "조금 거칠긴 해도 다정하게 챙겨주는 선배 타케다와 그런 그에게 솔직하지 못하고 투덜대기만 하는 후배 이가라시.\n\n오늘도 이가라시는 타게다의 과보호가 귀찮지만 사실 그다지 싫지는 않다.\n\n물론 진짜 짜증날 때도 있지만, 어느 새 가까워진 두 사람의 미묘한 거리감에 고민하는 때가 많은데!\n\n타케다와 이가라시에 비하면 조금은 어른스러운(?) 사쿠라이와 카자마의 이야기까지 담은 멈출 수 없는 100% 공감가는 직장인 러브코미디!!",
+      "director": null,
+      "smry": null,
       "series_nm": null,
-      "disp_rtm": "00:23",
-      "cast_lead_source": "JustWatch",
-      "rating_source": "JustWatch",
+      "disp_rtm": null,
+      "cast_lead_source": null,
+      "rating_source": null,
       "release_date_source": null,
-      "director_source": "JustWatch",
-      "smry_source": "JustWatch",
+      "director_source": null,
+      "smry_source": null,
       "series_nm_source": null,
-      "disp_rtm_source": "JustWatch",
+      "disp_rtm_source": null,
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 31.04,
+      "elapsed_sec": 23.38,
       "error": null
     },
     {
@@ -1296,7 +1295,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 37.77,
+      "elapsed_sec": 8.06,
       "error": null
     },
     {
@@ -1321,7 +1320,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 35.74,
+      "elapsed_sec": 19.05,
       "error": null
     },
     {
@@ -1346,7 +1345,7 @@
       "tmdb_id": 154930,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 15.51,
+      "elapsed_sec": 1.96,
       "error": null
     },
     {
@@ -1371,7 +1370,7 @@
       "tmdb_id": 136416,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 23.57,
+      "elapsed_sec": 3.54,
       "error": null
     },
     {
@@ -1385,18 +1384,18 @@
       "director": null,
       "smry": "인기 크리에이터를 꿈꾸는 거대펭귄 펭수의 좌충우돌 성장기 남극에서 온 210cm 자이언트 펭귄, 펭수! 스타 크리에이터가 되는 게 꿈인 펭수의 좌충우돌 성장기 남극에서는 또래 펭귄과 다른 덩치로 혼자였던 ‘펭수’ 거기에 주눅 들지 않고 본인은 특별해서 외로운 것이라며 새로운 친구를 사귈 수 있을, 머나먼 땅 한국으로 왔다 이제 할 건 무엇? 개성이 강점이 되는 크리에이터! 가보고 싶은 곳은 모두 가보고 해보고 싶은 것도 모두 해본다 계속하다 보면 구독자가 많은 스타 크리에이터로 거듭날 수 있을까? TV와 온라인을 넘나드는 어린이 예능",
       "series_nm": "자이언트 펭TV",
-      "disp_rtm": "00:09",
+      "disp_rtm": null,
       "cast_lead_source": null,
       "rating_source": null,
-      "release_date_source": "TMDB+JW",
+      "release_date_source": "TMDB",
       "director_source": null,
-      "smry_source": "TMDB+JW",
-      "series_nm_source": "TMDB+JW",
-      "disp_rtm_source": "TMDB+JW",
+      "smry_source": "TMDB",
+      "series_nm_source": "TMDB",
+      "disp_rtm_source": null,
       "tmdb_id": 195515,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 20.64,
+      "elapsed_sec": 4.21,
       "error": null
     },
     {
@@ -1421,7 +1420,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 47.03,
+      "elapsed_sec": 18.27,
       "error": null
     },
     {
@@ -1446,7 +1445,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 44.91,
+      "elapsed_sec": 9.36,
       "error": null
     },
     {
@@ -1471,7 +1470,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 49.11,
+      "elapsed_sec": 21.12,
       "error": null
     },
     {
@@ -1496,7 +1495,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 23.03,
+      "elapsed_sec": 8.14,
       "error": null
     },
     {
@@ -1521,7 +1520,7 @@
       "tmdb_id": 154384,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 39.91,
+      "elapsed_sec": 3.99,
       "error": null
     },
     {
@@ -1529,24 +1528,24 @@
       "asset_nm": "미니특공대 율동 동요 14회",
       "ct_cl": "키즈",
       "genre": "기타",
-      "cast_lead": "[\"Um Sang-hyun\", \"Jeon Tae-yeol\", \"Shin Yong-woo\", \"Lee So-yeong\"]",
+      "cast_lead": "[\"미니특공대\"]",
       "rating": "전체관람가",
       "release_date": null,
-      "director": "Kim Su-hoon",
-      "smry": "수 천년 전, 힘없고 약한 동물들은 스스로를 지키기 위해 특별한 능력을 가진 동물들을 선발하여 특공대를 조직하였다. 그들은 전 세계로 퍼져나가 위험에 빠진 동물들을 구하고 그들의 세력을 점차 확장시켜 나갔다. 오늘날 그들은 뛰어난 과학 기술을 바탕으로 막강한 힘을 키워 세계 평화에 기여하고 있다.",
+      "director": "이지은",
+      "smry": null,
       "series_nm": null,
-      "disp_rtm": "00:12",
-      "cast_lead_source": "JustWatch",
-      "rating_source": "JustWatch",
+      "disp_rtm": "00:09",
+      "cast_lead_source": "DATA_GO",
+      "rating_source": "DATA_GO",
       "release_date_source": null,
-      "director_source": "JustWatch",
-      "smry_source": "JustWatch",
+      "director_source": "DATA_GO",
+      "smry_source": null,
       "series_nm_source": null,
-      "disp_rtm_source": "JustWatch",
+      "disp_rtm_source": "DATA_GO",
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 37.38,
+      "elapsed_sec": 16.34,
       "error": null
     },
     {
@@ -1571,7 +1570,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 51.17,
+      "elapsed_sec": 15.59,
       "error": null
     },
     {
@@ -1596,7 +1595,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 50.2,
+      "elapsed_sec": 18.32,
       "error": null
     },
     {
@@ -1604,24 +1603,24 @@
       "asset_nm": "선을 넘는 녀석들 리턴즈 50회",
       "ct_cl": "TV 연예/오락",
       "genre": "연예/오락",
-      "cast_lead": "[\"Seol Min-seok\", \"Daniel Lindemann\", \"Yoo Byung-jae\", \"Kim Gu-ra\"]",
-      "rating": "15세이상관람가",
+      "cast_lead": null,
+      "rating": null,
       "release_date": null,
       "director": null,
-      "smry": "‘아는 만큼 보인다’ 가깝고도 먼 두 나라의 역사, 문화, 예술 그리고 글로벌 핫이슈까지 가감 없이 탈탈 털어본다. 말과 발이 앞서는 겁 없는 녀석들과 함께 국경을 인접하고 있는 다른 언어와 문화를 가진 나라들을 알아보는 탐사 예능 프로그램",
+      "smry": null,
       "series_nm": null,
-      "disp_rtm": "01:19",
-      "cast_lead_source": "JustWatch",
-      "rating_source": "JustWatch",
+      "disp_rtm": null,
+      "cast_lead_source": null,
+      "rating_source": null,
       "release_date_source": null,
       "director_source": null,
-      "smry_source": "JustWatch",
+      "smry_source": null,
       "series_nm_source": null,
-      "disp_rtm_source": "JustWatch",
+      "disp_rtm_source": null,
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": true,
-      "elapsed_sec": 43.15,
+      "elapsed_sec": 17.28,
       "error": null
     },
     {
@@ -1629,24 +1628,24 @@
       "asset_nm": "뮤직뱅크 616회",
       "ct_cl": "TV 연예/오락",
       "genre": "연예/오락",
-      "cast_lead": "[\"Soobin\", \"ARIN\", \"Choi Bo-min\", \"Shin Ye-eun\"]",
+      "cast_lead": null,
       "rating": "15세이상관람가",
       "release_date": "1998-06-16",
       "director": null,
       "smry": "다양한 장르의 대중가요 및 최신 음악 정보를 전달하는 고품격 가요 쇼 프로그램",
       "series_nm": "뮤직뱅크",
       "disp_rtm": "01:15",
-      "cast_lead_source": "TMDB+JW",
-      "rating_source": "TMDB+JW",
-      "release_date_source": "TMDB+JW",
+      "cast_lead_source": null,
+      "rating_source": "TMDB",
+      "release_date_source": "TMDB",
       "director_source": null,
-      "smry_source": "TMDB+JW",
-      "series_nm_source": "TMDB+JW",
-      "disp_rtm_source": "TMDB+JW",
+      "smry_source": "TMDB",
+      "series_nm_source": "TMDB",
+      "disp_rtm_source": "TMDB",
       "tmdb_id": 31175,
       "tmdb_media_type": "tv",
       "is_variety": true,
-      "elapsed_sec": 28.11,
+      "elapsed_sec": 4.06,
       "error": null
     },
     {
@@ -1654,24 +1653,24 @@
       "asset_nm": "사랑은 아무나 하나 46회",
       "ct_cl": "TV 연예/오락",
       "genre": "연예오락",
-      "cast_lead": "[\"Kim Yong-man\", \"Joo Young-hoon\", \"Shin Joo-ah\"]",
+      "cast_lead": null,
       "rating": null,
       "release_date": "2017-09-09",
-      "director": "Hwang Eui Chul",
+      "director": null,
       "smry": "세계 오지 마을 속 한국인 부부, 기상천외한 러브 스토리의 국제결혼 부부 등 세계 속 한국인 부부들의 생생한 삶을 담은 ′다큐적 접근′과 이들을 직접 찾아가 보는 ′리얼리티 형식′을 결합한 프로그램",
       "series_nm": "사랑은 아무나 하나",
       "disp_rtm": "01:30",
-      "cast_lead_source": "TMDB+JW",
+      "cast_lead_source": null,
       "rating_source": null,
-      "release_date_source": "TMDB+JW",
-      "director_source": "TMDB+JW",
-      "smry_source": "TMDB+JW",
-      "series_nm_source": "TMDB+JW",
-      "disp_rtm_source": "TMDB+JW",
+      "release_date_source": "TMDB",
+      "director_source": null,
+      "smry_source": "TMDB",
+      "series_nm_source": "TMDB",
+      "disp_rtm_source": "TMDB",
       "tmdb_id": 132670,
       "tmdb_media_type": "tv",
       "is_variety": true,
-      "elapsed_sec": 22.6,
+      "elapsed_sec": 3.16,
       "error": null
     },
     {
@@ -1696,7 +1695,7 @@
       "tmdb_id": 129719,
       "tmdb_media_type": "tv",
       "is_variety": true,
-      "elapsed_sec": 26.33,
+      "elapsed_sec": 4.06,
       "error": null
     },
     {
@@ -1721,7 +1720,7 @@
       "tmdb_id": 97714,
       "tmdb_media_type": "tv",
       "is_variety": true,
-      "elapsed_sec": 21.73,
+      "elapsed_sec": 2.93,
       "error": null
     },
     {
@@ -1746,7 +1745,7 @@
       "tmdb_id": 86623,
       "tmdb_media_type": "tv",
       "is_variety": true,
-      "elapsed_sec": 30.26,
+      "elapsed_sec": 4.43,
       "error": null
     },
     {
@@ -1755,23 +1754,23 @@
       "ct_cl": "TV 연예/오락",
       "genre": "연예오락",
       "cast_lead": "[\"이수현\", \"이하이\", \"신용재\", \"소향\"]",
-      "rating": "15세이상관람가",
+      "rating": null,
       "release_date": "2020-12-29",
-      "director": "오윤환",
+      "director": null,
       "smry": "시간이 바래진 동네, 수많은 발걸음이 녹아든 골목 어귀, 거친 노고가 서린 일터 등 우리의 일상 속에 뮤지션들의 음악과 그들의 이야기를 담은 프로그램",
       "series_nm": "비긴어게인 오픈마이크",
       "disp_rtm": "01:28",
-      "cast_lead_source": "TMDB+JW",
-      "rating_source": "TMDB+JW",
-      "release_date_source": "TMDB+JW",
-      "director_source": "TMDB+JW",
-      "smry_source": "TMDB+JW",
-      "series_nm_source": "TMDB+JW",
-      "disp_rtm_source": "TMDB+JW",
+      "cast_lead_source": "TMDB",
+      "rating_source": null,
+      "release_date_source": "TMDB",
+      "director_source": null,
+      "smry_source": "TMDB",
+      "series_nm_source": "TMDB",
+      "disp_rtm_source": "TMDB",
       "tmdb_id": 136254,
       "tmdb_media_type": "tv",
       "is_variety": true,
-      "elapsed_sec": 31.3,
+      "elapsed_sec": 4.21,
       "error": null
     },
     {
@@ -1796,7 +1795,7 @@
       "tmdb_id": 96046,
       "tmdb_media_type": "tv",
       "is_variety": true,
-      "elapsed_sec": 33.63,
+      "elapsed_sec": 3.49,
       "error": null
     },
     {
@@ -1821,7 +1820,7 @@
       "tmdb_id": 52910,
       "tmdb_media_type": "tv",
       "is_variety": true,
-      "elapsed_sec": 46.46,
+      "elapsed_sec": 5.53,
       "error": null
     },
     {
@@ -1846,7 +1845,7 @@
       "tmdb_id": 64356,
       "tmdb_media_type": "tv",
       "is_variety": true,
-      "elapsed_sec": 41.17,
+      "elapsed_sec": 6.11,
       "error": null
     },
     {
@@ -1871,7 +1870,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": true,
-      "elapsed_sec": 49.28,
+      "elapsed_sec": 18.71,
       "error": null
     },
     {
@@ -1882,21 +1881,21 @@
       "cast_lead": "[\"윤진서\"]",
       "rating": null,
       "release_date": "2015-12-18",
-      "director": "강상구",
+      "director": null,
       "smry": "가족이 잠든 늦은 밤 찾아오는 가장의 외로움. 텅 빈 집안 독신남의 시린 마음. 수많은 친구들 사이에서도 채워지지 않는 공허함. 지금 그들에겐 특별한 힐링이 필요하다! 쓸쓸한 남자들을 위한 구급처방?! 삶에 지친 이들에게 위로와 기쁨을 주는 반려견!",
       "series_nm": "개밥 주는 남자",
       "disp_rtm": "00:52",
-      "cast_lead_source": "TMDB+JW",
+      "cast_lead_source": "TMDB",
       "rating_source": null,
-      "release_date_source": "TMDB+JW",
-      "director_source": "TMDB+JW",
-      "smry_source": "TMDB+JW",
-      "series_nm_source": "TMDB+JW",
-      "disp_rtm_source": "TMDB+JW",
+      "release_date_source": "TMDB",
+      "director_source": null,
+      "smry_source": "TMDB",
+      "series_nm_source": "TMDB",
+      "disp_rtm_source": "TMDB",
       "tmdb_id": 154125,
       "tmdb_media_type": "tv",
       "is_variety": true,
-      "elapsed_sec": 30.87,
+      "elapsed_sec": 4.5,
       "error": null
     },
     {
@@ -1921,7 +1920,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 31.09,
+      "elapsed_sec": 14.29,
       "error": null
     },
     {
@@ -1946,7 +1945,7 @@
       "tmdb_id": 2062,
       "tmdb_media_type": "movie",
       "is_variety": false,
-      "elapsed_sec": 13.84,
+      "elapsed_sec": 1.92,
       "error": null
     },
     {
@@ -1971,7 +1970,7 @@
       "tmdb_id": 509932,
       "tmdb_media_type": "movie",
       "is_variety": false,
-      "elapsed_sec": 31.11,
+      "elapsed_sec": 4.36,
       "error": null
     },
     {
@@ -1979,24 +1978,24 @@
       "asset_nm": "28세미성년",
       "ct_cl": "영화",
       "genre": "로맨틱코미디",
-      "cast_lead": "[\"니니\", \"왕대륙\", \"곽건화\"]",
+      "cast_lead": "[\"예니\", \"곽건화\", \"왕대륙\", \"劉瓊\"]",
       "rating": "15세이상관람가",
-      "release_date": "2018-11-21",
-      "director": "장 모",
+      "release_date": "2016-12-09",
+      "director": "张末",
       "smry": "애인 '마오'의 달콤한 청혼만을 십 년째 기다린 스물여덟 살 '량시아'는 프러포즈는커녕, 그에게 차인 뒤 초콜릿을 먹고 수상한 능력을 얻게 된다. 다섯 시간 동안 겉모습은 그대로인 채, 마음만 열일곱 살 자신으로 돌아갈 수 있게 된 것. 열일곱이 된 '작은 량시아'는 지하철에서 만난 자유로운 청년 '얀'에게 첫눈에 반하게 되고, 그와의 짧지만 달콤한 데이트를 이어나간다. 하지만 열일곱, 스물 여덟 두 '량시아'의 평화로웠던 이중생활은 점점 꼬이기 시작하는데... 널 만나면 꼭 하고 싶은 말이 있어, 오락가락 그녀의 판타스틱 타임슬립 로맨스!",
-      "series_nm": null,
-      "disp_rtm": "01:45",
-      "cast_lead_source": "JustWatch",
-      "rating_source": "JustWatch",
-      "release_date_source": "JustWatch",
-      "director_source": "JustWatch",
-      "smry_source": "JustWatch",
-      "series_nm_source": null,
-      "disp_rtm_source": "JustWatch",
-      "tmdb_id": null,
-      "tmdb_media_type": null,
+      "series_nm": "28세 미성년",
+      "disp_rtm": "01:47",
+      "cast_lead_source": "TMDB",
+      "rating_source": "TMDB",
+      "release_date_source": "TMDB",
+      "director_source": "TMDB",
+      "smry_source": "TMDB",
+      "series_nm_source": "TMDB",
+      "disp_rtm_source": "TMDB",
+      "tmdb_id": 422390,
+      "tmdb_media_type": "movie",
       "is_variety": false,
-      "elapsed_sec": 17.57,
+      "elapsed_sec": 2.89,
       "error": null
     },
     {
@@ -2021,7 +2020,7 @@
       "tmdb_id": 597,
       "tmdb_media_type": "movie",
       "is_variety": false,
-      "elapsed_sec": 13.82,
+      "elapsed_sec": 1.96,
       "error": null
     },
     {
@@ -2046,7 +2045,7 @@
       "tmdb_id": 103465,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 11.97,
+      "elapsed_sec": 1.86,
       "error": null
     },
     {
@@ -2071,7 +2070,7 @@
       "tmdb_id": 531428,
       "tmdb_media_type": "movie",
       "is_variety": false,
-      "elapsed_sec": 12.0,
+      "elapsed_sec": 2.0,
       "error": null
     },
     {
@@ -2096,7 +2095,7 @@
       "tmdb_id": 946614,
       "tmdb_media_type": "movie",
       "is_variety": false,
-      "elapsed_sec": 25.79,
+      "elapsed_sec": 3.25,
       "error": null
     },
     {
@@ -2121,7 +2120,7 @@
       "tmdb_id": 437103,
       "tmdb_media_type": "movie",
       "is_variety": false,
-      "elapsed_sec": 8.37,
+      "elapsed_sec": 2.04,
       "error": null
     },
     {
@@ -2133,20 +2132,20 @@
       "rating": "12세이상관람가",
       "release_date": "2012-08-08",
       "director": "김주호",
-      "smry": "옛 전통과 관습에 묻혀 살아가는 미국 남부. 그러나 북부가 노예 제도를 폐지하고 이를 남부에도 강요하자 두 지역은 남북전쟁이란 소용돌이에 휘말린다. 아름다운 미모와 당당한 성격으로 마을 청년들의 선망의 대상이 되던 스칼렛 오하라는 애슐리 윌크스를 사랑하고 있었다. 그러나 그녀가 사랑하는 애슐리는 멜라니와 결혼을 해버리고 화가 난 스칼렛은 자신의 여동생이 좋아하는 멜라니의 남동생 찰스와 결혼을 한다. 얼마 후 애슐리와 찰스는 입대를 하게 되고, 결국 찰스는 전사하고 마는데...",
+      "smry": null,
       "series_nm": null,
       "disp_rtm": "02:01",
-      "cast_lead_source": "JustWatch",
-      "rating_source": "JustWatch",
-      "release_date_source": "JustWatch",
-      "director_source": "JustWatch",
-      "smry_source": "JustWatch",
+      "cast_lead_source": "KMDB",
+      "rating_source": "KMDB",
+      "release_date_source": "KMDB",
+      "director_source": "KMDB",
+      "smry_source": null,
       "series_nm_source": null,
-      "disp_rtm_source": "JustWatch",
+      "disp_rtm_source": "KMDB",
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 24.12,
+      "elapsed_sec": 20.21,
       "error": null
     },
     {
@@ -2171,7 +2170,7 @@
       "tmdb_id": 604362,
       "tmdb_media_type": "movie",
       "is_variety": false,
-      "elapsed_sec": 10.15,
+      "elapsed_sec": 1.83,
       "error": null
     },
     {
@@ -2196,7 +2195,7 @@
       "tmdb_id": 72725,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 11.17,
+      "elapsed_sec": 2.01,
       "error": null
     },
     {
@@ -2204,24 +2203,24 @@
       "asset_nm": "더 라이브 428회",
       "ct_cl": "TV 시사/교양",
       "genre": "시사/교양",
-      "cast_lead": "[\"Nam Ji-hyun\", \"Kim Ryu-an\", \"Lee Pu-reum\", \"Cho Myunghaeng\"]",
+      "cast_lead": null,
       "rating": null,
       "release_date": "2019-09-23",
-      "director": "Kim Hyun-Woo",
+      "director": null,
       "smry": "어렵고 딱딱한 기존 시사 프로그램의 틀을 벗어나 그날의 생생한 시사 이슈를 쉽고 재밌게 풀어내는 생방송 시사 토크쇼",
       "series_nm": "더 라이브",
-      "disp_rtm": "01:12",
-      "cast_lead_source": "TMDB+JW",
+      "disp_rtm": null,
+      "cast_lead_source": null,
       "rating_source": null,
-      "release_date_source": "TMDB+JW",
-      "director_source": "TMDB+JW",
-      "smry_source": "TMDB+JW",
-      "series_nm_source": "TMDB+JW",
-      "disp_rtm_source": "TMDB+JW",
+      "release_date_source": "TMDB",
+      "director_source": null,
+      "smry_source": "TMDB",
+      "series_nm_source": "TMDB",
+      "disp_rtm_source": null,
       "tmdb_id": 195762,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 23.09,
+      "elapsed_sec": 4.74,
       "error": null
     },
     {
@@ -2246,7 +2245,7 @@
       "tmdb_id": 79091,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 15.16,
+      "elapsed_sec": 2.94,
       "error": null
     },
     {
@@ -2271,7 +2270,7 @@
       "tmdb_id": 132256,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 23.7,
+      "elapsed_sec": 5.07,
       "error": null
     },
     {
@@ -2296,7 +2295,7 @@
       "tmdb_id": 664809,
       "tmdb_media_type": "movie",
       "is_variety": false,
-      "elapsed_sec": 19.02,
+      "elapsed_sec": 4.82,
       "error": null
     },
     {
@@ -2321,7 +2320,7 @@
       "tmdb_id": 273779,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 20.22,
+      "elapsed_sec": 4.64,
       "error": null
     },
     {
@@ -2346,7 +2345,7 @@
       "tmdb_id": 5371,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 11.07,
+      "elapsed_sec": 1.8,
       "error": null
     },
     {
@@ -2371,7 +2370,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 24.77,
+      "elapsed_sec": 11.97,
       "error": null
     },
     {
@@ -2396,7 +2395,7 @@
       "tmdb_id": 64696,
       "tmdb_media_type": "tv",
       "is_variety": false,
-      "elapsed_sec": 7.38,
+      "elapsed_sec": 1.76,
       "error": null
     },
     {
@@ -2404,24 +2403,24 @@
       "asset_nm": "2022 WWE NXT 40회",
       "ct_cl": "스포츠",
       "genre": "레슬링",
-      "cast_lead": "[\"Stuart Bennett\", \"Stuart Bennett\", \"Victor Travagliante\", \"Victor Travagliante\"]",
-      "rating": "15세이상관람가",
+      "cast_lead": null,
+      "rating": null,
       "release_date": null,
       "director": null,
-      "smry": "보석처럼 빛나는 신예 레슬러들이 뜨겁게 맞붙는다. 과연 누가 스포츠 엔터테인먼트계에서 가장 핫한 슈퍼스타로 우뚝 설 것인가.",
+      "smry": null,
       "series_nm": null,
-      "disp_rtm": "01:12",
-      "cast_lead_source": "JustWatch",
-      "rating_source": "JustWatch",
+      "disp_rtm": null,
+      "cast_lead_source": null,
+      "rating_source": null,
       "release_date_source": null,
       "director_source": null,
-      "smry_source": "JustWatch",
+      "smry_source": null,
       "series_nm_source": null,
-      "disp_rtm_source": "JustWatch",
+      "disp_rtm_source": null,
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 20.64,
+      "elapsed_sec": 5.06,
       "error": null
     },
     {
@@ -2446,7 +2445,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 21.26,
+      "elapsed_sec": 10.04,
       "error": null
     },
     {
@@ -2471,7 +2470,7 @@
       "tmdb_id": 127380,
       "tmdb_media_type": "movie",
       "is_variety": false,
-      "elapsed_sec": 9.31,
+      "elapsed_sec": 1.87,
       "error": null
     },
     {
@@ -2496,7 +2495,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 23.96,
+      "elapsed_sec": 15.74,
       "error": null
     },
     {
@@ -2521,7 +2520,7 @@
       "tmdb_id": null,
       "tmdb_media_type": null,
       "is_variety": false,
-      "elapsed_sec": 26.19,
+      "elapsed_sec": 16.51,
       "error": null
     }
   ]
