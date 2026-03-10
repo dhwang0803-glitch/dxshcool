@@ -1,9 +1,8 @@
 """
-run_bulk_pipeline.py — 160k건 대량 처리용 단계별 Bulk 수평 분할 파이프라인
-
+pipelines/run_bulk_meta.py — 대량 처리 파이프라인 (TMDB→KMDB→JW→DATA_GO)
+==========================================================================
 핵심 최적화: 시리즈 레벨 dedup
-  - 에피소드 100건이 같은 시리즈면 TMDB를 100번이 아니라 1번만 호출
-  - 160k건 / ~15k 시리즈 → TMDB 호출 10× 감소
+  - 에피소드 100건이 같은 시리즈면 API 1번만 호출 (10× 감소)
 
 Stage 1 (TMDB)    : unique 시리즈 전체 → 시리즈당 1회 API 호출
 Stage 2 (KMDB)    : Stage1 미확보 시리즈만
@@ -11,18 +10,11 @@ Stage 3 (JW)      : Stage2 이후에도 미확보 시리즈만
 Stage 4 (DATA_GO) : Stage3 이후에도 미확보 시리즈만
 Final             : 시리즈 결과 → 건별 row 확장 → JSONL 저장
 
-체크포인트: RAG/data/bulk/series_cache.json
-  - 각 Stage 완료 후 자동 저장 → 중단 시 --resume으로 해당 Stage부터 재개
+체크포인트: RAG/data/bulk/series_cache.json (--resume으로 재개 가능)
 
-실행 예시:
-  # CSV 파일 (파일럿 검증)
-  python run_bulk_pipeline.py --source csv
-
-  # DB 전체 처리
-  python run_bulk_pipeline.py --source db --output db
-
-  # Stage 2부터 재개 (Stage 1 체크포인트 있을 때)
-  python run_bulk_pipeline.py --source db --resume --stages 234
+실행:
+  python pipelines/run_bulk_meta.py --source db --output db
+  python pipelines/run_bulk_meta.py --source db --resume --stages 234
 """
 import sys
 sys.stdout.reconfigure(encoding="utf-8")
@@ -39,13 +31,15 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 from dotenv import load_dotenv
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 load_dotenv(ROOT / ".env")
 load_dotenv(ROOT / "RAG" / "config" / "api_keys.env", override=False)
 
-sys.path.insert(0, str(ROOT / "RAG" / "src"))
-import run_approach_b as rab
-from validation import validate_cast
+_SRC = ROOT / "RAG" / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+from sources import meta_sources as rab
+from sources.validation import validate_cast
 
 # ─── 경로 설정 ────────────────────────────────────────────────────
 BULK_DIR    = ROOT / "RAG" / "data" / "bulk"

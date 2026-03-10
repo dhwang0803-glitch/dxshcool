@@ -1,12 +1,13 @@
 """
-PLAN_00b Step 3 v8: 접근법 B — ct_cl 분기 + 시리즈 캐시 + TMDB/KMDB/JW/DATA_GO
-                     + ThreadPoolExecutor 병렬처리
+lib/meta_sources.py — 외부 소스 메타데이터 검색 함수 라이브러리
+================================================================
+소스 폴백 체인: TMDB → (KMDB ‖ JustWatch 병렬) → DATA_GO
 
-아키텍처:
-  ThreadPoolExecutor(MAX_WORKERS) → process_one 병렬 실행
-  SeriesCache (thread-safe, Condition variable) → 동일 시리즈 중복 fetch 방지
-  폴백 체인: TMDB → (KMDB ‖ JustWatch 병렬) → DATA_GO 순차
-  API별 BoundedSemaphore: TMDB=8, JW=5, KMDB=3, DATA_GO=3
+이 파일은 직접 실행하지 않음. pipelines/ 에서 import하여 사용.
+  from sources import meta_sources as rab
+  rab._tmdb_search(series, original, prefer_movie)
+  rab._series_name(asset_nm)
+  ...
 """
 import sys
 import os
@@ -24,15 +25,17 @@ import xml.etree.ElementTree as ET
 from dotenv import load_dotenv
 from tqdm import tqdm
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 load_dotenv(ROOT / ".env")
 load_dotenv(ROOT / "RAG" / "config" / "api_keys.env", override=False)
 
 INPUT_CSV   = ROOT / "RAG" / "data" / "comparison_sample.csv"
 OUTPUT_JSON = ROOT / "RAG" / "reports" / "result_B.json"
 
-sys.path.insert(0, str(ROOT / "RAG" / "src"))
-from validation import validate_cast, validate_rating, validate_date, validate_director
+_SRC = ROOT / "RAG" / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+from sources.validation import validate_cast, validate_rating, validate_date, validate_director
 
 TMDB_API_KEY           = os.getenv("TMDB_API_KEY", "")
 TMDB_READ_ACCESS_TOKEN = os.getenv("TMDB_READ_ACCESS_TOKEN", "")
@@ -531,7 +534,7 @@ def _map_kr_cert(cert: str) -> Optional[str]:
     if mapped is None:
         if cert.isdigit() and 1 <= int(cert) <= 25:
             mapped = f"{cert}세이상관람가"
-            from validation import VALID_RATINGS
+            from sources.validation import VALID_RATINGS
             VALID_RATINGS.add(mapped)
         else:
             mapped = cert
@@ -1038,94 +1041,3 @@ def process_one(row: dict) -> dict:
 # 메인
 # ─────────────────────────────────────────
 
-def main():
-    OUTPUT_JSON.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(INPUT_CSV, encoding="utf-8") as f:
-        rows = list(csv.DictReader(f))
-
-    n_rows = len(rows)
-    print(f"접근법 B v8 (ThreadPoolExecutor={MAX_WORKERS}) 시작: {n_rows}건", flush=True)
-
-    results: List[dict] = [None] * n_rows  # type: ignore
-
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        future_to_idx = {executor.submit(process_one, row): i for i, row in enumerate(rows)}
-        with tqdm(total=n_rows, unit="건", ncols=80) as pbar:
-            for future in as_completed(future_to_idx):
-                idx = future_to_idx[future]
-                try:
-                    res = future.result()
-                except Exception as e:
-                    res = {k: None for k in [
-                        "full_asset_id", "asset_nm", "ct_cl", "genre",
-                        "cast_lead", "rating", "release_date", "director",
-                        "smry", "series_nm", "disp_rtm",
-                        "cast_lead_source", "rating_source", "release_date_source",
-                        "director_source", "smry_source", "series_nm_source",
-                        "disp_rtm_source", "tmdb_id", "tmdb_media_type",
-                    ]}
-                    res["is_variety"] = False
-                    res["elapsed_sec"] = 0.0
-                    res["error"] = str(e)
-                results[idx] = res
-                pbar.update(1)
-
-    # 순서 보존된 결과 집계
-    n        = len(results)
-    cast_ok  = sum(1 for r in results if r["cast_lead"])
-    rate_ok  = sum(1 for r in results if r["rating"])
-    date_ok  = sum(1 for r in results if r["release_date"])
-    dir_ok   = sum(1 for r in results if r["director"])
-    smry_ok  = sum(1 for r in results if r["smry"])
-    snm_ok   = sum(1 for r in results if r["series_nm"])
-    rtm_ok   = sum(1 for r in results if r["disp_rtm"])
-    avg_sec  = sum(r["elapsed_sec"] for r in results) / n
-    variety  = sum(1 for r in results if r.get("is_variety"))
-    errors   = sum(1 for r in results if r.get("error"))
-
-    summary = {
-        "approach":            "B_v8",
-        "description":         "TMDB 시리즈 캐시 + ct_cl 분기 + KMDB/JW/DATA_GO + ThreadPoolExecutor",
-        "total":               n,
-        "max_workers":         MAX_WORKERS,
-        "cast_lead_found":     cast_ok,
-        "rating_found":        rate_ok,
-        "release_date_found":  date_ok,
-        "director_found":      dir_ok,
-        "smry_found":          smry_ok,
-        "series_nm_found":     snm_ok,
-        "disp_rtm_found":      rtm_ok,
-        "cast_lead_rate":      round(cast_ok / n, 3),
-        "rating_rate":         round(rate_ok / n, 3),
-        "release_date_rate":   round(date_ok / n, 3),
-        "director_rate":       round(dir_ok / n, 3),
-        "smry_rate":           round(smry_ok / n, 3),
-        "series_nm_rate":      round(snm_ok / n, 3),
-        "disp_rtm_rate":       round(rtm_ok / n, 3),
-        "avg_elapsed_sec":     round(avg_sec, 2),
-        "variety_count":       variety,
-        "errors":              errors,
-        "cache_stats":         _cache.stats(),
-    }
-
-    with open(OUTPUT_JSON, "w", encoding="utf-8") as f:
-        json.dump({"summary": summary, "results": results}, f,
-                  ensure_ascii=False, indent=2)
-
-    print(f"\n=== 접근법 B v8 완료 ===")
-    print(f"cast_lead : {cast_ok}/{n} ({cast_ok/n*100:.1f}%)")
-    print(f"rating    : {rate_ok}/{n} ({rate_ok/n*100:.1f}%)")
-    print(f"release_dt: {date_ok}/{n} ({date_ok/n*100:.1f}%)")
-    print(f"director  : {dir_ok}/{n} ({dir_ok/n*100:.1f}%)")
-    print(f"smry      : {smry_ok}/{n} ({smry_ok/n*100:.1f}%)")
-    print(f"series_nm : {snm_ok}/{n} ({snm_ok/n*100:.1f}%)")
-    print(f"disp_rtm  : {rtm_ok}/{n} ({rtm_ok/n*100:.1f}%)")
-    print(f"평균 시간  : {avg_sec:.2f}초/건")
-    print(f"예능(게스트 Step2 대상): {variety}건")
-    print(f"{_cache.stats()}")
-    print(f"결과 저장  : {OUTPUT_JSON}")
-
-
-if __name__ == "__main__":
-    main()

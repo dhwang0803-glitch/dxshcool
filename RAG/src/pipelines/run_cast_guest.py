@@ -1,16 +1,15 @@
 """
-cast_guest 결측치 채우기 파이프라인
-====================================
+pipelines/run_cast_guest.py — cast_guest 결측치 채우기 파이프라인
+=================================================================
 Stage 1a (TMDB series)   : series_cache.json의 tmdb_id로 credits[4:8] 추출 (비예능)
 Stage 1b (TMDB episode)  : TV 연예/오락 에피소드별 guest_stars 추출
-                           /tv/{tmdb_id}/season/1/episode/{ep_num}/credits
 Stage 2  (smry RAG)      : TV 연예/오락 smry 텍스트에서 게스트명 RAG 추출
 Stage 3  (DB UPDATE)     : cast_guest 컬럼 일괄 UPDATE
 
 실행:
-    python RAG/src/run_cast_guest_pipeline.py              # 전체
-    python RAG/src/run_cast_guest_pipeline.py --stages 12  # Stage 1+2만
-    python RAG/src/run_cast_guest_pipeline.py --dry-run    # DB 미반영 확인만
+    python pipelines/run_cast_guest.py              # 전체
+    python pipelines/run_cast_guest.py --stages 12  # Stage 1+2만
+    python pipelines/run_cast_guest.py --dry-run    # DB 미반영 확인만
 """
 
 from __future__ import annotations
@@ -21,13 +20,15 @@ from typing import Optional
 from dotenv import load_dotenv
 from tqdm import tqdm
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "RAG" / "src"))
+ROOT = Path(__file__).resolve().parents[3]
+_SRC = ROOT / "RAG" / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
 load_dotenv(ROOT / ".env")
 
 import requests
-import run_approach_b as rab
-from validation import validate_cast
+from sources import meta_sources as rab
+from sources.validation import validate_cast
 
 BULK_DIR    = ROOT / "RAG" / "data" / "bulk"
 CACHE_FILE  = BULK_DIR / "series_cache.json"
@@ -327,7 +328,7 @@ def _extract_guests_ollama(smry: str) -> list:
 _sem_ollama = threading.BoundedSemaphore(3)  # Ollama 동시 요청 제한
 
 
-def run_stage2_smry_guest(max_workers: int = 20) -> dict:
+def run_stage2_smry_guest(max_workers: int = 20, use_ollama: bool = True) -> dict:
     """TV 연예/오락 smry에서 게스트 추출 (ThreadPoolExecutor 병렬처리).
     Returns: {full_asset_id: [guest_names]}
     """
@@ -353,13 +354,14 @@ def run_stage2_smry_guest(max_workers: int = 20) -> dict:
     print(f"\nStage 2 (smry RAG): TV 연예/오락 {len(rows):,}건 처리")
 
     ollama_ok = False
-    try:
-        r = requests.get("http://localhost:11434/api/tags", timeout=3)
-        ollama_ok = r.status_code == 200
-    except Exception:
-        pass
+    if use_ollama:
+        try:
+            r = requests.get("http://localhost:11434/api/tags", timeout=3)
+            ollama_ok = r.status_code == 200
+        except Exception:
+            pass
     if not ollama_ok:
-        print("  ⚠ Ollama 미실행 — regex 전용 모드")
+        print("  ⚠ Ollama 비활성 — regex 전용 모드")
 
     guest_map: dict = {}
     lock = threading.Lock()
@@ -502,11 +504,12 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="DB 미반영")
     parser.add_argument("--stages", default="123",
                         help="실행할 Stage 번호 (1=TMDB series+episode, 2=smry RAG, 3=DB UPDATE)")
+    parser.add_argument("--no-ollama", action="store_true", help="Stage 2 regex 전용 (Ollama 폴백 비활성)")
     args = parser.parse_args()
 
     print("=" * 60)
     print("cast_guest 파이프라인")
-    print(f"  dry-run={args.dry_run} | stages={args.stages}")
+    print(f"  dry-run={args.dry_run} | stages={args.stages} | no-ollama={args.no_ollama}")
     print("=" * 60)
 
     series_guest_map: dict = {}      # Stage 1a
@@ -530,7 +533,7 @@ def main():
 
     # Stage 2: smry RAG (TV 연예/오락)
     if "2" in args.stages:
-        smry_guest_map = run_stage2_smry_guest()
+        smry_guest_map = run_stage2_smry_guest(use_ollama=not args.no_ollama)
 
     # Stage 3: DB UPDATE
     if "3" in args.stages:
