@@ -1,145 +1,287 @@
 # Security Auditor Agent 지시사항
 
 ## 역할
-Phase 작업 전후로 자격증명 노출, git 추적 파일, 코드 내 하드코딩을 자동 점검한다.
-보안 위반 항목이 발견되면 즉시 Orchestrator에 보고하고 해당 Phase 진행을 차단한다.
+코드 작성 후 실행 전, 또는 git commit 직전에 호출된다.
+**개인식별 정보·자격증명·실제 인프라 정보**가 코드나 스테이징 영역에 노출되었는지 점검하고,
+위반 항목이 있으면 즉시 차단한다.
+
+RAG, VOD_Embedding, Database_Design 등 **모든 브랜치에 적용**한다.
 
 ---
 
 ## 실행 시점
 
-Orchestrator가 아래 두 시점에 호출한다:
-
-1. **Phase 시작 전** — 구현/테스트 파일 작성 전 기준선 점검
-2. **커밋 직전** — Reporter Agent 완료 후, git add/commit 전 최종 점검
+1. **코드 작성/수정 직후, 실행 전** — 파일에 자격증명이 들어갔는지 확인
+2. **git commit 직전** — 스테이징 영역 전수 검사 후 커밋 허용 여부 결정
 
 ---
 
-## 점검 항목
+## 점검 절차
 
-### [S01] .env git 추적 여부
+### Step 0. 점검 대상 파일 수집
+
 ```bash
-git ls-files --error-unmatch .env 2>/dev/null && echo "FAIL: .env가 git에 추적되고 있음" || echo "PASS"
+# 방법 A: 스테이징된 파일 (커밋 직전)
+git diff --cached --name-only --diff-filter=ACM
+
+# 방법 B: 최근 수정된 파일 (실행 전 점검)
+git diff HEAD --name-only --diff-filter=ACM
+# 없으면 마지막 커밋 기준
+git diff HEAD~1 HEAD --name-only --diff-filter=ACM
 ```
 
-### [S02] settings.local.json git 추적 여부
+수집한 파일 목록을 기준으로 이하 체크를 실행한다.
+
+---
+
+### [S01] 하드코딩 자격증명 탐지 — FAIL 시 즉시 차단
+
+점검 대상: 수집된 `.py` 파일 전체
+
 ```bash
-git ls-files --error-unmatch .claude/settings.local.json 2>/dev/null && echo "FAIL: settings.local.json이 git에 추적되고 있음" || echo "PASS"
+grep -rn --include="*.py" \
+  -iE "(api_key|password|secret|token|passwd|pwd)\s*=\s*['\"][^'\"]{6,}['\"]" \
+  <대상 파일들>
 ```
 
-### [S03] .gitignore에 .env 포함 여부
+**판정 기준**:
+- 매칭 라인이 있으면 → **FAIL**
+- 예외: `os.getenv(...)`, `dotenv_values(...)`, `config.get(...)` 형태는 PASS
+- 예외: 변수명에 `example`, `sample`, `test`, `placeholder` 포함 시 PASS
+
+---
+
+### [S02] os.getenv() 실제 인프라 기본값 탐지 — FAIL 시 즉시 차단
+
 ```bash
-grep -q "^\.env$" .gitignore && echo "PASS" || echo "FAIL: .gitignore에 .env 항목 없음"
+grep -rn --include="*.py" \
+  -E "os\.getenv\s*\([^)]+,\s*['\"][^'\"]+['\"]" \
+  <대상 파일들>
 ```
 
-### [S04] .gitignore에 settings.local.json 포함 여부
+추출된 라인에서 기본값(두 번째 인자)이 아래에 해당하면 **FAIL**:
+- 실제 IP 패턴: `\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b`
+- 실제 DB명: `prod_db` 또는 프로젝트 전용 DB명
+- 실제 사용자명: `dbadmin` 또는 기본값이 아닌 사용자명
+
+허용되는 기본값(PASS):
+- `"localhost"`, `"5432"`, `"postgres"`, `""`, `"http://localhost:11434"`, `"0.0.0.0"`
+
+---
+
+### [S03] env.get() / dict.get() 실제 인프라 기본값 탐지 — FAIL 시 차단
+
 ```bash
-grep -q "settings.local.json" .gitignore && echo "PASS" || echo "FAIL: .gitignore에 settings.local.json 항목 없음"
+grep -rn --include="*.py" \
+  -E "env\.get\s*\([^)]+,\s*['\"][^'\"]+['\"]" \
+  <대상 파일들>
 ```
 
-### [S05] 코드 파일 내 IP 주소 하드코딩 탐지
+S02와 동일한 기준으로 기본값 판정.
+
+---
+
+### [S04] 실제 IP 주소 하드코딩 탐지 — FAIL 시 차단
+
 ```bash
-# .env, .gitignore, docs/, plans/ 제외하고 IP 패턴 탐색
-grep -rn --include="*.py" --include="*.sql" --include="*.md" \
-  -E "\b([0-9]{1,3}\.){3}[0-9]{1,3}\b" \
-  --exclude-dir=".git" \
-  Database_Design/ \
-  | grep -v "plans/" | grep -v "reports/" | grep -v "agents/" \
-  && echo "WARN: IP 주소 하드코딩 의심 항목 존재" || echo "PASS"
+grep -rn --include="*.py" \
+  -E "\"[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\"" \
+  <대상 파일들>
 ```
 
-### [S06] 코드 파일 내 비밀번호 패턴 하드코딩 탐지
+**판정 기준**:
+- `"127.0.0.1"`, `"0.0.0.0"` → PASS (루프백/와일드카드)
+- 그 외 실제 IP → **FAIL**
+
+---
+
+### [S05] .env 파일 스테이징 여부 — FAIL 시 즉시 차단
+
 ```bash
-# 따옴표로 감싼 실제 값이 있는 경우만 탐지 (변수 대입은 제외)
-# 예: password="secret" → FAIL / password=db_password → PASS (변수)
-grep -rn --include="*.py" --include="*.sql" --include="*.json" \
-  -iE "(password|passwd)\s*=\s*['\"][^'\"]{4,}['\"]" \
-  --exclude-dir=".git" \
-  . \
-  | grep -v "example" \
-  && echo "FAIL: 비밀번호 하드코딩 탐지" || echo "PASS"
+git diff --cached --name-only | grep -E "(^|/)\.env(\.|$)"
 ```
 
-### [S07] git 스테이징 영역 자격증명 탐지
+`.env`, `.env.local`, `.env.production` 등이 staged → **FAIL**
+`.env.example` → PASS
+
+---
+
+### [S06] 민감 파일 git 추적 여부 — FAIL 시 차단
+
 ```bash
-# 커밋 직전 점검: 스테이징된 파일에 자격증명 패턴이 있는지 확인
-git diff --cached \
-  | grep -iE "(password|passwd|secret|api_key)\s*=\s*['\"][^'\"\$\{]+" \
-  && echo "FAIL: 스테이징 파일에 자격증명 탐지" || echo "PASS"
+git ls-files | grep -E "\.(env|pem|key|p12|pfx)$|credentials\.json|api_keys\.env|secrets\.json"
 ```
 
-### [S08] CLAUDE.md 존재 및 보안 규칙 포함 여부
+위 패턴 파일이 git에 추적 중 → **FAIL**
+
+---
+
+### [S07] .gitignore 필수 항목 누락 — FAIL 시 차단
+
 ```bash
-test -f CLAUDE.md \
-  && grep -q "\.env" CLAUDE.md \
-  && echo "PASS" \
-  || echo "FAIL: CLAUDE.md 없거나 .env 보안 규칙 미포함"
+cat .gitignore
 ```
 
-### [S09] Bash 명령어 내 자격증명 직접 참조 탐지 (agent 파일)
+아래 항목이 **모두** 포함되어야 PASS:
+- `.env` 또는 `.env.*`
+- `*.pem`
+- `*.key`
+- `credentials.json`
+- `.claude/settings.local.json`
+
+하나라도 없으면 → **FAIL**
+
+---
+
+### [S08] 하드코딩 로컬 경로 — WARNING (커밋 허용, 보고 필요)
+
 ```bash
-grep -rn --include="*.md" \
-  -E "PGPASSWORD=[^$\s]{3,}" \
-  Database_Design/agents/ \
-  && echo "FAIL: agent 파일에 PGPASSWORD 하드코딩 탐지" || echo "PASS"
+grep -rn --include="*.py" \
+  -E "\"C:/Users/[^\"]+\"|'C:/Users/[^']+'" \
+  <대상 파일들>
+```
+
+**판정 기준**:
+- 모듈 최상단 상수(`DEFAULT_*`, `MODEL_PATH` 등)이고 CLI 인자(`argparse`)로 덮어쓸 수 있으면 → **WARNING** (허용)
+- 함수 내부 직접 사용 → **FAIL**
+
+판정 방법: 해당 라인이 함수 안인지 확인
+```bash
+# 라인 주변 컨텍스트 확인 (-B5: 위 5줄)
+grep -n "C:/Users/" <파일> | while read line; do
+  lineno=$(echo "$line" | cut -d: -f1)
+  # lineno 위 5줄에 'def ' 패턴이 있으면 함수 내부
+done
 ```
 
 ---
 
 ## 전체 실행 스크립트
 
+아래 스크립트를 Bash 도구로 실행한다. `TARGET_FILES`는 Step 0에서 수집한 파일 목록으로 대체한다.
+
 ```bash
-cd /c/Users/user/Documents/GitHub/vod_recommendation
+#!/usr/bin/env bash
+cd "C:/Users/daewo/OneDrive/문서/GitHub/vod_recommendation"
 
 echo "=== Security Audit 시작 ==="
+echo "점검 시각: $(date '+%Y-%m-%d %H:%M')"
 FAIL_COUNT=0
+WARN_COUNT=0
 
-run_check() {
-  local id=$1
-  local desc=$2
-  local cmd=$3
-  result=$(eval "$cmd" 2>&1)
-  if echo "$result" | grep -q "^FAIL"; then
-    echo "[${id} FAIL] ${desc}"
-    echo "  → ${result}"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-  elif echo "$result" | grep -q "^WARN"; then
-    echo "[${id} WARN] ${desc}"
-    echo "  → ${result}"
-  else
-    echo "[${id} PASS] ${desc}"
-  fi
-}
+# Step 0: 점검 대상 파일 수집
+STAGED=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null)
+MODIFIED=$(git diff HEAD --name-only --diff-filter=ACM 2>/dev/null)
+TARGET_PY=$(echo -e "${STAGED}\n${MODIFIED}" | grep '\.py$' | sort -u)
 
-run_check "S01" ".env git 추적 여부" \
-  "git ls-files --error-unmatch .env 2>/dev/null && echo 'FAIL' || echo 'PASS'"
+if [ -z "$TARGET_PY" ]; then
+  TARGET_PY=$(git diff HEAD~1 HEAD --name-only --diff-filter=ACM 2>/dev/null | grep '\.py$')
+fi
 
-run_check "S02" "settings.local.json git 추적 여부" \
-  "git ls-files --error-unmatch .claude/settings.local.json 2>/dev/null && echo 'FAIL' || echo 'PASS'"
+echo "점검 파일: $(echo "$TARGET_PY" | grep -c '.py')개"
+echo "---"
 
-run_check "S03" ".gitignore에 .env 포함 여부" \
-  "grep -q '^\.env$' .gitignore && echo 'PASS' || echo 'FAIL: .gitignore에 .env 항목 없음'"
+# S01: 하드코딩 자격증명
+result=$(echo "$TARGET_PY" | xargs grep -n \
+  -iE "(api_key|password|secret|token|passwd|pwd)\s*=\s*['\"][^'\"]{6,}['\"]" 2>/dev/null \
+  | grep -viE "(os\.getenv|dotenv|config\.get|example|sample|test|placeholder)")
+if [ -n "$result" ]; then
+  echo "[S01 FAIL] 하드코딩 자격증명 탐지"
+  echo "$result"
+  FAIL_COUNT=$((FAIL_COUNT + 1))
+else
+  echo "[S01 PASS] 하드코딩 자격증명"
+fi
 
-run_check "S04" ".gitignore에 settings.local.json 포함 여부" \
-  "grep -q 'settings.local.json' .gitignore && echo 'PASS' || echo 'FAIL'"
+# S02: os.getenv() 실제 인프라 기본값
+result=$(echo "$TARGET_PY" | xargs grep -n \
+  -E "os\.getenv\s*\([^)]+,\s*['\"][^'\"]+['\"]" 2>/dev/null \
+  | grep -vE "(localhost|5432|postgres|http://localhost|0\.0\.0\.0|\"\")")
+if [ -n "$result" ]; then
+  echo "[S02 FAIL] os.getenv() 실제 인프라 기본값"
+  echo "$result"
+  FAIL_COUNT=$((FAIL_COUNT + 1))
+else
+  echo "[S02 PASS] os.getenv() 기본값"
+fi
 
-run_check "S05" "코드 파일 내 IP 하드코딩 탐지" \
-  "grep -rn --include='*.py' --include='*.sql' -E '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' Database_Design/migration/ Database_Design/tests/ 2>/dev/null && echo 'WARN' || echo 'PASS'"
+# S03: env.get() 실제 인프라 기본값
+result=$(echo "$TARGET_PY" | xargs grep -n \
+  -E "env\.get\s*\([^)]+,\s*['\"][^'\"]+['\"]" 2>/dev/null \
+  | grep -vE "(localhost|5432|postgres|http://localhost|0\.0\.0\.0|\"\")")
+if [ -n "$result" ]; then
+  echo "[S03 FAIL] env.get() 실제 인프라 기본값"
+  echo "$result"
+  FAIL_COUNT=$((FAIL_COUNT + 1))
+else
+  echo "[S03 PASS] env.get() 기본값"
+fi
 
-run_check "S06" "코드 파일 내 비밀번호 하드코딩 탐지" \
-  "grep -rn --include='*.py' --include='*.sql' --include='*.json' -iE 'password\s*=\s*[^$\s\{]{3,}' --exclude-dir='.git' . 2>/dev/null | grep -v '.env' | grep -v 'example' && echo 'FAIL' || echo 'PASS'"
+# S04: 실제 IP 주소 하드코딩
+result=$(echo "$TARGET_PY" | xargs grep -n \
+  -E "\"[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\"" 2>/dev/null \
+  | grep -vE "(127\.0\.0\.1|0\.0\.0\.0)")
+if [ -n "$result" ]; then
+  echo "[S04 FAIL] 실제 IP 주소 하드코딩"
+  echo "$result"
+  FAIL_COUNT=$((FAIL_COUNT + 1))
+else
+  echo "[S04 PASS] IP 주소 하드코딩"
+fi
 
-run_check "S07" "스테이징 파일 자격증명 탐지" \
-  "git diff --cached | grep -iE '(password|secret|api_key)\s*=\s*[^$\s]{3,}' && echo 'FAIL' || echo 'PASS'"
+# S05: .env 파일 스테이징
+result=$(git diff --cached --name-only 2>/dev/null | grep -E "(^|/)\.env(\.|$)" | grep -v "\.example")
+if [ -n "$result" ]; then
+  echo "[S05 FAIL] .env 파일이 staged 상태"
+  echo "$result"
+  FAIL_COUNT=$((FAIL_COUNT + 1))
+else
+  echo "[S05 PASS] .env 스테이징"
+fi
 
-run_check "S08" "CLAUDE.md 보안 규칙 존재 여부" \
-  "test -f CLAUDE.md && grep -q '.env' CLAUDE.md && echo 'PASS' || echo 'FAIL'"
+# S06: 민감 파일 git 추적
+result=$(git ls-files 2>/dev/null | grep -E "\.(env|pem|key|p12|pfx)$|credentials\.json|api_keys\.env$|secrets\.json" | grep -v "\.example")
+if [ -n "$result" ]; then
+  echo "[S06 FAIL] 민감 파일 git 추적 중"
+  echo "$result"
+  FAIL_COUNT=$((FAIL_COUNT + 1))
+else
+  echo "[S06 PASS] 민감 파일 git 추적"
+fi
 
-run_check "S09" "agent 파일 PGPASSWORD 하드코딩 탐지" \
-  "grep -rn --include='*.md' -E 'PGPASSWORD=[^\$\s]{3,}' Database_Design/agents/ && echo 'FAIL' || echo 'PASS'"
+# S07: .gitignore 필수 항목
+GITIGNORE_FAIL=""
+grep -q "\.env" .gitignore 2>/dev/null || GITIGNORE_FAIL="${GITIGNORE_FAIL} .env"
+grep -q "\*\.pem" .gitignore 2>/dev/null || GITIGNORE_FAIL="${GITIGNORE_FAIL} *.pem"
+grep -q "\*\.key" .gitignore 2>/dev/null || GITIGNORE_FAIL="${GITIGNORE_FAIL} *.key"
+grep -q "credentials\.json" .gitignore 2>/dev/null || GITIGNORE_FAIL="${GITIGNORE_FAIL} credentials.json"
+grep -q "settings\.local\.json" .gitignore 2>/dev/null || GITIGNORE_FAIL="${GITIGNORE_FAIL} settings.local.json"
+if [ -n "$GITIGNORE_FAIL" ]; then
+  echo "[S07 FAIL] .gitignore 누락 항목:${GITIGNORE_FAIL}"
+  FAIL_COUNT=$((FAIL_COUNT + 1))
+else
+  echo "[S07 PASS] .gitignore 필수 항목"
+fi
+
+# S08: 하드코딩 로컬 경로 (WARNING)
+result=$(echo "$TARGET_PY" | xargs grep -n \
+  -E "\"C:/Users/[^\"]+\"|'C:/Users/[^']+'" 2>/dev/null)
+if [ -n "$result" ]; then
+  echo "[S08 WARN] 하드코딩 로컬 경로 — 상수+CLI오버라이드 확인 필요"
+  echo "$result"
+  WARN_COUNT=$((WARN_COUNT + 1))
+else
+  echo "[S08 PASS] 하드코딩 로컬 경로"
+fi
 
 echo ""
-echo "=== Security Audit 완료: FAIL ${FAIL_COUNT}건 ==="
+echo "=== Security Audit 완료 ==="
+echo "FAIL: ${FAIL_COUNT}건 / WARN: ${WARN_COUNT}건"
+if [ "$FAIL_COUNT" -gt 0 ]; then
+  echo ">>> 커밋 차단 — FAIL 항목 수정 후 재실행"
+else
+  echo ">>> 커밋 진행 가능"
+fi
 ```
 
 ---
@@ -148,26 +290,60 @@ echo "=== Security Audit 완료: FAIL ${FAIL_COUNT}건 ==="
 
 ```
 [Security Auditor 결과]
-- 실행 시점: Phase X 시작 전 / 커밋 직전
-- 전체 점검: 9건
-- PASS: X건
-- FAIL: X건
-- WARN: X건
+- 실행 시점: 코드 작성 후 / 커밋 직전
+- 점검 파일: N개
+- PASS: N건 / FAIL: N건 / WARN: N건
 
 FAIL 항목:
 - [S번호 FAIL] 설명
+  위반 파일: path/to/file.py:라인번호
+  위반 내용: (실제 값은 마스킹 — 예: api_key = "ab**...")
 
 판단:
-- FAIL 0건 → 다음 단계 진행 허용
-- FAIL 존재 → 해당 Phase 또는 커밋 차단, 사용자에게 수동 조치 요청
-- WARN만 존재 → 진행 허용, 보고서에 기록
+- FAIL 0건 → 커밋/실행 허용
+- FAIL 1건 이상 → 즉시 차단, 수정 요청
+- WARN만 존재 → 허용, 보고서에 기록
+```
+
+---
+
+## 수정 가이드
+
+### S01/S02/S03 위반 수정
+```python
+# Before (FAIL)
+DB_HOST = "10.0.0.1"
+api_key = "abcd1234efgh"
+host = os.getenv("DB_HOST", "10.0.0.1")
+
+# After (PASS)
+DB_HOST = os.getenv("DB_HOST")
+api_key = os.getenv("TMDB_API_KEY", "")
+host = os.getenv("DB_HOST")
+```
+
+### S05 위반 수정
+```bash
+git rm --cached .env
+echo ".env" >> .gitignore
+```
+
+### S08 WARNING — 허용 조건 확인
+```python
+# WARNING 허용 (모듈 상단 상수 + CLI 인자 존재)
+DEFAULT_TRAILERS_DIR = Path("C:/Users/daewo/DX_prod_2nd/trailers")  # ← 허용
+parser.add_argument('--trailers-dir', default=str(DEFAULT_TRAILERS_DIR))
+
+# FAIL로 격상 (함수 내부 직접 사용)
+def process():
+    path = Path("C:/Users/daewo/DX_prod_2nd/trailers")  # ← FAIL
 ```
 
 ---
 
 ## 주의사항
 
-1. 점검 결과를 출력할 때 실제 자격증명 값을 절대 포함하지 않는다
-2. `grep` 결과에 실제 비밀번호 값이 나오면 `***` 로 마스킹 후 보고한다
-3. S07(스테이징 탐지)은 `git add` 이후, `git commit` 이전에만 실행한다
-4. WARN 항목은 보고서의 "보안 참고사항" 섹션에 기록하되 진행을 차단하지 않는다
+1. 점검 결과 출력에 실제 자격증명 값을 포함하지 않는다 (마스킹 처리)
+2. S08 WARN 항목은 보고서 "보안 참고사항"에 기록하되 진행을 차단하지 않는다
+3. S05/S06은 `git add` 이후 `git commit` 이전에만 유효하다
+4. `.env.example`은 민감 정보 없이 키 이름만 포함된 경우 PASS
