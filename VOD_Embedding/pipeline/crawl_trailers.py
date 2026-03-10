@@ -36,7 +36,13 @@ DURATION_MAX_SEC    = 300
 MAX_FILESIZE_BYTES  = 50 * 1024 * 1024   # 50MB
 
 # 실제 vod 테이블 ct_cl 값 기준 제외 목록
-EXCLUDE_CT_CL = {'키즈', '우리동네', '미분류'}
+EXCLUDE_CT_CL = {'우리동네', '미분류'}
+
+# 임베딩 전략
+# 시리즈 단위: 대표 에피소드 1개만 임베딩 → 같은 시리즈 전체 vod_id에 복사
+# 에피소드 단위: 각 에피소드마다 개별 임베딩
+SERIES_EMBED_CT_CL  = {'TV드라마', 'TV 시사/교양', 'TV애니메이션', '키즈', '영화'}
+EPISODE_EMBED_CT_CL = {'TV 연예/오락'}
 
 logging.basicConfig(
     level=logging.INFO,
@@ -128,19 +134,19 @@ def strip_episode_suffix(asset_nm: str) -> str:
     return name.strip()
 
 
-def build_search_queries(asset_nm: str, ct_cl: str, genre: str) -> list:
+def build_search_queries(asset_nm: str, ct_cl: str, genre: str, series_nm: str = None) -> list:
     queries = []
     name     = asset_nm.strip()
     norm     = normalize_title(name)       # 숫자-한글 공백 정규화
     series   = strip_episode_suffix(name)  # 에피소드 번호 제거한 시리즈명
+    # 영화: series_nm이 화질판/더빙판 제거된 순수 제목
+    movie_nm = normalize_title(series_nm.strip()) if series_nm else norm
 
     if ct_cl == '영화':
-        queries.append(f"{norm} 예고편")
-        if norm != name:                   # 정규화로 달라진 경우만 원본도 추가
-            queries.append(f"{name} 예고편")
-        queries.append(f"{norm} official trailer")
-        queries.append(f"{norm} 공식 예고편")
-        queries.append(f"{norm} trailer")
+        queries.append(f"{movie_nm} 예고편")
+        queries.append(f"{movie_nm} official trailer")
+        queries.append(f"{movie_nm} 공식 예고편")
+        queries.append(f"{movie_nm} trailer")
     elif ct_cl in ('TV드라마', 'TV 연예/오락', 'TV 시사/교양'):
         # 시리즈 단위로 검색 (개별 회차 검색하면 결과 없음)
         queries.append(f"{series} 예고편")
@@ -247,7 +253,7 @@ def fetch_vod_list(ct_cl_filter=None) -> list:
         if ct_cl_filter:
             placeholders = ','.join(['%s'] * len(ct_cl_filter))
             cur.execute(
-                f"SELECT full_asset_id, asset_nm, ct_cl, genre "
+                f"SELECT full_asset_id, asset_nm, ct_cl, genre, series_nm "
                 f"FROM vod WHERE ct_cl IN ({placeholders}) "
                 f"ORDER BY ct_cl, full_asset_id",
                 ct_cl_filter
@@ -255,14 +261,14 @@ def fetch_vod_list(ct_cl_filter=None) -> list:
         else:
             excluded = tuple(EXCLUDE_CT_CL)
             cur.execute(
-                "SELECT full_asset_id, asset_nm, ct_cl, genre "
+                "SELECT full_asset_id, asset_nm, ct_cl, genre, series_nm "
                 "FROM vod WHERE ct_cl NOT IN %s "
                 "ORDER BY ct_cl, full_asset_id",
                 (excluded,)
             )
         rows = cur.fetchall()
         return [
-            {"vod_id": r[0], "asset_nm": r[1], "ct_cl": r[2], "genre": r[3]}
+            {"vod_id": r[0], "asset_nm": r[1], "ct_cl": r[2], "genre": r[3], "series_nm": r[4]}
             for r in rows
         ]
     finally:
@@ -280,21 +286,44 @@ PILOT_SAMPLE_PLAN = {
     "_others":        3,   # 위에 없는 ct_cl (교육, 스포츠, 공연/음악 등)
 }
 
-# 시리즈 단위 dedup이 필요한 ct_cl (에피소드가 여러 개인 콘텐츠)
-SERIES_CT_CL = {'TV드라마', 'TV 연예/오락', 'TV 시사/교양', 'TV애니메이션'}
 
-def dedup_by_series(pool: list) -> list:
+# series_nm이 개별 시리즈 제목이 아닌 카테고리명으로 오염된 경우
+# → asset_nm에서 에피소드 번호를 제거한 순수 제목을 series_key로 사용
+_BAD_SERIES_NM = {
+    '애니메이션', '일본 AV', '성인', 'AV', '성인물',
+    '키즈', '교육', '기타', '다큐', '스포츠', '공연/음악', '라이프',
+    '우리동네', '미분류', '드라마', '영화', 'TV',
+}
+
+
+def effective_series_nm(series_nm, asset_nm: str) -> tuple:
     """
-    같은 시리즈명(strip_episode_suffix 기준)에서 full_asset_id가 가장 낮은
-    에피소드 1개만 남긴다. pool은 full_asset_id 오름차순 정렬된 상태여야 함.
-    예) '황제의 딸 1 01회' ~ '황제의 딸 1 40회' → '황제의 딸 1 01회' 1개만 유지
+    series_nm이 카테고리명으로 오염된 경우 asset_nm에서 순수 시리즈명 추출.
+
+    반환: (series_key: str, is_bad: bool)
+        series_key — dedup/전파에 사용할 실질적 시리즈 키
+        is_bad     — True면 series_nm이 오염됨 (전파 시 LIKE 패턴 사용)
     """
-    seen_series = set()
+    if series_nm and series_nm.strip() not in _BAD_SERIES_NM:
+        return series_nm.strip(), False
+    return strip_episode_suffix(asset_nm), True
+
+
+def dedup_by_series_nm(pool: list) -> list:
+    """
+    series_nm(오염 시 asset_nm 기반) 기준으로 대표 1개만 남긴다.
+    pool은 full_asset_id 오름차순 정렬된 상태여야 함 (가장 첫 번째 항목이 대표).
+
+    적용 대상: TV드라마/TV애니메이션/키즈/TV시사교양 (시리즈 단위 임베딩)
+               영화 (화질판/더빙판 중복 제거)
+    미적용:    TV 연예/오락 (에피소드 단위 임베딩)
+    """
+    seen = set()
     result = []
     for v in pool:
-        series_key = strip_episode_suffix(v["asset_nm"])
-        if series_key not in seen_series:
-            seen_series.add(series_key)
+        key, _ = effective_series_nm(v.get("series_nm"), v["asset_nm"])
+        if key not in seen:
+            seen.add(key)
             result.append(v)
     return result
 
@@ -303,7 +332,7 @@ def stratified_sample(vod_list: list, total: int = 100) -> list:
     """
     ct_cl 계층별 층화 샘플 추출.
     PILOT_SAMPLE_PLAN 비율로 각 카테고리에서 추출.
-    TV 계열은 시리즈 단위 dedup 후 quota개 선택 (같은 시리즈 중복 방지).
+    시리즈 단위 ct_cl은 dedup 후 quota개 선택 (같은 시리즈 중복 방지).
     """
     from collections import defaultdict
     buckets = defaultdict(list)
@@ -317,8 +346,8 @@ def stratified_sample(vod_list: list, total: int = 100) -> list:
     result = []
     for ct, quota in PILOT_SAMPLE_PLAN.items():
         pool = buckets.get(ct, [])
-        if ct in SERIES_CT_CL:
-            pool = dedup_by_series(pool)   # 시리즈 단위 중복 제거
+        if ct in SERIES_EMBED_CT_CL:
+            pool = dedup_by_series_nm(pool)   # 시리즈 단위 중복 제거
         result.extend(pool[:quota])
 
     # quota 합산이 total에 못 미치면 나머지로 채움
@@ -393,7 +422,22 @@ def main():
         log.info("=== 파일럿 모드: ct_cl 층화 100개 샘플 ===")
         vod_list = stratified_sample(vod_list, total=100)
         status["mode"] = "pilot"
-    elif args.limit > 0:
+    else:
+        # 전체 실행: 임베딩 전략에 따라 시리즈 중복 제거
+        series_pool  = [v for v in vod_list if v["ct_cl"] in SERIES_EMBED_CT_CL]
+        episode_pool = [v for v in vod_list if v["ct_cl"] in EPISODE_EMBED_CT_CL]
+        other_pool   = [v for v in vod_list if v["ct_cl"] not in SERIES_EMBED_CT_CL
+                                             and v["ct_cl"] not in EPISODE_EMBED_CT_CL]
+
+        deduped_series = dedup_by_series_nm(series_pool)
+        before = len(series_pool)
+        after  = len(deduped_series)
+        log.info(f"시리즈 dedup: {before:,}건 → {after:,}건 (제거 {before-after:,}건)")
+        log.info(f"에피소드 단위(TV 연예/오락): {len(episode_pool):,}건")
+
+        vod_list = deduped_series + episode_pool + other_pool
+
+    if args.limit > 0:
         vod_list = vod_list[:args.limit]
         log.info(f"--limit {args.limit} 적용")
 
@@ -408,9 +452,16 @@ def main():
         if vod_id in status["vods"] and status["vods"][vod_id]["status"] in ("success", "skipped"):
             continue
 
-        queries = build_search_queries(vod["asset_nm"], vod["ct_cl"], vod["genre"])
+        queries = build_search_queries(vod["asset_nm"], vod["ct_cl"], vod["genre"], vod.get("series_nm"))
         result  = try_download(vod_id, queries, TRAILERS_DIR, args.dry_run)
 
+        # 전파 메타 저장 → ingest_to_db.py --propagate 시 시리즈 전파에 사용
+        series_key, is_bad = effective_series_nm(vod.get("series_nm"), vod["asset_nm"])
+        result["ct_cl"]           = vod["ct_cl"]
+        result["series_nm"]       = vod.get("series_nm")   # DB 원본값 (exact match용)
+        result["series_key"]      = series_key              # 정제된 키 (LIKE 패턴용)
+        result["series_nm_is_bad"] = is_bad                 # True면 LIKE 패턴으로 전파
+        result["asset_nm"]        = vod["asset_nm"]         # LIKE 패턴 구성에 사용
         status["vods"][vod_id] = result
         status["processed"] = status.get("processed", 0) + 1
 

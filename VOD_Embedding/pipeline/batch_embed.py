@@ -134,6 +134,7 @@ def build_work_list(crawl_vods: dict, done_vod_ids: set, trailers_dir: Path) -> 
     """
     성공적으로 다운로드된 트레일러 목록 반환.
     이미 임베딩 완료된 vod_id는 제외.
+    ct_cl, series_nm은 crawl_status에서 전달 (ingest --propagate 시 시리즈 전파에 사용).
     """
     work = []
     for vod_id, info in crawl_vods.items():
@@ -145,10 +146,12 @@ def build_work_list(crawl_vods: dict, done_vod_ids: set, trailers_dir: Path) -> 
         filepath = trailers_dir / filename
         if filepath.exists():
             work.append({
-                "vod_id":   vod_id,
-                "filename": filename,
-                "filepath": str(filepath),
-                "title":    info.get("title", vod_id),
+                "vod_id":    vod_id,
+                "filename":  filename,
+                "filepath":  str(filepath),
+                "title":     info.get("title", vod_id),
+                "ct_cl":     info.get("ct_cl"),
+                "series_nm": info.get("series_nm"),
             })
     return work
 
@@ -306,6 +309,8 @@ def main():
                 "vector":       vec,
                 "magnitude":    float(np.linalg.norm(vec)),
                 "embedded_at":  datetime.now().isoformat(),
+                "ct_cl":        item.get("ct_cl"),
+                "series_nm":    item.get("series_nm"),
             }
             if use_parquet:
                 parquet_results.append(record)

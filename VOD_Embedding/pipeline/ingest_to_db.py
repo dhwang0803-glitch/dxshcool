@@ -4,10 +4,17 @@ data/video_embs_batch_*.pkl → vod_embedding 테이블
 
 실행:
     conda activate myenv
-    python pipeline/ingest_to_db.py
+    python pipeline/ingest_to_db.py                  # 대표 에피소드 적재
     python pipeline/ingest_to_db.py --dry-run
     python pipeline/ingest_to_db.py --batch data/video_embs_batch_001.pkl
     python pipeline/ingest_to_db.py --verify
+    python pipeline/ingest_to_db.py --propagate      # 시리즈 전체 vod_id에 임베딩 복사
+
+전략:
+    시리즈 단위 ct_cl (TV드라마/TV애니메이션/키즈/TV시사교양/영화):
+        대표 에피소드 1개 적재 후 --propagate로 같은 series_nm 전체에 복사
+    에피소드 단위 ct_cl (TV 연예/오락):
+        각 에피소드 개별 적재, 전파 없음
 """
 
 import sys
@@ -32,6 +39,9 @@ EMBEDDING_TYPE   = "VISUAL"     # VISUAL / CONTENT / HYBRID
 EMBEDDING_DIM    = 512
 FRAME_COUNT      = 10           # batch_embed.py N_FRAMES와 동일
 SOURCE_TYPE      = "TRAILER"    # TRAILER / FULL
+
+# 에피소드 단위 임베딩 ct_cl — 시리즈 전파 제외
+EPISODE_EMBED_CT_CL = {'TV 연예/오락'}
 
 # ON CONFLICT 기준: vod_id_fk UNIQUE (Database_Design 스키마 기준)
 INSERT_SQL = """
@@ -252,6 +262,96 @@ def run_verify(conn):
         log.info(f"커버리지 목표 달성: {coverage}%")
 
 
+def propagate_series_embeddings(conn, crawl_status_path: Path, dry_run: bool = False) -> int:
+    """
+    crawl_status.json 기반으로 시리즈 대표 vod_id의 임베딩을
+    같은 series_nm 내 전체 vod_id에 SQL 수준으로 복사.
+
+    - EPISODE_EMBED_CT_CL(TV 연예/오락): 건너뜀
+    - series_nm 없는 항목: 건너뜀
+    - 대표 vod_id가 vod_embedding에 없는 항목: 건너뜀
+    """
+    with open(crawl_status_path, encoding='utf-8') as f:
+        crawl_data = json.load(f)
+    crawl_vods = crawl_data.get("vods", {})
+
+    cur = conn.cursor()
+    total_propagated = 0
+    total_skipped    = 0
+
+    for rep_vod_id, info in crawl_vods.items():
+        if info.get("status") != "success":
+            continue
+
+        ct_cl          = info.get("ct_cl")
+        series_nm      = info.get("series_nm")
+        series_key     = info.get("series_key") or series_nm
+        is_bad         = info.get("series_nm_is_bad", False)
+
+        if ct_cl in EPISODE_EMBED_CT_CL or not series_key:
+            continue
+
+        # 대표 vod_id가 vod_embedding에 있는지 확인
+        cur.execute("SELECT 1 FROM vod_embedding WHERE vod_id_fk = %s", (rep_vod_id,))
+        if not cur.fetchone():
+            total_skipped += 1
+            continue
+
+        # 같은 시리즈의 나머지 vod_id 조회
+        # series_nm이 오염된 경우(is_bad): asset_nm LIKE '{series_key}%' 패턴으로 매칭
+        # 정상인 경우: series_nm exact match
+        if is_bad:
+            cur.execute(
+                "SELECT full_asset_id FROM vod "
+                "WHERE ct_cl = %s AND asset_nm LIKE %s AND full_asset_id != %s",
+                (ct_cl, series_key + '%', rep_vod_id)
+            )
+        else:
+            cur.execute(
+                "SELECT full_asset_id FROM vod "
+                "WHERE series_nm = %s AND ct_cl = %s AND full_asset_id != %s",
+                (series_nm, ct_cl, rep_vod_id)
+            )
+        siblings = [r[0] for r in cur.fetchall()]
+        if not siblings:
+            continue
+
+        if dry_run:
+            log.info(f"[DRY-RUN] {series_nm}: {len(siblings)}개 vod_id에 전파 예정")
+            total_propagated += len(siblings)
+            continue
+
+        # 대표의 임베딩을 형제 vod_id들에 SQL로 복사 (벡터 재인코딩 없이)
+        for sib_id in siblings:
+            try:
+                cur.execute("""
+                    INSERT INTO vod_embedding (
+                        vod_id_fk, embedding, embedding_type, embedding_dim,
+                        model_version, vector_magnitude, frame_count, source_type
+                    )
+                    SELECT %s, embedding, embedding_type, embedding_dim,
+                           model_version, vector_magnitude, frame_count, source_type
+                    FROM vod_embedding
+                    WHERE vod_id_fk = %s
+                    ON CONFLICT (vod_id_fk) DO UPDATE SET
+                        embedding        = EXCLUDED.embedding,
+                        updated_at       = NOW()
+                """, (sib_id, rep_vod_id))
+                total_propagated += 1
+            except Exception as e:
+                log.warning(f"전파 실패 {sib_id}: {e}")
+                conn.rollback()
+
+        if total_propagated % COMMIT_INTERVAL == 0:
+            conn.commit()
+
+    if not dry_run:
+        conn.commit()
+
+    log.info(f"시리즈 전파 완료: {total_propagated:,}건 전파, {total_skipped}건 스킵(미적재)")
+    return total_propagated
+
+
 def create_index_after_ingest(conn):
     """전체 적재 완료 후 IVF_FLAT 인덱스 생성"""
     log.info("IVF_FLAT 인덱스 생성 중... (수 분 소요)")
@@ -266,10 +366,13 @@ def create_index_after_ingest(conn):
 
 def main():
     parser = argparse.ArgumentParser(description="pgvector DB 적재")
-    parser.add_argument('--batch',   type=str, default='', help='특정 pkl 파일만 적재')
-    parser.add_argument('--dry-run', action='store_true', help='DB INSERT 없이 확인만')
-    parser.add_argument('--verify',  action='store_true', help='적재 결과 검증만')
+    parser.add_argument('--batch',      type=str, default='', help='특정 pkl 파일만 적재')
+    parser.add_argument('--dry-run',    action='store_true', help='DB INSERT 없이 확인만')
+    parser.add_argument('--verify',     action='store_true', help='적재 결과 검증만')
     parser.add_argument('--create-index', action='store_true', help='적재 후 IVF_FLAT 인덱스 생성')
+    parser.add_argument('--propagate',  action='store_true',
+                        help='시리즈 대표 임베딩을 같은 series_nm 전체 vod_id에 복사 '
+                             '(대표 적재 완료 후 실행)')
     args = parser.parse_args()
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -283,6 +386,20 @@ def main():
         if not check_pgvector(conn):
             sys.exit(1)
         ensure_table(conn)
+
+        # --propagate: 시리즈 전파만 실행
+        if args.propagate:
+            crawl_status_path = DATA_DIR / "crawl_status.json"
+            if not crawl_status_path.exists():
+                log.error("crawl_status.json 없음 — PLAN_01 (crawl_trailers.py) 먼저 실행")
+                sys.exit(1)
+            log.info("=== 시리즈 임베딩 전파 시작 ===")
+            if args.dry_run:
+                log.info("[DRY-RUN] 실제 INSERT 없음")
+            propagated = propagate_series_embeddings(conn, crawl_status_path, args.dry_run)
+            log.info(f"전파 완료: {propagated:,}건")
+            run_verify(conn)
+            return
 
         batch_files = get_batch_files(DATA_DIR, args.batch)
         if not batch_files:
