@@ -136,6 +136,8 @@ celerybeat.pid
 
 # Environments
 .env
+.env.*
+!.env.example
 .envrc
 .venv
 
@@ -149,6 +151,23 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Credentials & secrets
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+service_account.json
+secrets.json
+
+# Claude Code local settings (contains personal tokens)
+.claude/settings.local.json
+
+# Embedding output files (팀원 제출용 — 저장소에 커밋하지 않음)
+*.parquet
+*.pkl
+VOD_Embedding/data/
 
 # Spyder project settings
 .spyderproject
