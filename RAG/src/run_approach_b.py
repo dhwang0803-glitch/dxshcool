@@ -39,9 +39,9 @@ TMDB_READ_ACCESS_TOKEN = os.getenv("TMDB_READ_ACCESS_TOKEN", "")
 KMDB_API_KEY           = os.getenv("KMDB_API_KEY", "")
 DATA_GO_API_KEY        = os.getenv("DATA_GO_API_KEY", "")
 # ── 병렬처리 설정 (조정 가능) ──────────────────────
-MAX_WORKERS       = 20   # 동시 처리 건 수
-SEM_TMDB_COUNT    = 8    # TMDB ~40 req/s 한도 내
-SEM_JW_COUNT      = 5    # JustWatch (비공개 한도)
+MAX_WORKERS       = 30   # 동시 처리 건 수
+SEM_TMDB_COUNT    = 12    # TMDB ~40 req/s 한도 내
+SEM_JW_COUNT      = 8    # JustWatch (비공개 한도)
 SEM_KMDB_COUNT    = 3    # 공공 API 보수적
 SEM_DATA_GO_COUNT = 3    # 공공 API 보수적
 
