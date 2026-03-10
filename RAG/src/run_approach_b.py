@@ -1,26 +1,28 @@
 """
-PLAN_00b Step 3 v3: 접근법 B — ct_cl 분기 + 시리즈 캐시 + TMDB 직접 파싱
+PLAN_00b Step 3 v8: 접근법 B — ct_cl 분기 + 시리즈 캐시 + TMDB/KMDB/JW/DATA_GO
+                     + ThreadPoolExecutor 병렬처리
 
 아키텍처:
-  ct_cl 분기 → 시리즈명 추출 → SeriesCache 조회
-    캐시 미스 → TMDB 시리즈 레벨 1회 조회 → 캐시 저장
-    → 에피소드 전체에 동일 적용 (중복 API 호출 제거)
-
-  TV 연예/오락: 시리즈 레벨(MC) + 에피소드 레벨(guest_stars) → Step 2에서 확장
+  ThreadPoolExecutor(MAX_WORKERS) → process_one 병렬 실행
+  SeriesCache (thread-safe, Condition variable) → 동일 시리즈 중복 fetch 방지
+  폴백 체인: TMDB → (KMDB ‖ JustWatch 병렬) → DATA_GO 순차
+  API별 BoundedSemaphore: TMDB=8, JW=5, KMDB=3, DATA_GO=3
 """
 import sys
-sys.stdout.reconfigure(encoding="utf-8")
-
 import os
 import re
 import csv
 import json
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Callable
 
 import requests
+import xml.etree.ElementTree as ET
 from dotenv import load_dotenv
+from tqdm import tqdm
 
 ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(ROOT / ".env")
@@ -35,10 +37,30 @@ from validation import validate_cast, validate_rating, validate_date, validate_d
 TMDB_API_KEY           = os.getenv("TMDB_API_KEY", "")
 TMDB_READ_ACCESS_TOKEN = os.getenv("TMDB_READ_ACCESS_TOKEN", "")
 KMDB_API_KEY           = os.getenv("KMDB_API_KEY", "")
+DATA_GO_API_KEY        = os.getenv("DATA_GO_API_KEY", "")
+# ── 병렬처리 설정 (조정 가능) ──────────────────────
+MAX_WORKERS       = 20   # 동시 처리 건 수
+SEM_TMDB_COUNT    = 8    # TMDB ~40 req/s 한도 내
+SEM_JW_COUNT      = 5    # JustWatch (비공개 한도)
+SEM_KMDB_COUNT    = 3    # 공공 API 보수적
+SEM_DATA_GO_COUNT = 3    # 공공 API 보수적
+
+_sem_tmdb    = threading.BoundedSemaphore(SEM_TMDB_COUNT)
+_sem_jw      = threading.BoundedSemaphore(SEM_JW_COUNT)
+_sem_kmdb    = threading.BoundedSemaphore(SEM_KMDB_COUNT)
+_sem_data_go = threading.BoundedSemaphore(SEM_DATA_GO_COUNT)
+# ────────────────────────────────────────────────────
+
 REQUEST_TIMEOUT        = 8
 _TMDB_URL              = "https://api.themoviedb.org/3"
 _KMDB_URL              = "http://api.koreafilm.or.kr/openapi-data2/wisenut/search_api/search_json2.jsp"
+_DATA_GO_RATING_URL    = "https://apis.data.go.kr/B551008/video_v2/video_search_v2"
+_JW_GRAPHQL_URL        = "https://apis.justwatch.com/graphql"
 _HEADERS               = {"User-Agent": "vod-rag-pipeline/1.0"}
+_JW_HEADERS            = {
+    "Content-Type": "application/json",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+}
 
 # ct_cl → TMDB media_type 힌트
 _MOVIE_TYPES  = {"영화"}
@@ -156,6 +178,32 @@ _INTL_RATING_TO_KR: dict = {
 # KR 없을 때 시도할 국가 우선순위 (아시아 콘텐츠 고려)
 _COUNTRY_PRIORITY = ["JP", "TW", "HK", "SG", "US", "GB", "AU", "FR", "DE", "RU", "VN", "IT", "CA"]
 
+# 방심위 API 등급 코드 → 표준 한국 등급 (코드값과 한글 텍스트 모두 대응)
+_DATA_GO_RATING_MAP = {
+    # 코드 형식
+    "AL":  "전체관람가",
+    "7":   "7세이상관람가",
+    "12":  "12세이상관람가",
+    "15":  "15세이상관람가",
+    "19":  "청소년관람불가",
+    # 한글 텍스트 형식
+    "전체":       "전체관람가",
+    "전체관람가":  "전체관람가",
+    "7세":        "7세이상관람가",
+    "7세이상":     "7세이상관람가",
+    "7세이상관람가": "7세이상관람가",
+    "12세":       "12세이상관람가",
+    "12세이상":    "12세이상관람가",
+    "12세이상관람가": "12세이상관람가",
+    "15세":       "15세이상관람가",
+    "15세이상":    "15세이상관람가",
+    "15세이상관람가": "15세이상관람가",
+    "19세":       "청소년관람불가",
+    "19세이상":    "청소년관람불가",
+    "청소년관람불가": "청소년관람불가",
+    "청불":        "청소년관람불가",
+}
+
 # 에피소드/회차/시즌 번호 제거 패턴
 _RE_EPISODE = re.compile(
     r'\s*[\(\[]?(?:\d{1,4}화|제?\d{1,4}회\.?|[Ss]\d{1,2}[Ee]\d{1,3}|'
@@ -170,25 +218,56 @@ _RE_TRAILING_PERIOD = re.compile(r'\.\s*$')
 # 시리즈 캐시
 # ─────────────────────────────────────────
 
+_CACHE_PENDING = object()  # sentinel: 다른 스레드가 fetch 중
+
+
 class SeriesCache:
     """
-    시리즈명 → TMDB 조회 결과 캐시.
-    같은 시리즈 에피소드 N건에 대해 TMDB 호출을 1회로 줄인다.
+    시리즈명 → API 조회 결과 캐시 (thread-safe).
+
+    get_or_fetch(key, fn):
+      - 캐시 히트 → 즉시 반환
+      - 첫 번째 미스 → fn() 실행 후 저장 (이 스레드 담당)
+      - 동시 미스  → Condition.wait() 로 첫 번째 fetch 완료까지 대기
+                     → 완료 후 결과 재사용 (중복 API 호출 0)
     """
     def __init__(self):
         self._data: Dict[str, Any] = {}
-        self.hits = 0
+        self._cond  = threading.Condition(threading.Lock())
+        self.hits   = 0
         self.misses = 0
 
-    def get(self, key: str) -> Optional[dict]:
-        if key in self._data:
-            self.hits += 1
-            return self._data[key]
-        self.misses += 1
-        return None
+    def get_or_fetch(self, key: str, fetch_fn: Callable[[], dict]) -> dict:
+        with self._cond:
+            val = self._data.get(key, None)
+            if val is not None and val is not _CACHE_PENDING:
+                self.hits += 1
+                return val
+            if val is _CACHE_PENDING:
+                # 다른 스레드가 fetch 중 — 완료 대기
+                while self._data.get(key) is _CACHE_PENDING:
+                    self._cond.wait()
+                self.hits += 1
+                return self._data[key]
+            # 첫 번째 미스: 이 스레드가 fetch 담당
+            self.misses += 1
+            self._data[key] = _CACHE_PENDING
 
-    def set(self, key: str, value: dict):
-        self._data[key] = value
+        # Lock 해제 상태에서 HTTP 실행
+        try:
+            result = fetch_fn()
+        except Exception:
+            result = {
+                "tmdb_id": None, "media_type": None, "cast_lead": None,
+                "director": None, "release_date": None, "rating": None,
+                "smry": None, "series_nm": None, "disp_rtm": None, "source": None,
+            }
+        finally:
+            with self._cond:
+                self._data[key] = result
+                self._cond.notify_all()
+
+        return result
 
     def stats(self) -> str:
         total = self.hits + self.misses
@@ -275,12 +354,13 @@ def _tmdb_search(series: str, original: str, prefer_movie: bool = False) -> Opti
     for lang in ["ko-KR", "en-US"]:
         for query in _build_queries(series, original):
             try:
-                r = requests.get(
-                    f"{_TMDB_URL}/search/multi",
-                    params=_tmdb_params({"query": query, "language": lang, "page": 1}),
-                    headers=_tmdb_headers(),
-                    timeout=REQUEST_TIMEOUT,
-                )
+                with _sem_tmdb:
+                    r = requests.get(
+                        f"{_TMDB_URL}/search/multi",
+                        params=_tmdb_params({"query": query, "language": lang, "page": 1}),
+                        headers=_tmdb_headers(),
+                        timeout=REQUEST_TIMEOUT,
+                    )
                 results = r.json().get("results", [])
 
                 # 원하는 타입 우선, 없으면 다른 타입도 허용
@@ -311,25 +391,45 @@ def _tmdb_series_detail(item: dict) -> Optional[dict]:
     item_id    = item["id"]
     try:
         if media_type == "movie":
-            r = requests.get(
-                f"{_TMDB_URL}/movie/{item_id}",
-                params=_tmdb_params({
-                    "language": "ko-KR",
-                    "append_to_response": "credits,release_dates",
-                }),
-                headers=_tmdb_headers(), timeout=REQUEST_TIMEOUT,
-            )
+            with _sem_tmdb:
+                r = requests.get(
+                    f"{_TMDB_URL}/movie/{item_id}",
+                    params=_tmdb_params({
+                        "language": "ko-KR",
+                        "append_to_response": "credits,release_dates",
+                    }),
+                    headers=_tmdb_headers(), timeout=REQUEST_TIMEOUT,
+                )
         else:
-            r = requests.get(
-                f"{_TMDB_URL}/tv/{item_id}",
-                params=_tmdb_params({
-                    "language": "ko-KR",
-                    "append_to_response": "credits,content_ratings",
-                }),
-                headers=_tmdb_headers(), timeout=REQUEST_TIMEOUT,
-            )
+            with _sem_tmdb:
+                r = requests.get(
+                    f"{_TMDB_URL}/tv/{item_id}",
+                    params=_tmdb_params({
+                        "language": "ko-KR",
+                        "append_to_response": "credits,content_ratings",
+                    }),
+                    headers=_tmdb_headers(), timeout=REQUEST_TIMEOUT,
+                )
         detail = r.json()
         detail["_media_type"] = media_type
+
+        # TV: episode_run_time 비어 있으면 시즌1 에피소드에서 런타임 추출
+        if media_type == "tv" and not detail.get("episode_run_time"):
+            try:
+                with _sem_tmdb:
+                    sr = requests.get(
+                        f"{_TMDB_URL}/tv/{item_id}/season/1",
+                        params=_tmdb_params({"language": "ko-KR"}),
+                        headers=_tmdb_headers(), timeout=REQUEST_TIMEOUT,
+                    )
+                for ep in sr.json().get("episodes", [])[:5]:
+                    rt = ep.get("runtime")
+                    if isinstance(rt, int) and rt > 0:
+                        detail["_ep_runtime_fallback"] = rt
+                        break
+            except Exception:
+                pass
+
         return detail
     except Exception:
         return None
@@ -354,13 +454,13 @@ def _extract_series_nm(detail: dict) -> Optional[str]:
 
 def _extract_disp_rtm(detail: dict) -> Optional[str]:
     """TMDB runtime(분) → 'HH:MM' 형식 문자열.
-    영화: runtime(int), TV: episode_run_time(list) 첫 번째 값 사용."""
+    영화: runtime(int), TV: episode_run_time → 시즌1 에피소드 폴백 순."""
     media_type = detail.get("_media_type", "movie")
     if media_type == "movie":
         minutes = detail.get("runtime")
     else:
         rts = detail.get("episode_run_time", [])
-        minutes = rts[0] if rts else None
+        minutes = rts[0] if rts else detail.get("_ep_runtime_fallback")
     if not minutes or not isinstance(minutes, int) or minutes <= 0:
         return None
     return f"{minutes // 60:02d}:{minutes % 60:02d}"
@@ -451,14 +551,15 @@ def _kmdb_search(series: str) -> Optional[dict]:
     if not KMDB_API_KEY:
         return None
     try:
-        r = requests.get(
-            _KMDB_URL,
-            params={
-                "collection": "kmdb_new2", "query": series,
-                "detail": "Y", "ServiceKey": KMDB_API_KEY, "listCount": 3,
-            },
-            headers=_HEADERS, timeout=REQUEST_TIMEOUT,
-        )
+        with _sem_kmdb:
+            r = requests.get(
+                _KMDB_URL,
+                params={
+                    "collection": "kmdb_new2", "query": series,
+                    "detail": "Y", "ServiceKey": KMDB_API_KEY, "listCount": 3,
+                },
+                headers=_HEADERS, timeout=REQUEST_TIMEOUT,
+            )
         items = (r.json().get("Data") or [{}])[0].get("Result") or []
         if not items:
             return None
@@ -490,6 +591,224 @@ def _parse_kmdb(item: dict) -> dict:
     mapped_rating = _KMDB_RATING_MAP.get(rating_raw, rating_raw)
     if mapped_rating in _KMDB_VALID_RATINGS:
         out["rating"] = mapped_rating
+    # KMDB runtime → disp_rtm (분 단위 숫자 문자열)
+    runtime_raw = item.get("runtime", "").strip()
+    if runtime_raw:
+        try:
+            if runtime_raw.isdigit():
+                mins = int(runtime_raw)
+            elif ":" in runtime_raw:
+                h, m = runtime_raw.split(":", 1)
+                mins = int(h) * 60 + int(m)
+            else:
+                m = re.search(r'\d+', runtime_raw)
+                mins = int(m.group()) if m else 0
+            if 1 <= mins <= 300:
+                out["disp_rtm"] = f"{mins // 60:02d}:{mins % 60:02d}"
+        except Exception:
+            pass
+    return out
+
+
+# ─────────────────────────────────────────
+# JustWatch GraphQL 폴백 (TV 시리즈 rating·runtime·cast·director 보완)
+# ─────────────────────────────────────────
+
+_JW_QUERY = """
+query SearchTitles($q: String!, $country: Country!, $lang: Language!) {
+  popularTitles(country: $country, filter: { searchQuery: $q }) {
+    edges {
+      node {
+        objectType
+        content(country: $country, language: $lang) {
+          title
+          runtime
+          ageCertification
+          shortDescription
+          credits { role name }
+        }
+      }
+    }
+  }
+}
+"""
+
+# JustWatch ageCertification → 표준 한국 등급
+# KR 로케일 반환값: "ALL", "7", "12", "15", "18", "19"
+_JW_CERT_MAP = {
+    "ALL": "전체관람가",
+    "7":   "7세이상관람가",
+    "12":  "12세이상관람가",
+    "15":  "15세이상관람가",
+    "18":  "18세이상관람가",
+    "19":  "청소년관람불가",
+}
+
+
+def _jw_search(series: str, original: str) -> dict:
+    """JustWatch GraphQL API로 메타데이터 조회.
+    반환: {rating, disp_rtm, director, cast_lead, smry} — 확보된 필드만 포함.
+
+    - TV 시리즈 rating: TMDB content_ratings 미등록 케이스 보완 핵심 소스
+    - 유사도 임계값 0.5 (JustWatch 검색 정확도 높음)
+    - cast/director: 영문 로마자 표기 반환 가능
+    """
+    out: dict = {}
+    try:
+        with _sem_jw:
+            r = requests.post(
+                _JW_GRAPHQL_URL,
+                json={
+                    "query": _JW_QUERY,
+                    "variables": {"q": series, "country": "KR", "lang": "ko"},
+                },
+                headers=_JW_HEADERS,
+                timeout=REQUEST_TIMEOUT,
+            )
+        if r.status_code != 200:
+            return out
+        edges = r.json().get("data", {}).get("popularTitles", {}).get("edges", [])
+        if not edges:
+            return out
+
+        for edge in edges[:3]:
+            content = edge["node"].get("content", {})
+            jw_title = (content.get("title") or "").strip()
+            if _title_similarity(series, jw_title) < 0.5:
+                # 원본 타이틀로도 재시도
+                if _title_similarity(original, jw_title) < 0.5:
+                    continue
+
+            # 등급 (ageCertification)
+            cert = (content.get("ageCertification") or "").strip().upper()
+            if cert:
+                mapped = _JW_CERT_MAP.get(cert)
+                if mapped and validate_rating(mapped):
+                    out["rating"] = mapped
+
+            # 상영/방영 시간 (runtime — 분 단위 int)
+            rt = content.get("runtime")
+            if isinstance(rt, int) and 1 <= rt <= 300:
+                out["disp_rtm"] = f"{rt // 60:02d}:{rt % 60:02d}"
+
+            # 감독 (DIRECTOR role)
+            credits = content.get("credits", [])
+            for c in credits:
+                if c.get("role") == "DIRECTOR":
+                    name = (c.get("name") or "").strip()
+                    if name and validate_director(name):
+                        out["director"] = name
+                        break
+
+            # 주연 (ACTOR role — 상위 4명)
+            actors = [
+                c["name"].strip() for c in credits
+                if c.get("role") == "ACTOR" and c.get("name")
+            ]
+            valid_actors = [n for n in actors if validate_director(n)]
+            if valid_actors:
+                out["cast_lead"] = valid_actors[:4]
+
+            # 줄거리 (shortDescription)
+            smry = (content.get("shortDescription") or "").strip()
+            if len(smry) >= 10:
+                out["smry"] = smry
+
+            if out:
+                break
+    except Exception:
+        pass
+    return out
+
+
+# ─────────────────────────────────────────
+# 방심위 DATA.GO.KR 폴백 (TV 시리즈 등급 전용)
+# ─────────────────────────────────────────
+
+_RE_SCRE_TIME = re.compile(r'(\d+)분\s*(\d*)초?')
+
+
+def _parse_scre_time(scre: str) -> Optional[str]:
+    """'82분 44초' / '56분 초' 형식 → 'HH:MM'."""
+    m = _RE_SCRE_TIME.search(scre)
+    if not m:
+        return None
+    mins = int(m.group(1))
+    if not (1 <= mins <= 300):
+        return None
+    return f"{mins // 60:02d}:{mins % 60:02d}"
+
+
+def _data_go_search(series: str) -> dict:
+    """영상물등급위원회 API(B551008/video_v2/video_search_v2) 조회.
+    반환: {rating, disp_rtm, director, cast_lead} — 확보된 필드만 포함.
+
+    응답: XML (resultCode 00=정상, items/item 반복)
+    핵심 필드: gradeName(등급), screTime(상영시간), direName(감독),
+               leadaName(주연), useTitle/oriTitle(제목 매칭용)
+    유사도 임계값 0.65 — 부분 매칭으로 인한 성인물 오매칭 방지.
+    """
+    out: dict = {}
+    if not DATA_GO_API_KEY:
+        return out
+    try:
+        with _sem_data_go:
+            r = requests.get(
+                _DATA_GO_RATING_URL,
+                params={
+                    "serviceKey": DATA_GO_API_KEY,
+                    "pageNo":     "1",
+                    "numOfRows":  "10",
+                    "title":      series,
+                },
+                headers=_HEADERS,
+                timeout=REQUEST_TIMEOUT,
+            )
+        if r.status_code != 200:
+            return out
+
+        root = ET.fromstring(r.text)
+        if root.findtext(".//resultCode", "") != "00":
+            return out
+
+        for item in root.findall(".//item"):
+            def _t(tag: str) -> str:
+                return (item.findtext(tag) or "").strip()
+
+            # 제목 유사도 — 0.80 이상만 허용 (부분 매칭 오염 방지)
+            use_title = _t("useTitle") or _t("oriTitle")
+            if _title_similarity(series, use_title) < 0.80:
+                continue
+
+            # 등급 (gradeName — 이미 표준 한국 등급 형식)
+            grade_raw = _t("gradeName")
+            if grade_raw:
+                mapped = _DATA_GO_RATING_MAP.get(grade_raw, grade_raw)
+                if validate_rating(mapped):
+                    out["rating"] = mapped
+
+            # 상영시간 (screTime — "82분 44초" 형식)
+            rtm = _parse_scre_time(_t("screTime"))
+            if rtm:
+                out["disp_rtm"] = rtm
+
+            # 감독 (direName)
+            dire = _t("direName")
+            if dire and validate_director(dire):
+                out["director"] = dire
+
+            # 주연 (leadaName — 쉼표 구분 가능)
+            leada = _t("leadaName")
+            if leada:
+                names = [n.strip() for n in re.split(r'[,，/]', leada) if n.strip()]
+                valid = [n for n in names if validate_director(n)]
+                if valid:
+                    out["cast_lead"] = valid[:4]
+
+            if out:   # 첫 매칭 건 확보 시 종료
+                break
+    except Exception:
+        pass
     return out
 
 
@@ -499,51 +818,109 @@ def _parse_kmdb(item: dict) -> dict:
 
 def _fetch_series_data(series: str, original: str, ct_cl: str) -> dict:
     """
-    시리즈명으로 TMDB 조회 → 캐시 저장/반환.
-    반환: {tmdb_id, media_type, cast_lead, director, release_date, rating, source}
+    시리즈명으로 TMDB 조회 → 캐시 저장/반환 (thread-safe).
+    폴백 체인: TMDB → (KMDB ‖ JustWatch 병렬) → DATA_GO
     """
-    cached = _cache.get(series)
-    if cached is not None:
-        return cached
+    def _do_fetch() -> dict:
+        prefer_movie = ct_cl in _MOVIE_TYPES
+        item = _tmdb_search(series, original, prefer_movie)
 
-    prefer_movie = ct_cl in _MOVIE_TYPES
-    item = _tmdb_search(series, original, prefer_movie)
+        result: Dict[str, Any] = {
+            "tmdb_id": None, "media_type": None,
+            "cast_lead": None, "director": None,
+            "release_date": None, "rating": None,
+            "smry": None, "series_nm": None, "disp_rtm": None,
+            "source": None,
+        }
 
-    result = {
-        "tmdb_id": None, "media_type": None,
-        "cast_lead": None, "director": None,
-        "release_date": None, "rating": None,
-        "smry": None, "series_nm": None, "disp_rtm": None,
-        "source": None,
-    }
+        if item:
+            detail = _tmdb_series_detail(item)
+            if detail:
+                result["tmdb_id"]      = item["id"]
+                result["media_type"]   = item["media_type"]
+                result["cast_lead"]    = _extract_cast(detail)
+                result["director"]     = _extract_director(detail)
+                result["release_date"] = _extract_release_date(detail)
+                result["rating"]       = _extract_rating(detail)
+                result["smry"]         = _extract_smry(detail)
+                result["series_nm"]    = _extract_series_nm(detail)
+                result["disp_rtm"]     = _extract_disp_rtm(detail)
+                result["source"]       = "TMDB"
 
-    if item:
-        detail = _tmdb_series_detail(item)
-        if detail:
-            result["tmdb_id"]      = item["id"]
-            result["media_type"]   = item["media_type"]
-            result["cast_lead"]    = _extract_cast(detail)
-            result["director"]     = _extract_director(detail)
-            result["release_date"] = _extract_release_date(detail)
-            result["rating"]       = _extract_rating(detail)
-            result["smry"]         = _extract_smry(detail)
-            result["series_nm"]    = _extract_series_nm(detail)
-            result["disp_rtm"]     = _extract_disp_rtm(detail)
-            result["source"]       = "TMDB"
+        # KMDB + JustWatch 병렬 fetch (두 소스가 독립적이므로 동시 실행)
+        needs_kmdb = KMDB_API_KEY and (
+            not result["tmdb_id"] or not result["cast_lead"]
+            or not result["rating"] or not result["disp_rtm"]
+        )
+        needs_jw = not result["rating"] or not result["disp_rtm"] \
+            or not result["director"] or not result["cast_lead"] \
+            or not result["smry"]
 
-    # KMDB 폴백 (TMDB 미매칭 or 필드 누락 시)
-    needs_kmdb = not result["tmdb_id"] or not result["cast_lead"] or not result["rating"]
-    if needs_kmdb and KMDB_API_KEY:
-        kmdb_item = _kmdb_search(series)
-        if kmdb_item:
-            parsed = _parse_kmdb(kmdb_item)
-            for field in ["cast_lead", "director", "release_date", "rating"]:
-                if not result[field] and parsed.get(field):
-                    result[field]  = parsed[field]
+        kmdb_result: Dict[str, Any] = {}
+        jw_result:   Dict[str, Any] = {}
+
+        if needs_kmdb or needs_jw:
+            threads = []
+            if needs_kmdb:
+                def _run_kmdb():
+                    ki = _kmdb_search(series)
+                    if ki:
+                        kmdb_result.update(_parse_kmdb(ki))
+                t = threading.Thread(target=_run_kmdb, daemon=True)
+                t.start(); threads.append(t)
+
+            if needs_jw:
+                def _run_jw():
+                    jw_result.update(_jw_search(series, original))
+                t = threading.Thread(target=_run_jw, daemon=True)
+                t.start(); threads.append(t)
+
+            for t in threads:
+                t.join(timeout=REQUEST_TIMEOUT + 2)
+
+        # KMDB 결과 반영
+        if kmdb_result:
+            for field in ["cast_lead", "director", "release_date", "rating", "disp_rtm"]:
+                if not result[field] and kmdb_result.get(field):
+                    result[field] = kmdb_result[field]
                     result["source"] = "KMDB" if not result["tmdb_id"] else "TMDB+KMDB"
 
-    _cache.set(series, result)
-    return result
+        # JustWatch 결과 반영
+        if jw_result:
+            prev_src = result["source"] or "TMDB"
+            contributed = False
+            for field in ["rating", "disp_rtm", "director", "cast_lead", "smry"]:
+                if not result[field] and jw_result.get(field):
+                    result[field] = jw_result[field]
+                    contributed = True
+            if contributed:
+                result["source"] = (
+                    "JustWatch" if not result["tmdb_id"] else f"{prev_src}+JW"
+                )
+
+        # DATA.GO 폴백 — rating/disp_rtm/director/cast_lead 미확보 시
+        needs_dg = DATA_GO_API_KEY and (
+            not result["rating"] or not result["disp_rtm"]
+            or not result["director"] or not result["cast_lead"]
+        )
+        if needs_dg:
+            dg = _data_go_search(series)
+            if dg:
+                prev_src = result["source"] or "TMDB"
+                contributed = False
+                for field in ["rating", "disp_rtm", "director", "cast_lead"]:
+                    if not result[field] and dg.get(field):
+                        result[field] = dg[field]
+                        contributed = True
+                if contributed:
+                    result["source"] = (
+                        "DATA_GO" if not result["tmdb_id"]
+                        else f"{prev_src}+DATA_GO"
+                    )
+
+        return result
+
+    return _cache.get_or_fetch(series, _do_fetch)
 
 
 # ─────────────────────────────────────────
@@ -637,26 +1014,34 @@ def main():
     with open(INPUT_CSV, encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
 
-    print(f"접근법 B v3 (시리즈 캐시 + ct_cl 분기) 시작: {len(rows)}건")
-    results = []
-    for i, row in enumerate(rows, 1):
-        res = process_one(row)
-        results.append(res)
+    n_rows = len(rows)
+    print(f"접근법 B v8 (ThreadPoolExecutor={MAX_WORKERS}) 시작: {n_rows}건", flush=True)
 
-        cast_ok = "O" if res["cast_lead"]    else "-"
-        rate_ok = "O" if res["rating"]       else "-"
-        date_ok   = "O" if res["release_date"] else "-"
-        dir_ok    = "O" if res["director"]     else "-"
-        smry_ok   = "O" if res["smry"]         else "-"
-        snm_ok    = "O" if res["series_nm"]    else "-"
-        rtm_ok    = "O" if res["disp_rtm"]     else "-"
-        cached  = "(캐시)" if res["elapsed_sec"] < 0.1 else ""
-        err     = f" ERR:{res['error'][:40]}" if res["error"] else ""
-        print(f"[{i:3d}/100] {res['asset_nm'][:22]:22s} "
-              f"cast={cast_ok} rate={rate_ok} date={date_ok} dir={dir_ok} "
-              f"smry={smry_ok} snm={snm_ok} rtm={rtm_ok} "
-              f"{res['elapsed_sec']:.1f}s{cached}{err}")
+    results: List[dict] = [None] * n_rows  # type: ignore
 
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        future_to_idx = {executor.submit(process_one, row): i for i, row in enumerate(rows)}
+        with tqdm(total=n_rows, unit="건", ncols=80) as pbar:
+            for future in as_completed(future_to_idx):
+                idx = future_to_idx[future]
+                try:
+                    res = future.result()
+                except Exception as e:
+                    res = {k: None for k in [
+                        "full_asset_id", "asset_nm", "ct_cl", "genre",
+                        "cast_lead", "rating", "release_date", "director",
+                        "smry", "series_nm", "disp_rtm",
+                        "cast_lead_source", "rating_source", "release_date_source",
+                        "director_source", "smry_source", "series_nm_source",
+                        "disp_rtm_source", "tmdb_id", "tmdb_media_type",
+                    ]}
+                    res["is_variety"] = False
+                    res["elapsed_sec"] = 0.0
+                    res["error"] = str(e)
+                results[idx] = res
+                pbar.update(1)
+
+    # 순서 보존된 결과 집계
     n        = len(results)
     cast_ok  = sum(1 for r in results if r["cast_lead"])
     rate_ok  = sum(1 for r in results if r["rating"])
@@ -666,13 +1051,14 @@ def main():
     snm_ok   = sum(1 for r in results if r["series_nm"])
     rtm_ok   = sum(1 for r in results if r["disp_rtm"])
     avg_sec  = sum(r["elapsed_sec"] for r in results) / n
-    variety  = sum(1 for r in results if r["is_variety"])
-    errors   = sum(1 for r in results if r["error"])
+    variety  = sum(1 for r in results if r.get("is_variety"))
+    errors   = sum(1 for r in results if r.get("error"))
 
     summary = {
-        "approach":            "B_v5",
-        "description":         "TMDB 시리즈 캐시 + ct_cl 분기 (임베딩/LLM 없음)",
+        "approach":            "B_v8",
+        "description":         "TMDB 시리즈 캐시 + ct_cl 분기 + KMDB/JW/DATA_GO + ThreadPoolExecutor",
         "total":               n,
+        "max_workers":         MAX_WORKERS,
         "cast_lead_found":     cast_ok,
         "rating_found":        rate_ok,
         "release_date_found":  date_ok,
@@ -697,7 +1083,7 @@ def main():
         json.dump({"summary": summary, "results": results}, f,
                   ensure_ascii=False, indent=2)
 
-    print(f"\n=== 접근법 B v5 완료 ===")
+    print(f"\n=== 접근법 B v8 완료 ===")
     print(f"cast_lead : {cast_ok}/{n} ({cast_ok/n*100:.1f}%)")
     print(f"rating    : {rate_ok}/{n} ({rate_ok/n*100:.1f}%)")
     print(f"release_dt: {date_ok}/{n} ({date_ok/n*100:.1f}%)")

@@ -1,0 +1,142 @@
+비디오물의 재목, 등급분류번호, 신청사명, 등급분류기간을 입력하면 해당 비디오물의 상세 정보 및 등급분류 정보 제공
+
+Parameters
+OpenAPI 실행 준비
+Name	Description
+serviceKey *
+string
+(query)
+공공데이터포털에서 받은 인증키
+
+serviceKey
+pageNo *
+string
+(query)
+페이지번호
+
+pageNo
+numOfRows *
+string
+(query)
+한 페이지 결과 수
+
+numOfRows
+title
+string
+(query)
+비디오제목
+
+title
+rtNo
+string
+(query)
+등급분류번호
+
+rtNo
+aplcName
+string
+(query)
+신청사명
+
+aplcName
+prodcName
+string
+(query)
+제작사명 검색단어
+
+prodcName
+stDate
+string
+(query)
+등급분류(기간)시작일
+
+stDate
+edDate
+string
+(query)
+등급분류(기간)종료일
+
+edDate
+Responses
+Code	Description
+93	
+UNAUTHORIZED(인증 오류)
+
+94	
+INFORMATIONAL(http 상태코드 1xx)
+
+95	
+SUCCESSFUL(http 상태코드 2xx)
+
+96	
+REDIRECTION(http 상태코드 3xx)
+
+97	
+CLIENT_ERROR(http 상태코드 4xx)
+
+98	
+SERVER_ERROR(http 상태코드 5xx)
+
+99	
+UNKNOW_ERROR(기타 에러)
+
+200	
+성공
+
+Example Value
+Model
+{
+  "header": {
+    "resultCode": "string",
+    "resultMsg": "string"
+  },
+  "body": {
+    "items": {
+      "item": {
+        "moHarmFlag": "string",
+        "direName": "string",
+        "prodcNatnlName": "string",
+        "useTitle": "string",
+        "prodcName": "string",
+        "direNatnlName": "string",
+        "rtNo": "string",
+        "kindName": "string",
+        "rtDate": "string",
+        "screTime": "string",
+        "rtStdName4": "string",
+        "gradeName": "string",
+        "rtStdName5": "string",
+        "rtStdName6": "string",
+        "leadaName": "string",
+        "rtStdName7": "string",
+        "workCont": "string",
+        "prodYear": "string",
+        "rtStdName1": "string",
+        "rtStdName2": "string",
+        "rtStdName3": "string",
+        "oriTitle": "string",
+        "rightMediPurpName": "string",
+        "hopeGradeName": "string",
+        "aplcName": "string",
+        "rtCoreHarmRsnNm": "string",
+        "pokFlag": "string",
+        "yakDrgFlag": "string",
+        "yakSmkFlag": "string",
+        "yakDrkFlag": "string",
+        "moSuiFlag": "string",
+        "RNUM": "string"
+      }
+    },
+    "pageNo": 0,
+    "numOfRows": 0,
+    "totalCount": 0
+  }
+}
+00	
+NORMAL_CODE(정상)
+
+03	
+NODATA_ERROR(데이터 없음)
+
+01	
+APPLICATION_ERROR(어플리케이션 에러)
