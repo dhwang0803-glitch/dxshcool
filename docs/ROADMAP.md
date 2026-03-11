@@ -28,7 +28,7 @@
                     │
 ┌───────────────────▼─────────────────────────────────────────┐
 │                  PostgreSQL + pgvector                       │
-│  vod / clip_embeddings / user_embeddings / cf_matrix / tv_schedule   │
+│  vod / vod_embedding / user_embedding / vod_recommendation / tv_schedule │
 └───────────┬──────────────────────────────────────────────────┘
             │ 데이터 공급
 ┌───────────▼──────────────────────────────────────────────────┐
@@ -44,8 +44,8 @@
 ## Phase 1 — 데이터 인프라 `진행 중`
 
 ### `Database_Design`
-- PostgreSQL 스키마 설계 (vod, clip_embeddings, cf_matrix 등)
-- pgvector 확장 설정
+- PostgreSQL 스키마 설계 (vod, vod_embedding, user_embedding, vod_recommendation 등)
+- pgvector 확장 설정 — **벡터 저장소 pgvector 단일화 결정 (2026-03-08)**. Milvus 미사용 (인프라 복잡도 사유)
 - 마이그레이션 이력 관리
 
 **폴더 구조:**
@@ -110,12 +110,12 @@ VOD_Embedding/
 - 출력: `user_embeddings` 테이블 (user_id, embedding vector(512)) → pgvector 적재
 - CF_Engine에서 user_embedding × item_embedding 코사인 유사도로 추천 생성
 
-**사전 조건:** `VOD_Embedding` 브랜치에서 CLIP 임베딩 생성 및 `clip_embeddings` 적재 완료 필요
+**사전 조건:** `VOD_Embedding` 브랜치에서 CLIP 임베딩 생성 및 `vod_embedding` 적재 완료 필요
 
 **워크플로우:**
 ```
 watch_log 테이블 (user_id, asset_id, completion_rate, watch_duration)
-    → asset_id 기준 clip_embeddings 조인
+    → asset_id 기준 vod_embedding 조인
     → 사용자별 가중평균 집계 (np.average axis=0)
     → user_embeddings 테이블 upsert
     → CF_Engine 학습 시 입력으로 사용
@@ -303,7 +303,7 @@ User_Embedding    →  CF_Engine (user+item 벡터 입력)
 Poster_Collection
 ```
 
-> **User_Embedding → CF_Engine 의존 관계**: CF_Engine 학습 전에 `clip_embeddings` (VOD_Embedding)와 `user_embeddings` (User_Embedding) 양쪽 모두 적재 완료 필요.
+> **User_Embedding → CF_Engine 의존 관계**: CF_Engine 학습 전에 `vod_embedding` (VOD_Embedding)와 `user_embedding` (User_Embedding) 양쪽 모두 적재 완료 필요.
 
 ---
 

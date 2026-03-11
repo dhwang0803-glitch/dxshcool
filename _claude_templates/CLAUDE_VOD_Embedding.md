@@ -46,10 +46,10 @@ from pgvector.psycopg2 import register_vector
 
 - 모델: CLIP ViT-B/32
 - 출력: 512차원 float32 벡터
-- DB 컬럼: `clip_embeddings.embedding vector(512)`
-- 저장: pgvector `<=>` 코사인 거리 인덱스
+- DB 테이블: `vod_embedding.embedding vector(512)`
+- 저장: pgvector `<=>` 코사인 거리 인덱스 (Milvus 미사용 — 인프라 단순화 결정)
 
 ## 인터페이스
 
-- **업스트림**: `Database_Design` — clip_embeddings 테이블 스키마
+- **업스트림**: `Database_Design` — vod_embedding 테이블 스키마
 - **다운스트림**: `Vector_Search` — 이 모듈이 생성한 512차원 벡터를 쿼리하여 유사 콘텐츠 검색
