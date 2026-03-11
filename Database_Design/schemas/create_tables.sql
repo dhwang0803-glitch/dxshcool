@@ -62,7 +62,11 @@ CREATE TABLE vod (
     updated_at          TIMESTAMPTZ     DEFAULT NOW(),
     rag_processed       BOOLEAN         DEFAULT FALSE,
     rag_source          VARCHAR(64),
-    rag_processed_at    TIMESTAMPTZ
+    rag_processed_at    TIMESTAMPTZ,
+
+    -- Poster_Collection 파이프라인이 채우는 포스터 경로
+    -- VPC 업로드 후 경로 또는 URL. NULL = 미수집.
+    poster_url          TEXT
 );
 
 

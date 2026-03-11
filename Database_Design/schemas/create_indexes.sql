@@ -64,6 +64,17 @@ CREATE INDEX idx_vod_provider
 CREATE INDEX idx_vod_smry_gin
     ON vod USING GIN (to_tsvector('simple', coalesce(smry, '')));
 
+-- 시리즈명 필터링 (WHERE series_nm = ?)
+-- Poster_Collection UPDATE 및 API_Server 시리즈 조회에서 사용
+CREATE INDEX idx_vod_series_nm
+    ON vod (series_nm);
+
+-- poster_url 미수집 대상 조회용 부분 인덱스
+-- Poster_Collection 파이프라인: SELECT DISTINCT series_nm FROM vod WHERE poster_url IS NULL
+CREATE INDEX idx_vod_poster_url_null
+    ON vod (series_nm)
+    WHERE poster_url IS NULL;
+
 
 -- =============================================================
 -- [3] "user" 인덱스 (LOW 우선순위)
