@@ -164,83 +164,72 @@ def run(output_path: str) -> None:
         logger.info("모든 시리즈 처리 완료. 종료합니다.")
         return
 
-    # 5. 대표 텍스트 수집
-    rep_texts = []
-    skipped   = 0
-    for _, group_vods in pending:
-        rep  = pick_representative(group_vods)
-        text = build_vod_text(rep).strip() or rep.get("asset_nm") or ""
-        if not text:
-            logger.warning(f"빈 텍스트 스킵 — full_asset_id={rep['full_asset_id']}")
-            rep_texts.append(None)
-            skipped += 1
-        else:
-            rep_texts.append(text)
-
-    if skipped:
-        logger.info(f"  빈 텍스트 스킵: {skipped:,}개")
-
-    # 6. 배치 인코딩
-    valid_indices = [i for i, t in enumerate(rep_texts) if t is not None]
-    valid_texts   = [rep_texts[i] for i in valid_indices]
-
-    if not valid_texts:
-        logger.error("인코딩할 유효 텍스트가 없습니다. 종료합니다.")
-        return
-
-    logger.info(f"  배치 인코딩 시작 (배치 크기: {ENCODE_BATCH_SIZE}, 총 {len(valid_texts):,}개)")
-    all_vectors = model.encode(
-        valid_texts,
-        batch_size=ENCODE_BATCH_SIZE,
-        normalize_embeddings=True,
-        show_progress_bar=True,
-    )
-    logger.info("  인코딩 완료")
-
-    # 7. records 생성 + 체크포인트 저장
-    vec_map  = {valid_indices[i]: all_vectors[i] for i in range(len(valid_indices))}
-    now_iso  = datetime.now(timezone.utc).isoformat()
+    # 5. 청크 단위 인코딩 + 즉시 체크포인트 저장
+    now_iso = datetime.now(timezone.utc).isoformat()
     done_cnt = 0
-
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    for idx, (key, group_vods) in enumerate(pending):
-        if idx not in vec_map:
-            done_keys.add(str(key))
-            ckpt["done_series"] += 1
+    for chunk_start in range(0, len(pending), CHECKPOINT_INTERVAL):
+        chunk = pending[chunk_start:chunk_start + CHECKPOINT_INTERVAL]
+
+        # 청크 내 대표 텍스트 수집
+        chunk_texts = []
+        for _, group_vods in chunk:
+            rep  = pick_representative(group_vods)
+            text = build_vod_text(rep).strip() or rep.get("asset_nm") or ""
+            if not text:
+                logger.warning(f"빈 텍스트 스킵 — full_asset_id={rep['full_asset_id']}")
+            chunk_texts.append(text or None)
+
+        valid_indices = [i for i, t in enumerate(chunk_texts) if t is not None]
+        valid_texts   = [chunk_texts[i] for i in valid_indices]
+
+        if not valid_texts:
+            for key, group_vods in chunk:
+                done_keys.add(str(key))
+                ckpt["done_series"] += 1
             continue
 
-        vec        = vec_map[idx]
-        rep        = pick_representative(group_vods)
-        input_text = build_vod_text(rep).strip()
+        # 청크 인코딩
+        vectors = model.encode(
+            valid_texts,
+            batch_size=ENCODE_BATCH_SIZE,
+            normalize_embeddings=True,
+            show_progress_bar=False,
+        )
+        vec_map = {valid_indices[i]: vectors[i] for i in range(len(valid_indices))}
 
-        for vod in group_vods:
-            accumulated.append({
-                "vod_id_fk":        vod["full_asset_id"],
-                "embedding":        vec.tolist(),
-                "input_text":       input_text,
-                "model_name":       config.EMBEDDING_MODEL,
-                "embedding_dim":    config.EMBEDDING_DIM,
-                "vector_magnitude": 1.0,
-                "created_at":       now_iso,
-            })
+        # records 생성
+        for i, (key, group_vods) in enumerate(chunk):
+            if i in vec_map:
+                vec        = vec_map[i]
+                rep        = pick_representative(group_vods)
+                input_text = build_vod_text(rep).strip()
+                for vod in group_vods:
+                    accumulated.append({
+                        "vod_id_fk":        vod["full_asset_id"],
+                        "embedding":        vec.tolist(),
+                        "input_text":       input_text,
+                        "model_name":       config.EMBEDDING_MODEL,
+                        "embedding_dim":    config.EMBEDDING_DIM,
+                        "vector_magnitude": 1.0,
+                        "created_at":       now_iso,
+                    })
+                ckpt["done_vod_count"] += len(group_vods)
+            done_keys.add(str(key))
+            ckpt["done_series"] += 1
+            done_cnt += 1
 
-        done_keys.add(str(key))
-        ckpt["done_series"]    += 1
-        ckpt["done_vod_count"] += len(group_vods)
-        done_cnt += 1
+        # 청크마다 체크포인트 저장
+        ckpt["done_series_keys"] = list(done_keys)
+        pd.DataFrame(accumulated).to_parquet(out, index=False)
+        save_checkpoint(ckpt)
+        logger.info(
+            f"체크포인트 저장 — 시리즈 {ckpt['done_series']:,}/{total_series:,} "
+            f"({ckpt['done_series']/total_series*100:.1f}%) | row {ckpt['done_vod_count']:,}건"
+        )
 
-        # 체크포인트 저장
-        if done_cnt % CHECKPOINT_INTERVAL == 0:
-            ckpt["done_series_keys"] = list(done_keys)
-            pd.DataFrame(accumulated).to_parquet(out, index=False)
-            save_checkpoint(ckpt)
-            logger.info(
-                f"체크포인트 저장 — 시리즈 {ckpt['done_series']:,}/{total_series:,} "
-                f"({ckpt['done_series']/total_series*100:.1f}%) | row {ckpt['done_vod_count']:,}건"
-            )
-
-    # 8. 최종 저장
+    # 6. 최종 저장
     ckpt["done_series_keys"] = list(done_keys)
     df = pd.DataFrame(accumulated)
     df.to_parquet(out, index=False)
