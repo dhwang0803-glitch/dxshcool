@@ -61,8 +61,8 @@ grep -rn --include="*.py" \
 
 추출된 라인에서 기본값(두 번째 인자)이 아래에 해당하면 **FAIL**:
 - 실제 IP 패턴: `\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b`
-- 실제 DB명: `prod_db` 또는 프로젝트 전용 DB명
-- 실제 사용자명: `dbadmin` 또는 기본값이 아닌 사용자명
+- DB명 패턴: `localhost`, `postgres` 이외의 특정 DB명 (예: `myapp_db`, `prod_db` 등 프로젝트 전용 DB명)
+- 사용자명 패턴: `postgres` 이외의 특정 사용자명 (예: `admin`, `dbadmin` 등 기본값이 아닌 사용자명)
 
 허용되는 기본값(PASS):
 - `"localhost"`, `"5432"`, `"postgres"`, `""`, `"http://localhost:11434"`, `"0.0.0.0"`
@@ -162,7 +162,7 @@ done
 
 ```bash
 #!/usr/bin/env bash
-cd "C:/Users/daewo/OneDrive/문서/GitHub/vod_recommendation"
+# 프로젝트 루트에서 실행 (git repo 루트)
 
 echo "=== Security Audit 시작 ==="
 echo "점검 시각: $(date '+%Y-%m-%d %H:%M')"
