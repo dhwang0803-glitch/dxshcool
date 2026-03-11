@@ -233,7 +233,7 @@ FROM vod;
 
 ## 7. 향후 확장: 임베딩 생성 연동
 
-RAG 처리 완료 후 Milvus 임베딩 생성 파이프라인 트리거:
+RAG 처리 완료 후 VOD_Embedding 파이프라인 트리거:
 
 ```
 RAG 처리 완료 (rag_processed = TRUE)
@@ -242,8 +242,11 @@ RAG 처리 완료 (rag_processed = TRUE)
     ↓
 smry + asset_nm + genre_detail + director → 텍스트 임베딩 생성
     ↓
-Milvus 저장 + vod_embedding 테이블 업데이트
+pgvector vod_embedding 테이블 적재 (VECTOR(512))
 ```
+
+> **아키텍처 메모**: 벡터 저장소는 pgvector(PostgreSQL 내장) 단일화 결정.
+> Milvus 미사용. 자세한 근거는 PLAN_04_EXTENSION_TABLES.md 참조.
 
 ---
 

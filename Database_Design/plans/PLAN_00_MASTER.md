@@ -75,7 +75,7 @@ Database_Design/schema/
 | 항목 | 결정 | 근거 |
 |------|------|------|
 | 주 데이터베이스 | PostgreSQL | 요구사항 명시 |
-| 벡터 저장소 | Milvus | 별도 팀에서 처리 |
+| 벡터 저장소 | pgvector (PostgreSQL 내장) | 인프라 단순화 — Milvus 대비 별도 서버 불필요, 10K VOD 규모에 충분 |
 | ORM/마이그레이션 | SQLAlchemy (Python) | 요구사항 선택사항 |
 | 파티셔닝 | RANGE (strt_dt 기준 연도) | 시계열 조회 최적화 |
 | 실행 환경 | Docker (VPC) | 팀원 공유 PostgreSQL 협업 환경 |

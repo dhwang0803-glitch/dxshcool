@@ -103,7 +103,7 @@ CREATE INDEX idx_user_emb_ivfflat
 ## 4. vod_recommendation 테이블
 
 ### 목적
-Milvus 벡터 검색 + Re-Ranking 결과를 캐시 (TTL: 7일)
+pgvector 코사인 유사도 검색 결과를 캐시 (TTL: 7일). CF_Engine / Vector_Search 브랜치가 적재.
 
 ### DDL (PostgreSQL)
 
@@ -114,7 +114,7 @@ CREATE TABLE vod_recommendation (
     vod_id_fk           VARCHAR(64) NOT NULL,
 
     -- 순위 정보
-    rank_initial        INTEGER NOT NULL,   -- Milvus 검색 1차 순위 (1~1000)
+    rank_initial        INTEGER NOT NULL,   -- pgvector 1차 검색 순위 (1~1000)
     rank_final          INTEGER NOT NULL,   -- Re-Ranking 후 최종 순위
 
     -- 점수
@@ -167,7 +167,7 @@ CREATE INDEX idx_rec_active
     ON vod_recommendation (user_id_fk, rank_final)
     WHERE expired_at > NOW() OR expired_at IS NULL;
 
-COMMENT ON TABLE vod_recommendation IS 'VOD 추천 결과 캐시 (TTL 7일). 실제 추천 엔진은 Milvus + Re-Ranking 파이프라인에서 생성';
+COMMENT ON TABLE vod_recommendation IS 'VOD 추천 결과 캐시 (TTL 7일). CF_Engine / Vector_Search 브랜치가 pgvector 검색 결과를 적재.';
 COMMENT ON COLUMN vod_recommendation.rerank_factors IS 'Re-Ranking 각 요소 점수 (JSONB): freshness, popularity, user_preference_match, diversity_penalty, cold_start_boost';
 ```
 
