@@ -85,52 +85,47 @@ COMMENT ON COLUMN vod_meta_embedding.source_fields IS
 -- =============================================================
 -- [2] user_embedding 테이블
 --     차원  : 896 (VOD 영상 512 + VOD 메타 384 concat과 동일 공간)
---     학습  : ALS 행렬 분해 (item latent factor 초기값 = VOD 결합 벡터)
---     브랜치: User_Embedding
+--     생성  : completion_rate 가중평균 (User_Embedding 브랜치)
+--     ※ ALS 컬럼(factors/iterations/train_loss)은 CF_Engine 브랜치에서 ALTER TABLE로 추가
 -- =============================================================
 
 CREATE TABLE user_embedding (
     user_emb_id         BIGINT          GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     user_id_fk          VARCHAR(64)     NOT NULL UNIQUE,
 
-    -- 벡터 (896차원 = VOD 영상 512 + VOD 메타 384)
+    -- 벡터 (896차원 = CLIP 512 + paraphrase-multilingual 384, L2 정규화 후 concat)
     embedding           VECTOR(896)     NOT NULL,
 
-    -- 모델 정보
-    model_name          VARCHAR(100)    NOT NULL DEFAULT 'ALS',
-    embedding_dim       SMALLINT        NOT NULL DEFAULT 896,
-    factors             SMALLINT        NOT NULL DEFAULT 896,
-    -- ALS 학습 시 사용한 factors 수 (embedding_dim과 일치)
-    iterations          SMALLINT        NOT NULL DEFAULT 20,
-    train_loss          REAL,           -- 학습 최종 loss (선택)
+    -- 생성 방식
+    model_name          VARCHAR(100)    NOT NULL DEFAULT 'weighted_mean',
+    -- weighted_mean: completion_rate 가중 평균 (User_Embedding 브랜치)
+    -- ALS: 행렬 분해 정제 (CF_Engine 브랜치 — 추후 컬럼 추가)
 
-    -- 품질 지표
+    -- 입력 품질
+    vod_count           INTEGER         NOT NULL DEFAULT 0,
+    -- 임베딩 생성에 사용된 고유 VOD 수 (vod_meta_embedding 존재하는 시청 이력만)
+
     vector_magnitude    DOUBLE PRECISION,
 
-    -- 시간
-    trained_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
-    -- 모델 학습(재학습) 시각
     created_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
 
     -- 제약
     CONSTRAINT fk_user_emb_user
         FOREIGN KEY (user_id_fk) REFERENCES "user"(sha2_hash) ON DELETE CASCADE,
-    CONSTRAINT chk_user_emb_dim
-        CHECK (embedding_dim > 0),
-    CONSTRAINT chk_user_emb_factors
-        CHECK (factors > 0)
+    CONSTRAINT chk_user_emb_vod_count
+        CHECK (vod_count >= 0)
 );
 
--- 벡터 유사도 검색 인덱스 (IVFFlat, 코사인 유사도)
--- lists = 100 : 초기값 (실제 유저 수 확정 후 sqrt(user_count)으로 조정)
+-- IVFFlat 인덱스: 데이터 적재 완료 후 생성해야 품질이 좋음
+-- lists = 500: sqrt(242,702 사용자) ≈ 493 → 500
+-- 현재는 초기값 100으로 생성 (적재 후 REINDEX 권장)
 -- 검색 시: SET ivfflat.probes = 10;
 CREATE INDEX idx_user_emb_ivfflat
     ON user_embedding
     USING ivfflat (embedding vector_cosine_ops)
     WITH (lists = 100);
 
-CREATE INDEX idx_user_emb_trained  ON user_embedding (trained_at DESC);
 CREATE INDEX idx_user_emb_updated  ON user_embedding (updated_at DESC);
 
 CREATE TRIGGER trg_user_emb_updated_at
@@ -139,13 +134,13 @@ CREATE TRIGGER trg_user_emb_updated_at
     EXECUTE FUNCTION update_updated_at_column();
 
 COMMENT ON TABLE user_embedding IS
-    'User 임베딩 테이블. ALS 행렬 분해, 896차원. '
+    'User 임베딩 테이블. completion_rate 가중평균, 896차원. '
     'VOD 결합 벡터(vod_embedding 512 + vod_meta_embedding 384)와 동일 잠재 공간. '
-    '차원 축소(PCA/Autoencoder) 적용 시 embedding_dim 및 VECTOR 차원 변경 필요.';
-COMMENT ON COLUMN user_embedding.trained_at IS
-    '모델 재학습 시각. 배치 학습 주기마다 갱신.';
-COMMENT ON COLUMN user_embedding.factors IS
-    'ALS 학습 factors 수. 현재 VOD 결합 벡터 차원(896)과 일치시켜 사용.';
+    'CF_Engine에서 ALS 학습 시 초기값으로 활용.';
+COMMENT ON COLUMN user_embedding.vod_count IS
+    '임베딩 생성에 사용된 고유 VOD 수. vod_meta_embedding이 존재하는 시청 이력만 포함.';
+COMMENT ON COLUMN user_embedding.model_name IS
+    'weighted_mean(User_Embedding 브랜치) 또는 ALS(CF_Engine 브랜치).';
 
 
 -- =============================================================

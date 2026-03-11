@@ -46,35 +46,43 @@ CREATE TRIGGER trg_vod_meta_emb_updated_at
     EXECUTE FUNCTION update_updated_at_column();
 
 -- ── [2] user_embedding ───────────────────────────────────────
+-- 생성 브랜치: User_Embedding (가중평균 벡터)
+-- ALS 관련 컬럼(factors/iterations/train_loss)은 CF_Engine 브랜치에서 ALTER TABLE로 추가
 
 CREATE TABLE IF NOT EXISTS user_embedding (
     user_emb_id         BIGINT          GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     user_id_fk          VARCHAR(64)     NOT NULL UNIQUE,
+
+    -- 벡터 (896차원 = CLIP 512 + paraphrase-multilingual 384, L2 정규화 후 concat)
     embedding           VECTOR(896)     NOT NULL,
-    model_name          VARCHAR(100)    NOT NULL DEFAULT 'ALS',
-    embedding_dim       SMALLINT        NOT NULL DEFAULT 896,
-    factors             SMALLINT        NOT NULL DEFAULT 896,
-    iterations          SMALLINT        NOT NULL DEFAULT 20,
-    train_loss          REAL,
+
+    -- 생성 방식
+    model_name          VARCHAR(100)    NOT NULL DEFAULT 'weighted_mean',
+    -- weighted_mean: completion_rate 가중 평균 (User_Embedding 브랜치)
+    -- ALS: 행렬 분해 정제 (CF_Engine 브랜치 — 추후 컬럼 추가)
+
+    -- 입력 품질
+    vod_count           INTEGER         NOT NULL DEFAULT 0,
+    -- 임베딩 생성에 사용된 고유 VOD 수 (vod_meta_embedding 존재하는 시청 이력만)
+
     vector_magnitude    DOUBLE PRECISION,
-    trained_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+
     created_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+
     CONSTRAINT fk_user_emb_user
         FOREIGN KEY (user_id_fk) REFERENCES "user"(sha2_hash) ON DELETE CASCADE,
-    CONSTRAINT chk_user_emb_dim
-        CHECK (embedding_dim > 0),
-    CONSTRAINT chk_user_emb_factors
-        CHECK (factors > 0)
+    CONSTRAINT chk_user_emb_vod_count
+        CHECK (vod_count >= 0)
 );
 
+-- IVFFlat 인덱스: 데이터 적재 완료 후 생성해야 품질이 좋음
+-- lists = 500: sqrt(242,702 사용자) ≈ 493 → 500
+-- 현재는 초기값 100으로 생성 (적재 후 REINDEX 권장)
 CREATE INDEX IF NOT EXISTS idx_user_emb_ivfflat
     ON user_embedding
     USING ivfflat (embedding vector_cosine_ops)
     WITH (lists = 100);
-
-CREATE INDEX IF NOT EXISTS idx_user_emb_trained
-    ON user_embedding (trained_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_user_emb_updated
     ON user_embedding (updated_at DESC);
