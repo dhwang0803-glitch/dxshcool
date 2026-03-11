@@ -11,7 +11,8 @@
 | 영상 임베딩 | YouTube 트레일러 프레임 | CLIP ViT-B/32 | 512 | `src/embedder.py` (예정) |
 | 메타데이터 임베딩 | 제목/장르/감독/출연/줄거리 | paraphrase-multilingual-MiniLM-L12-v2 | 384 | `src/meta_embedder.py` |
 
-두 임베딩 모두 `vod_embedding` 테이블에 `embedding_type` 컬럼으로 구분하여 저장된다.
+메타데이터 임베딩은 DB 쓰기 권한 제한으로 Parquet 파일로 먼저 저장 후 `ingest_to_db.py`로 적재한다.
+영상 임베딩은 `vod_embedding` 테이블에 저장된다.
 
 ## 파일 위치 규칙 (MANDATORY)
 
@@ -31,12 +32,12 @@ VOD_Embedding/
 | 메타데이터 임베딩 파이프라인 | `src/meta_embedder.py` | ✅ 완료 |
 | DB 연결 헬퍼 | `src/db.py` | ✅ 완료 |
 | 임베딩 설정 | `src/config.py` | ✅ 완료 |
-| 메타 임베딩 실행 스크립트 | `scripts/run_meta_embed.py` | 🔲 예정 |
+| 메타 임베딩 → Parquet 실행 스크립트 | `scripts/run_meta_embed_parquet.py` | ✅ 완료 (산출물: data/vod_meta_embedding_20260311.parquet, 166,159건, 102.3MB) |
 | 영상 임베딩 모델 로드/추론 | `src/embedder.py` | 🔲 예정 |
 | 팀 분할 파일 생성 스크립트 | `scripts/split_tasks.py` | ✅ 완료 |
-| 트레일러 수집 스크립트 | `scripts/crawl_trailers.py` | 🔲 예정 |
+| 트레일러 수집 스크립트 | `scripts/crawl_trailers.py` | 🔄 실행 중 (tasks_A.json, 381번~) |
 | 배치 영상 임베딩 스크립트 | `scripts/batch_embed.py` | 🔲 예정 |
-| DB 적재 스크립트 | `scripts/ingest_to_db.py` | 🔲 예정 |
+| DB 적재 스크립트 | `scripts/ingest_to_db.py` | 🔲 예정 (vod_meta_embedding 테이블 생성 후) |
 | pytest | `tests/` | 🔲 예정 |
 
 **`VOD_Embedding/` 루트 또는 프로젝트 루트에 `.py` 파일 직접 생성 금지.**
@@ -63,15 +64,15 @@ from pgvector.psycopg2 import register_vector
 | 메타데이터 | paraphrase-multilingual-MiniLM-L12-v2 | 384 | `"METADATA"` |
 | 영상 (예정) | CLIP ViT-B/32 | 512 | `"CLIP"` (예정) |
 
-- 저장 테이블: `vod_embedding`
-- 저장 방식: pgvector `<=>` 코사인 거리 인덱스
+- 영상 임베딩 저장 테이블: `vod_embedding` (pgvector, `<=>` 코사인 거리 인덱스)
+- 메타데이터 임베딩 저장 테이블: `vod_meta_embedding` (DB 생성 전까지 Parquet으로 보관)
 - 멱등성: `ON CONFLICT (vod_id_fk, embedding_type) DO UPDATE`
 
-## ⚠️ 알려진 이슈
+## ⚠️ 알려진 이슈 / 현황
 
-- `meta_embedder.py`의 `fetch_all_vods()`가 `WHERE is_active = TRUE` 조건을 사용하나,
-  현재 `vod` 테이블에 `is_active` 컬럼이 없음.
-  실행 전 `Database_Design` 브랜치에서 컬럼 추가 마이그레이션 선행 필요.
+- `vod` 테이블에 `is_active` 컬럼 없음 → `run_meta_embed_parquet.py`는 WHERE 조건 제거로 우회
+- `vod_meta_embedding` 테이블 미생성 (조장 담당) → 생성 후 `ingest_to_db.py`로 Parquet 적재 필요
+- 메타데이터 임베딩 산출물: `data/vod_meta_embedding_20260311.parquet` (166,159건, 102.3MB) ✅ 검증 완료
 
 ## 팀 분할 실행 명령
 
@@ -102,5 +103,6 @@ python scripts/batch_embed.py --status
 
 ## 인터페이스
 
-- **업스트림**: `Database_Design` — `vod_embedding` 테이블 스키마, `vod.is_active` 컬럼
+- **업스트림**: `Database_Design` — `vod_embedding`, `vod_meta_embedding` 테이블 스키마
 - **다운스트림**: `Vector_Search` — 이 모듈이 생성한 벡터를 쿼리하여 유사 콘텐츠 검색
+- **산출물 전달**: `data/vod_meta_embedding_20260311.parquet` → 조장에게 전달 후 DB 적재
