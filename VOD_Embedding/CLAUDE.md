@@ -26,8 +26,6 @@ VOD_Embedding/
     └── reports/  ← 파일럿 결과 리포트
 ```
 
-| 파일 종류 | 저장 위치 |
-|-----------|-----------|
 | 파일 종류 | 저장 위치 | 상태 |
 |-----------|-----------|------|
 | 메타데이터 임베딩 파이프라인 | `src/meta_embedder.py` | ✅ 완료 |
@@ -35,6 +33,7 @@ VOD_Embedding/
 | 임베딩 설정 | `src/config.py` | ✅ 완료 |
 | 메타 임베딩 실행 스크립트 | `scripts/run_meta_embed.py` | 🔲 예정 |
 | 영상 임베딩 모델 로드/추론 | `src/embedder.py` | 🔲 예정 |
+| 팀 분할 파일 생성 스크립트 | `scripts/split_tasks.py` | ✅ 완료 |
 | 트레일러 수집 스크립트 | `scripts/crawl_trailers.py` | 🔲 예정 |
 | 배치 영상 임베딩 스크립트 | `scripts/batch_embed.py` | 🔲 예정 |
 | DB 적재 스크립트 | `scripts/ingest_to_db.py` | 🔲 예정 |
@@ -73,6 +72,33 @@ from pgvector.psycopg2 import register_vector
 - `meta_embedder.py`의 `fetch_all_vods()`가 `WHERE is_active = TRUE` 조건을 사용하나,
   현재 `vod` 테이블에 `is_active` 컬럼이 없음.
   실행 전 `Database_Design` 브랜치에서 컬럼 추가 마이그레이션 선행 필요.
+
+## 팀 분할 실행 명령
+
+### 오너 (1회)
+```bash
+# 4명 분할 파일 생성
+python scripts/split_tasks.py
+# → data/tasks_A.json  (~9,570건,  TV 연예/오락 앞 절반)
+# → data/tasks_B.json  (~9,571건,  TV 연예/오락 뒤 절반)
+# → data/tasks_C.json  (~11,508건, 영화 + TV드라마 + 키즈)
+# → data/tasks_D.json  (~11,102건, TV애니메이션 + TV 시사/교양 + 기타 등)
+```
+
+### 팀원 (각자 담당 X = A/B/C/D)
+```bash
+# 1. 트레일러 다운로드
+python scripts/crawl_trailers.py --task-file data/tasks_X.json
+
+# 2. CLIP 임베딩 → parquet
+python scripts/batch_embed.py --output parquet \
+    --out-file data/embeddings_이름.parquet \
+    --delete-after-embed
+
+# 진행 상황 확인
+python scripts/crawl_trailers.py --status
+python scripts/batch_embed.py --status
+```
 
 ## 인터페이스
 
