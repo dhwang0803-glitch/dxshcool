@@ -1,22 +1,24 @@
 -- =============================================================
 -- Phase 4: 임베딩 및 추천 확장 테이블 DDL (pgvector 기반)
 -- 파일: Database_Design/schema/create_embedding_tables.sql
--- 작성일: 2026-03-08
+-- 작성일: 2026-03-08  /  수정일: 2026-03-11 (user_embedding 추가)
 -- 참조: PLAN_04_EXTENSION_TABLES.md
 -- =============================================================
 -- 목적: VOD 추천 시스템 확장을 위한 임베딩 + 추천 결과 테이블
 --
 -- 아키텍처:
---   벡터 + 메타데이터  → PostgreSQL vod_embedding (pgvector VECTOR(512))
---   추천 결과 캐시     → PostgreSQL vod_recommendation (TTL 7일)
---   외부 벡터 DB 없음  → 단일 PostgreSQL로 운영 (최대 10K VOD 규모)
+--   VOD 벡터          → PostgreSQL vod_embedding  (pgvector VECTOR(512))
+--   사용자 벡터       → PostgreSQL user_embedding (pgvector VECTOR(512))
+--   추천 결과 캐시    → PostgreSQL vod_recommendation (TTL 7일)
+--   외부 벡터 DB 없음 → 단일 PostgreSQL로 운영
 --
--- 인덱스 설계 (10K VOD 기준):
---   IVF_FLAT, lists=100  → nlist = sqrt(10,000) = 100 (pgvector 권장 공식)
---   probes=10            → 검색 정확도 ~95%, 속도 우선
+-- 인덱스 설계:
+--   vod_embedding  IVF_FLAT lists=100  → sqrt(10,000 VOD)
+--   user_embedding IVF_FLAT lists=500  → sqrt(242,702 user) ≈ 493 → 500
+--   probes=10  → 검색 정확도 ~95%
 --
 -- 실행 전제: create_tables.sql, create_indexes.sql 완료 후 실행
--- 실행 순서: pgvector 확장 → vod_embedding → vod_recommendation
+-- 실행 순서: pgvector 확장 → vod_embedding → user_embedding → vod_recommendation
 -- =============================================================
 
 
@@ -153,7 +155,91 @@ COMMENT ON COLUMN vod_embedding.frame_count IS
 
 
 -- =============================================================
--- [3] vod_recommendation 테이블
+-- [3] user_embedding 테이블
+--     사용자별 행동 기반 벡터 (watch_history × vod_embedding 가중평균)
+--     User_Embedding 브랜치의 build_user_vectors.py가 적재
+--     CF_Engine 학습 시 vod_embedding과 함께 입력으로 사용
+-- =============================================================
+
+CREATE TABLE user_embedding (
+    user_embedding_id   BIGINT          GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id_fk          VARCHAR(64)     NOT NULL UNIQUE,
+
+    -- 벡터 데이터 (pgvector)
+    embedding           VECTOR(512)     NOT NULL,
+
+    -- 임베딩 메타데이터
+    model_version       VARCHAR(64)     NOT NULL DEFAULT 'clip-ViT-B-32',
+    -- vod_embedding과 동일 모델 기반 가중평균 → 동일 벡터 공간
+
+    -- 입력 데이터 품질
+    vod_count           INTEGER         NOT NULL DEFAULT 0,
+    -- 임베딩 생성에 사용된 고유 VOD 수 (watch_history 중 clip_embeddings 존재하는 것)
+
+    vector_magnitude    DOUBLE PRECISION,
+    -- L2 norm (1.0이면 정규화 완료)
+
+    -- 시간
+    created_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+
+    -- 제약
+    CONSTRAINT fk_user_embedding_user
+        FOREIGN KEY (user_id_fk) REFERENCES "user"(sha2_hash) ON DELETE CASCADE,
+    CONSTRAINT chk_user_emb_vod_count
+        CHECK (vod_count >= 0)
+);
+
+-- =============================================================
+-- 벡터 유사도 검색 인덱스 (IVF_FLAT, 코사인 유사도)
+-- lists = 500 : sqrt(242,702 사용자) ≈ 493 → 500 (pgvector 권장 공식)
+-- 용도: "나와 비슷한 사용자 찾기" (협업 필터링 보조)
+-- 주의: 데이터 INSERT 완료 후 생성해야 인덱스 품질이 좋음
+-- =============================================================
+CREATE INDEX idx_user_emb_ivfflat
+    ON user_embedding
+    USING ivfflat (embedding vector_cosine_ops)
+    WITH (lists = 500);
+
+-- 보조 인덱스
+CREATE INDEX idx_user_emb_updated ON user_embedding (updated_at DESC);
+
+-- 트리거
+CREATE TRIGGER trg_user_embedding_updated_at
+    BEFORE UPDATE ON user_embedding
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- 코멘트
+COMMENT ON TABLE user_embedding IS
+    '사용자 행동 기반 벡터 임베딩. watch_history의 시청 VOD에 대한 clip embedding 가중평균 (completion_rate 가중치). User_Embedding 브랜치 적재.';
+COMMENT ON COLUMN user_embedding.embedding IS
+    'watch_history × vod_embedding 가중평균 벡터. vod_embedding과 동일한 512차원 CLIP 공간. CF_Engine 학습 입력.';
+COMMENT ON COLUMN user_embedding.vod_count IS
+    '임베딩 생성에 사용된 고유 VOD 수. clip_embeddings가 존재하는 시청 이력만 포함.';
+COMMENT ON COLUMN user_embedding.vector_magnitude IS
+    'L2 norm. 1.0이면 정규화 완료 상태.';
+
+-- =============================================================
+-- [3-1] 사용자 벡터 생성 쿼리 예시 (User_Embedding 파이프라인 참고용)
+-- =============================================================
+
+-- [예시] 특정 사용자의 임베딩 벡터 조회 후 유사 VOD 추천
+-- SET ivfflat.probes = 10;
+-- SELECT
+--     ve.vod_id_fk,
+--     v.asset_nm,
+--     1 - (ve.embedding <=> ue.embedding) AS cosine_similarity
+-- FROM user_embedding ue
+-- JOIN vod_embedding ve ON TRUE
+-- JOIN vod v ON ve.vod_id_fk = v.full_asset_id
+-- WHERE ue.user_id_fk = $1
+-- ORDER BY ve.embedding <=> ue.embedding
+-- LIMIT 10;
+
+
+-- =============================================================
+-- [4] vod_recommendation 테이블
 --     사용자별 추천 결과 캐시 (TTL 7일)
 --     추천 엔진(로컬)이 계산 후 결과만 VPC DB에 저장
 -- =============================================================
@@ -204,7 +290,7 @@ COMMENT ON COLUMN vod_recommendation.expires_at IS
 
 
 -- =============================================================
--- [4] TTL 만료 추천 삭제 — db_maintenance.py에서 자정 실행
+-- [5] TTL 만료 추천 삭제 — db_maintenance.py에서 자정 실행
 -- =============================================================
 -- DELETE FROM vod_recommendation WHERE expires_at < NOW();
 
@@ -220,12 +306,12 @@ SELECT
     tablename,
     pg_size_pretty(pg_total_relation_size(schemaname || '.' || tablename)) AS total_size
 FROM pg_tables
-WHERE tablename IN ('vod_embedding', 'vod_recommendation')
+WHERE tablename IN ('vod_embedding', 'user_embedding', 'vod_recommendation')
   AND schemaname = 'public'
 ORDER BY tablename;
 
 -- 인덱스 확인
 SELECT indexname, indexdef
 FROM pg_indexes
-WHERE tablename = 'vod_embedding'
-ORDER BY indexname;
+WHERE tablename IN ('vod_embedding', 'user_embedding')
+ORDER BY tablename, indexname;

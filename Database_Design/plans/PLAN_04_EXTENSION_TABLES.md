@@ -14,12 +14,14 @@
 
 ## 1. 확장 테이블 목록
 
-| 테이블명 | 목적 | 의존 테이블 |
-|---------|------|-----------|
-| vod_embedding | VOD 벡터 임베딩 (벡터 + 메타데이터) | vod |
-| vod_recommendation | 추천 결과 캐시 (TTL 7일) | user, vod |
+| 테이블명 | 목적 | 적재 브랜치 | 의존 테이블 |
+|---------|------|-----------|-----------|
+| `vod_embedding` | VOD 벡터 임베딩 (CLIP 512차원) | `VOD_Embedding` | `vod` |
+| `user_embedding` | 사용자 행동 벡터 (watch_history × vod_embedding 가중평균) | `User_Embedding` | `user`, `vod_embedding` |
+| `vod_recommendation` | 추천 결과 캐시 (TTL 7일) | `CF_Engine` / `Vector_Search` | `user`, `vod` |
 
-> **참고**: `user_embedding`은 사용자 행동 기반 벡터로 추후 Phase 5 이후 설계 예정.
+> **의존 관계**: `User_Embedding` 브랜치는 `vod_embedding` 데이터가 먼저 적재된 후 실행 가능.
+> CF_Engine 학습은 `vod_embedding` + `user_embedding` 양쪽 완료 후 진행.
 
 ---
 
@@ -54,7 +56,51 @@ CREATE INDEX idx_vod_emb_ivfflat
 
 ---
 
-## 3. vod_recommendation 테이블
+## 3. user_embedding 테이블
+
+### 목적
+사용자 시청 행동 기반 벡터 생성 및 저장. `watch_history`에서 사용자가 시청한 VOD의 `vod_embedding` 벡터를 `completion_rate` 가중평균으로 집계하여 512차원 사용자 벡터 생성.
+`User_Embedding` 브랜치의 `build_user_vectors.py`가 적재.
+
+### DDL
+`schema/create_embedding_tables.sql` 참조 (실제 실행 파일).
+
+### 주요 컬럼
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| `embedding` | `VECTOR(512)` | watch_history × vod_embedding 가중평균 (completion_rate 가중) |
+| `model_version` | VARCHAR(64) | `clip-ViT-B-32` (vod_embedding과 동일 벡터 공간) |
+| `vod_count` | INTEGER | 임베딩 생성에 사용된 VOD 수 (clip_embeddings 존재하는 것만) |
+| `vector_magnitude` | DOUBLE PRECISION | L2 norm (품질 지표) |
+
+### 생성 로직 (User_Embedding 파이프라인 참고)
+
+```python
+# watch_history × vod_embedding JOIN → 사용자별 가중평균
+SELECT wh.user_id_fk,
+       array_agg(ve.embedding ORDER BY wh.strt_dt DESC) AS vecs,
+       array_agg(wh.completion_rate)                    AS weights
+FROM watch_history wh
+JOIN vod_embedding ve ON wh.vod_id_fk = ve.vod_id_fk
+WHERE wh.completion_rate IS NOT NULL
+GROUP BY wh.user_id_fk;
+
+# Python: np.average(vecs, axis=0, weights=weights)
+```
+
+### 벡터 검색 인덱스
+```sql
+-- IVF_FLAT, lists=500 (sqrt(242,702 사용자) ≈ 493 → 500), 코사인 유사도
+CREATE INDEX idx_user_emb_ivfflat
+    ON user_embedding USING ivfflat (embedding vector_cosine_ops)
+    WITH (lists = 500);
+-- 검색 시: SET ivfflat.probes = 10;
+```
+
+---
+
+## 4. vod_recommendation 테이블
 
 ### 목적
 Milvus 벡터 검색 + Re-Ranking 결과를 캐시 (TTL: 7일)
@@ -152,13 +198,14 @@ CREATE TRIGGER trg_rec_set_expiry
 
 ---
 
-## 4. 확장 테이블 작업 시 주의사항
+## 5. 확장 테이블 작업 시 주의사항
 
 1. **Phase 1 완료 후 진행**: vod, user 테이블이 먼저 생성되어야 FK 설정 가능
 2. **pgvector 확장 설치 필요**: VPC PostgreSQL에서 `CREATE EXTENSION IF NOT EXISTS vector` 선행 실행
 3. **IVFFlat 인덱스 생성 시점**: 데이터 INSERT 완료 후 생성해야 인덱스 품질이 보장됨
-4. **vod_recommendation 캐시 전략**: Redis L1 캐시(1시간) + PostgreSQL L2 캐시(7일) 이중 캐싱 설계
-5. **두 브랜치 스키마 동기화**: VOD_Embedding의 `ingest_to_db.py`가 이 DDL 기준으로 정렬됨
+4. **user_embedding 선행 조건**: `vod_embedding` 적재 완료 후 User_Embedding 파이프라인 실행 가능
+5. **vod_recommendation 캐시 전략**: Redis L1 캐시(1시간) + PostgreSQL L2 캐시(7일) 이중 캐싱 설계
+6. **브랜치 스키마 동기화**: `VOD_Embedding.ingest_to_db.py` → `vod_embedding` / `User_Embedding.build_user_vectors.py` → `user_embedding`
 
 ---
 
