@@ -63,6 +63,7 @@ CREATE TABLE vod (
     rag_processed       BOOLEAN         DEFAULT FALSE,
     rag_source          VARCHAR(64),
     rag_processed_at    TIMESTAMPTZ,
+    rag_confidence      REAL,
 
     -- Poster_Collection 파이프라인이 채우는 포스터 경로
     -- VPC 업로드 후 경로 또는 URL. NULL = 미수집.
@@ -162,6 +163,7 @@ COMMENT ON COLUMN vod.updated_at        IS '레코드 최종 수정 시각 (UTC,
 COMMENT ON COLUMN vod.rag_processed     IS 'RAG 처리 완료 여부 (FALSE: 미처리, TRUE: 처리완료)';
 COMMENT ON COLUMN vod.rag_source        IS 'RAG 데이터 출처 (예: IMDB, Wiki, KMRB)';
 COMMENT ON COLUMN vod.rag_processed_at  IS 'RAG 처리 완료 시각 (UTC)';
+COMMENT ON COLUMN vod.rag_confidence    IS 'RAG 결과 신뢰도 (0.0~1.0). 소스별 가중치 합산 점수.';
 
 -- watch_history 테이블
 COMMENT ON TABLE watch_history IS

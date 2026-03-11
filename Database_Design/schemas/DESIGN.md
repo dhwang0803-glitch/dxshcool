@@ -66,7 +66,7 @@
 
 - **NULL 허용 이유**: 원본 데이터에서 약 313건(0.19%)의 감독 정보 누락
 - **처리 계획**: Phase 5 RAG 연동 시 IMDB/Wikipedia API로 보완 예정
-- **추적 컬럼**: `rag_processed`, `rag_source`, `rag_processed_at`으로 처리 이력 관리
+- **추적 컬럼**: `rag_processed`, `rag_source`, `rag_processed_at`, `rag_confidence`으로 처리 이력 관리
 
 ### vod.smry (TEXT, NULL 허용)
 
@@ -81,6 +81,7 @@
 | `rag_processed` | BOOLEAN DEFAULT FALSE | 처리 완료 여부 (미처리 레코드 식별용) |
 | `rag_source` | VARCHAR(64) | 데이터 출처 (IMDB, Wiki, KMRB 등) |
 | `rag_processed_at` | TIMESTAMPTZ | 처리 완료 시각 (감사 로그) |
+| `rag_confidence` | REAL | RAG 결과 신뢰도 (0.0~1.0, 소스별 가중치 합산) |
 
 ---
 
