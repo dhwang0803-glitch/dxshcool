@@ -89,6 +89,38 @@ git push origin Database_Design
 
 ---
 
+## Push & PR 규칙
+
+### ✅ 허용: 본인 담당 브랜치 push
+
+팀원은 본인 담당 브랜치에 자유롭게 push 할 수 있다.
+push 없이는 PR 자체가 불가능하므로 반드시 필요한 과정이다.
+
+```bash
+git push -u origin VOD_Embedding  # 최초 (upstream 연결)
+git push origin VOD_Embedding     # 이후
+```
+
+### ❌ 금지: main 브랜치 직접 push
+
+main 브랜치는 반드시 PR을 통해서만 병합한다.
+본인 브랜치 → GitHub PR → 리뷰 → main 병합 순서를 따른다.
+
+---
+
+## GitHub Collaborator 등록 (최초 1회)
+
+저장소에 처음 참여하는 팀원은 **Collaborator 등록이 완료되어야 push가 가능**하다.
+등록 전에 push하면 `403 Forbidden` 또는 `Permission denied` 오류가 발생한다.
+
+```
+GitHub repo → Settings → Collaborators → Add people → 팀원 GitHub 계정 입력
+```
+
+Collaborator 초대 메일을 받은 후 수락해야 적용된다.
+
+---
+
 ## 주의사항
 
 1. **`.env` 파일은 절대 add하지 않는다** — DB 접속 정보 유출 위험
