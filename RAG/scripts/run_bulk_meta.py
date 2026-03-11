@@ -13,8 +13,8 @@ Final             : 시리즈 결과 → 건별 row 확장 → JSONL 저장
 체크포인트: RAG/data/bulk/series_cache.json (--resume으로 재개 가능)
 
 실행:
-  python pipelines/run_bulk_meta.py --source db --output db
-  python pipelines/run_bulk_meta.py --source db --resume --stages 234
+  python scripts/run_bulk_meta.py --source db --output db
+  python scripts/run_bulk_meta.py --source db --resume --stages 234
 """
 import sys
 sys.stdout.reconfigure(encoding="utf-8")
@@ -31,15 +31,15 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 from dotenv import load_dotenv
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(ROOT / ".env")
 load_dotenv(ROOT / "RAG" / "config" / "api_keys.env", override=False)
 
 _SRC = ROOT / "RAG" / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
-from sources import meta_sources as rab
-from sources.validation import validate_cast
+import meta_sources as rab
+from validation import validate_cast
 
 # ─── 경로 설정 ────────────────────────────────────────────────────
 BULK_DIR    = ROOT / "RAG" / "data" / "bulk"

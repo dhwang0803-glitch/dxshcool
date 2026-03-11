@@ -7,9 +7,9 @@ Stage 2  (smry RAG)      : TV 연예/오락 smry 텍스트에서 게스트명 RA
 Stage 3  (DB UPDATE)     : cast_guest 컬럼 일괄 UPDATE
 
 실행:
-    python pipelines/run_cast_guest.py              # 전체
-    python pipelines/run_cast_guest.py --stages 12  # Stage 1+2만
-    python pipelines/run_cast_guest.py --dry-run    # DB 미반영 확인만
+    python scripts/run_cast_guest.py              # 전체
+    python scripts/run_cast_guest.py --stages 12  # Stage 1+2만
+    python scripts/run_cast_guest.py --dry-run    # DB 미반영 확인만
 """
 
 from __future__ import annotations
@@ -20,15 +20,15 @@ from typing import Optional
 from dotenv import load_dotenv
 from tqdm import tqdm
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[2]
 _SRC = ROOT / "RAG" / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 load_dotenv(ROOT / ".env")
 
 import requests
-from sources import meta_sources as rab
-from sources.validation import validate_cast
+import meta_sources as rab
+from validation import validate_cast
 
 BULK_DIR    = ROOT / "RAG" / "data" / "bulk"
 CACHE_FILE  = BULK_DIR / "series_cache.json"
