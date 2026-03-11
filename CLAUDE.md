@@ -4,14 +4,103 @@
 
 ---
 
+## 프로젝트 개요
+
+IPTV/케이블 VOD 콘텐츠를 대상으로 한 **지능형 추천·광고 시스템** 풀스택 구현.
+
+| 레이어 | 설명 |
+|--------|------|
+| 데이터 인프라 | PostgreSQL + pgvector, 메타데이터 자동수집 (TMDB/KMDB/Naver/JustWatch) |
+| ML 추천 엔진 | 행렬 분해(CF) + 벡터 유사도 2종 (콘텐츠 기반 + 영상 임베딩) |
+| 영상 AI | CLIP 임베딩, 실시간 사물인식 |
+| 광고 시스템 | TV 실시간 시간표 + 사물인식 → 유사 홈쇼핑 상품 팝업 |
+| 서비스 레이어 | FastAPI 백엔드 + React/Next.js 프론트엔드 |
+
+상세 로드맵 → [`docs/ROADMAP.md`](docs/ROADMAP.md)
+
+---
+
 ## 브랜치 구조
 
+### Phase 1 — 데이터 인프라 (진행 중)
+
+| 브랜치 | 역할 | 주요 경로 |
+|--------|------|-----------|
+| `main` | 공통 설정, 문서, 에이전트 템플릿 | `.claude/`, `_agent_templates/`, `docs/` |
+| `Database_Design` | PostgreSQL 스키마 + 마이그레이션 | `Database_Design/schemas/`, `migrations/` |
+| `RAG` | 메타데이터 결측치 자동수집 파이프라인 | `RAG/src/`, `RAG/scripts/` |
+| `VOD_Embedding` | CLIP ViT-B/32 트레일러 임베딩 파이프라인 | `VOD_Embedding/src/`, `VOD_Embedding/scripts/` |
+
+### Phase 2 — 추천 엔진
+
 | 브랜치 | 역할 |
-|---|---|
-| `main` | 공통 설정, `.claude/commands/` |
-| `VOD_Embedding` | CLIP 임베딩 파이프라인 (`VOD_Embedding/`) |
-| `Database_Design` | DB 스키마 설계 |
-| `RAG` | 메타데이터 결측치 자동수집 파이프라인 (`RAG/`) |
+|--------|------|
+| `CF_Engine` | 행렬 분해 기반 협업 필터링 추천 엔진 |
+| `Vector_Search` | 벡터 유사도 검색 엔진 (콘텐츠 기반 + 임베딩 기반) |
+
+### Phase 3 — 영상 AI
+
+| 브랜치 | 역할 |
+|--------|------|
+| `Object_Detection` | 영상 실시간 사물인식 (YOLO/Detectron2) |
+| `Shopping_Ad` | 사물인식 결과 → TV 시간표 연동 → 홈쇼핑 팝업 광고 출력 |
+
+### Phase 4 — 서비스 레이어
+
+| 브랜치 | 역할 |
+|--------|------|
+| `API_Server` | FastAPI 백엔드 (추천/검색/광고 엔드포인트) |
+| `Frontend` | React/Next.js 클라이언트 (시청자 UI + 광고 팝업) |
+
+---
+
+## 폴더 구조 컨벤션 (전 브랜치 통일)
+
+### ML/데이터 파이프라인 모듈
+
+```
+{Module}/
+├── src/          ← import되는 라이브러리 (직접 실행 X)
+├── scripts/      ← 직접 실행 스크립트 (python scripts/run_xxx.py)
+├── tests/        ← pytest
+├── config/       ← yaml, .env.example
+└── docs/         ← 설계 문서, 파일럿 리포트
+```
+
+### API 서버 (FastAPI)
+
+```
+API_Server/
+├── app/
+│   ├── routers/      ← 엔드포인트별 라우터
+│   ├── services/     ← 비즈니스 로직
+│   ├── models/       ← Pydantic 스키마
+│   └── main.py
+├── tests/
+└── config/
+```
+
+### 프론트엔드 (React/Next.js)
+
+```
+Frontend/
+├── src/
+│   ├── components/
+│   ├── pages/
+│   └── services/     ← API 클라이언트
+├── public/
+└── tests/
+```
+
+### 규칙 요약
+
+| 폴더 | 용도 |
+|------|------|
+| `src/` | `import`되는 모듈. 직접 실행 X |
+| `scripts/` | `python scripts/run_xxx.py`로 실행 |
+| `tests/` | pytest. `scripts/`는 테스트 대상 아님 |
+| `config/` | `.yaml`, `.env.example` (실제 `.env` 제외) |
+| `docs/` | 설계 문서, 파일럿 결과 리포트 |
 
 ---
 

@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# .githooks/post-checkout
+#
+# 새 브랜치 체크아웃 시 {브랜치명}/agents/ 가 없으면 _agent_templates/ 에서 자동 복사
+#
+# 설치: git config core.hooksPath .githooks
+#       chmod +x .githooks/post-checkout
+
+PREV_HEAD=$1
+NEW_HEAD=$2
+BRANCH_CHECKOUT=$3
+
+# 파일 단위 checkout은 무시
+[ "$BRANCH_CHECKOUT" != "1" ] && exit 0
+
+# 동일 브랜치 이동도 무시
+[ "$PREV_HEAD" = "$NEW_HEAD" ] && exit 0
+
+BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null)
+[ -z "$BRANCH" ] && exit 0
+
+# main 브랜치는 작업 디렉터리 컨벤션 없음 → 스킵
+[ "$BRANCH" = "main" ] && exit 0
+
+TEMPLATES_DIR="_agent_templates"
+[ ! -d "$TEMPLATES_DIR" ] && exit 0
+
+# 브랜치명이 곧 작업 디렉터리명 (예: RAG → RAG/, VOD_Embedding → VOD_Embedding/)
+WORK_DIR="$BRANCH"
+
+# 작업 디렉터리가 없으면 스킵 (아직 폴더 미생성 상태)
+[ ! -d "$WORK_DIR" ] && exit 0
+
+AGENTS_DIR="${WORK_DIR}/agents"
+
+if [ ! -d "$AGENTS_DIR" ]; then
+    mkdir -p "$AGENTS_DIR"
+    cp "$TEMPLATES_DIR"/*.md "$AGENTS_DIR/"
+    echo ""
+    echo "[agents] ${AGENTS_DIR}/ 생성 완료"
+    echo "[agents] _agent_templates/ 에서 복사됨 — 브랜치 특성에 맞게 커스터마이징하세요"
+    echo "[agents] SECURITY_AUDITOR.md 는 프로젝트 공통 버전입니다"
+    echo ""
+fi
