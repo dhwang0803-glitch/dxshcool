@@ -4,6 +4,7 @@
 # 새 브랜치 체크아웃 시 자동으로:
 #   1. {브랜치명}/agents/ 가 없으면 _agent_templates/ 에서 복사
 #   2. {브랜치명}/ 표준 폴더 구조 스캐폴딩 (없는 폴더만 생성)
+#   3. {브랜치명}/CLAUDE.md 가 없으면 _claude_templates/ 에서 복사
 #
 # 브랜치별 기본 구조:
 #   ML/파이프라인  →  src/ scripts/ tests/ config/ docs/
@@ -36,13 +37,16 @@ BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null)
 # 브랜치명이 곧 작업 디렉터리명 (예: RAG → RAG/, VOD_Embedding → VOD_Embedding/)
 WORK_DIR="$BRANCH"
 
+# ─── 공통 설정 ───────────────────────────────────────────────────────────────
+AGENT_TEMPLATES_DIR="_agent_templates"
+CLAUDE_TEMPLATES_DIR="_claude_templates"
+
 # ─── 1. agents/ 자동 생성 ────────────────────────────────────────────────────
-TEMPLATES_DIR="_agent_templates"
-if [ -d "$TEMPLATES_DIR" ]; then
+if [ -d "$AGENT_TEMPLATES_DIR" ]; then
     AGENTS_DIR="${WORK_DIR}/agents"
     if [ ! -d "$AGENTS_DIR" ]; then
         mkdir -p "$AGENTS_DIR"
-        cp "$TEMPLATES_DIR"/*.md "$AGENTS_DIR/"
+        cp "$AGENT_TEMPLATES_DIR"/*.md "$AGENTS_DIR/"
         echo ""
         echo "[agents] ${AGENTS_DIR}/ 생성 완료"
         echo "[agents] _agent_templates/ 에서 복사됨 — 브랜치 특성에 맞게 커스터마이징하세요"
@@ -108,4 +112,27 @@ if [ ${#CREATED[@]} -gt 0 ]; then
     done
     echo "[scaffold] .gitkeep 추가됨 — git add 후 커밋하세요"
     echo ""
+fi
+
+# ─── 3. 브랜치별 CLAUDE.md 자동 생성 ─────────────────────────────────────────
+if [ -d "$CLAUDE_TEMPLATES_DIR" ]; then
+    _CLAUDE_TARGET="${WORK_DIR}/CLAUDE.md"
+    if [ ! -f "$_CLAUDE_TARGET" ]; then
+        _specific="${CLAUDE_TEMPLATES_DIR}/CLAUDE_${BRANCH}.md"
+        _default="${CLAUDE_TEMPLATES_DIR}/CLAUDE_DEFAULT.md"
+
+        if [ -f "$_specific" ]; then
+            cp "$_specific" "$_CLAUDE_TARGET"
+            echo ""
+            echo "[claude] ${_CLAUDE_TARGET} 생성 완료 (브랜치 전용 템플릿)"
+            echo "[claude] 파일 위치 규칙과 인터페이스를 확인하세요"
+            echo ""
+        elif [ -f "$_default" ]; then
+            cp "$_default" "$_CLAUDE_TARGET"
+            echo ""
+            echo "[claude] ${_CLAUDE_TARGET} 생성 완료 (기본 템플릿)"
+            echo "[claude] TODO 항목을 브랜치 역할에 맞게 수정하세요"
+            echo ""
+        fi
+    fi
 fi
