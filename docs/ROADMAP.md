@@ -28,12 +28,13 @@
                     │
 ┌───────────────────▼─────────────────────────────────────────┐
 │                  PostgreSQL + pgvector                       │
-│  vod 테이블(+poster_url) / clip_embeddings / cf_matrix / tv_schedule │
+│  vod / clip_embeddings / user_embeddings / cf_matrix / tv_schedule   │
 └───────────┬──────────────────────────────────────────────────┘
             │ 데이터 공급
 ┌───────────▼──────────────────────────────────────────────────┐
 │              데이터 파이프라인                                │
 │   RAG (메타데이터)  ·  VOD_Embedding (CLIP)                  │
+│   User_Embedding (사용자 행동 벡터)                          │
 │   Poster_Collection (포스터)  ·  Object_Detection (사물인식) │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -95,6 +96,36 @@ RAG/
 VOD_Embedding/
 ├── src/           ← 임베딩 로직 라이브러리
 ├── scripts/       ← crawl_trailers, batch_embed, ingest_to_db
+├── tests/
+├── config/
+├── plans/
+└── reports/
+```
+
+---
+
+### `User_Embedding`
+- 시청 이력(watch_log) 기반 사용자 행동 벡터 생성
+- 방식: 사용자가 시청한 VOD의 CLIP 임베딩 가중평균 (완료율/시청시간 가중치)
+- 출력: `user_embeddings` 테이블 (user_id, embedding vector(512)) → pgvector 적재
+- CF_Engine에서 user_embedding × item_embedding 코사인 유사도로 추천 생성
+
+**사전 조건:** `VOD_Embedding` 브랜치에서 CLIP 임베딩 생성 및 `clip_embeddings` 적재 완료 필요
+
+**워크플로우:**
+```
+watch_log 테이블 (user_id, asset_id, completion_rate, watch_duration)
+    → asset_id 기준 clip_embeddings 조인
+    → 사용자별 가중평균 집계 (np.average axis=0)
+    → user_embeddings 테이블 upsert
+    → CF_Engine 학습 시 입력으로 사용
+```
+
+**예정 폴더 구조:**
+```
+User_Embedding/
+├── src/           ← 가중평균 집계, DB 조인 로직
+├── scripts/       ← build_user_vectors.py, ingest_to_db.py
 ├── tests/
 ├── config/
 ├── plans/
@@ -267,9 +298,12 @@ Phase 1 (현재)          Phase 2             Phase 3             Phase 4
 ─────────────────       ─────────────────   ─────────────────   ─────────────────
 Database_Design   →     CF_Engine       →   Object_Detection →  API_Server
 RAG               →     Vector_Search   →   Shopping_Ad      →  Frontend
-VOD_Embedding
+VOD_Embedding     ↘
+User_Embedding    →  CF_Engine (user+item 벡터 입력)
 Poster_Collection
 ```
+
+> **User_Embedding → CF_Engine 의존 관계**: CF_Engine 학습 전에 `clip_embeddings` (VOD_Embedding)와 `user_embeddings` (User_Embedding) 양쪽 모두 적재 완료 필요.
 
 ---
 
@@ -277,6 +311,7 @@ Poster_Collection
 
 ```bash
 # Phase 1 (추가)
+git checkout main && git checkout -b User_Embedding
 git checkout main && git checkout -b Poster_Collection
 
 # Phase 2
