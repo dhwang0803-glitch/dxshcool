@@ -28,13 +28,13 @@
                     │
 ┌───────────────────▼─────────────────────────────────────────┐
 │                  PostgreSQL + pgvector                       │
-│  vod 테이블 / clip_embeddings / cf_matrix / tv_schedule     │
+│  vod 테이블(+poster_url) / clip_embeddings / cf_matrix / tv_schedule │
 └───────────┬──────────────────────────────────────────────────┘
             │ 데이터 공급
 ┌───────────▼──────────────────────────────────────────────────┐
 │              데이터 파이프라인                                │
 │   RAG (메타데이터)  ·  VOD_Embedding (CLIP)                  │
-│   Object_Detection (사물인식)                                │
+│   Poster_Collection (포스터)  ·  Object_Detection (사물인식) │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -97,7 +97,45 @@ VOD_Embedding/
 ├── scripts/       ← crawl_trailers, batch_embed, ingest_to_db
 ├── tests/
 ├── config/
-└── docs/          ← plans/, reports/
+├── plans/
+└── reports/
+```
+
+---
+
+### `Poster_Collection`
+- Naver 이미지 검색 API로 시리즈별 포스터 URL 수집
+- 이미지 다운로드 → 로컬 저장 → Google Drive로 DB 관리자에게 전달
+- DB 관리자가 VPC에 업로드 후 `vod.poster_url` 컬럼 업데이트
+
+**워크플로우:**
+```
+개발자: crawl_posters.py 실행
+    → Naver API에서 series_nm 기반 포스터 URL 수집
+    → 이미지 다운로드 → {LOCAL_POSTER_DIR}/{series_id}.jpg
+    → export_manifest.py → manifest.csv 생성
+    → Google Drive로 DB 관리자에게 전달
+
+DB 관리자: (수동 작업)
+    → VPC 서버에 이미지 업로드
+    → update_poster_url.py 실행
+    → vod 테이블 poster_url 컬럼 업데이트
+```
+
+**사전 조건:** `Database_Design` 브랜치에서 아래 마이그레이션 선행 필요
+```sql
+ALTER TABLE vod ADD COLUMN poster_url TEXT;
+```
+
+**폴더 구조:**
+```
+Poster_Collection/
+├── src/           ← naver_poster, image_downloader, db_updater
+├── scripts/       ← crawl_posters.py, export_manifest.py, update_poster_url.py
+├── tests/
+├── config/        ← poster_config.yaml
+├── plans/
+└── reports/
 ```
 
 ---
@@ -230,6 +268,7 @@ Phase 1 (현재)          Phase 2             Phase 3             Phase 4
 Database_Design   →     CF_Engine       →   Object_Detection →  API_Server
 RAG               →     Vector_Search   →   Shopping_Ad      →  Frontend
 VOD_Embedding
+Poster_Collection
 ```
 
 ---
@@ -237,6 +276,9 @@ VOD_Embedding
 ## 브랜치 생성 명령어 참고
 
 ```bash
+# Phase 1 (추가)
+git checkout main && git checkout -b Poster_Collection
+
 # Phase 2
 git checkout main && git checkout -b CF_Engine
 git checkout main && git checkout -b Vector_Search
