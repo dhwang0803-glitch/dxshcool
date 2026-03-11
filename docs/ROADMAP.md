@@ -28,13 +28,13 @@
                     │
 ┌───────────────────▼─────────────────────────────────────────┐
 │                  PostgreSQL + pgvector                       │
-│  vod / vod_embedding / user_embedding / vod_recommendation / tv_schedule │
+│  vod / vod_embedding(512) / vod_meta_embedding(384) / user_embedding(896) / vod_recommendation / tv_schedule │
 └───────────┬──────────────────────────────────────────────────┘
             │ 데이터 공급
 ┌───────────▼──────────────────────────────────────────────────┐
 │              데이터 파이프라인                                │
-│   RAG (메타데이터)  ·  VOD_Embedding (CLIP)                  │
-│   User_Embedding (사용자 행동 벡터)                          │
+│   RAG (메타데이터)  ·  VOD_Embedding (CLIP 512 + 메타 384)  │
+│   User_Embedding (ALS 행렬분해, 896차원)                     │
 │   Poster_Collection (포스터)  ·  Object_Detection (사물인식) │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -84,52 +84,66 @@ RAG/
 ---
 
 ### `VOD_Embedding`
-- YouTube 트레일러 수집 (yt-dlp)
-- CLIP ViT-B/32 영상 임베딩 → 512차원 벡터
-- pgvector DB 적재
+- YouTube 트레일러 수집 (yt-dlp) → CLIP ViT-B/32 영상 임베딩 → **512차원** → `vod_embedding` 적재
+- VOD 메타데이터 (제목/장르/감독/출연/줄거리) → paraphrase-multilingual-MiniLM-L12-v2 → **384차원** → `vod_meta_embedding` 적재
+- 두 벡터를 concat하면 **896차원 VOD 결합 벡터** → `User_Embedding` 학습 입력으로 사용
+
+**팀 분할 (4명 병렬 작업):**
+| 팀원 | 담당 | 건수 |
+|------|------|-----:|
+| A | TV 연예/오락 앞 절반 | ~9,570 |
+| B | TV 연예/오락 뒤 절반 | ~9,571 |
+| C | 영화 + TV드라마 + 키즈 | ~11,508 |
+| D | TV애니메이션 + TV 시사/교양 + 기타 등 | ~11,102 |
 
 **현황 (파일럿 100건):**
-- 크롤링 98%, 임베딩 78%, DB 적재 완료
+- 영상 임베딩: 크롤링 98%, 임베딩 78%, DB 적재 완료
+- 메타데이터 임베딩: `src/meta_embedder.py` 구현 완료, 전체 실행 예정
 
 **폴더 구조:**
 ```
 VOD_Embedding/
-├── src/           ← 임베딩 로직 라이브러리
-├── scripts/       ← crawl_trailers, batch_embed, ingest_to_db
+├── src/           ← meta_embedder.py, embedder.py(예정), db.py, config.py
+├── scripts/       ← crawl_trailers, batch_embed, ingest_to_db, split_tasks
 ├── tests/
 ├── config/
-├── plans/
-└── reports/
+└── docs/
 ```
 
 ---
 
 ### `User_Embedding`
-- 시청 이력(watch_log) 기반 사용자 행동 벡터 생성
-- 방식: 사용자가 시청한 VOD의 CLIP 임베딩 가중평균 (완료율/시청시간 가중치)
-- 출력: `user_embeddings` 테이블 (user_id, embedding vector(512)) → pgvector 적재
-- CF_Engine에서 user_embedding × item_embedding 코사인 유사도로 추천 생성
+- `vod_embedding`(512차원) + `vod_meta_embedding`(384차원)을 L2 정규화 후 concat → **896차원 VOD 결합 벡터** 구성
+- ALS(Alternating Least Squares) 행렬 분해로 동일 896차원 잠재 공간에서 **User 임베딩** 학습
+- 출력: `user_embedding` 테이블 (`VECTOR(896)`) → pgvector 적재
+- CF_Engine 및 Vector_Search에서 개인화 추천 입력으로 사용
 
-**사전 조건:** `VOD_Embedding` 브랜치에서 CLIP 임베딩 생성 및 `vod_embedding` 적재 완료 필요
+> ⚠️ **차원 축소 미확정**: 896차원 연산 부담 시 PCA/Autoencoder로 축소 예정.
+> 원본 VOD 임베딩(512, 384)은 별도 테이블에 보존되므로 재학습 시 차원 변경 가능.
+
+**사전 조건:**
+- `VOD_Embedding` — `vod_embedding`(512), `vod_meta_embedding`(384) 적재 완료
+- `Database_Design` — `user_embedding VECTOR(896)` 테이블 생성 완료
 
 **워크플로우:**
 ```
-watch_log 테이블 (user_id, asset_id, completion_rate, watch_duration)
-    → asset_id 기준 vod_embedding 조인
-    → 사용자별 가중평균 집계 (np.average axis=0)
-    → user_embeddings 테이블 upsert
-    → CF_Engine 학습 시 입력으로 사용
+vod_embedding(512) + vod_meta_embedding(384)
+    → 각각 L2 정규화 → concat → VOD 결합 벡터 [896차원]
+
+watch_history (user_id, asset_id, completion_rate)
+    → User-Item 희소 행렬 구성
+    → ALS 학습 (item latent factor 초기값 = VOD 결합 벡터 [896차원])
+    → User 잠재 벡터 [896차원] 산출
+    → user_embedding 테이블 upsert
 ```
 
 **예정 폴더 구조:**
 ```
 User_Embedding/
-├── src/           ← 가중평균 집계, DB 조인 로직
-├── scripts/       ← build_user_vectors.py, ingest_to_db.py
+├── src/           ← mf_model.py, vod_embedding_loader.py, data_loader.py
+├── scripts/       ← train.py, export_to_db.py
 ├── tests/
-├── config/
-├── plans/
-└── reports/
+└── config/        ← mf_config.yaml (factors: 896, iterations: 20)
 ```
 
 ---
@@ -190,9 +204,10 @@ CF_Engine/
 ---
 
 ### `Vector_Search` — 벡터 유사도 검색 (2종)
-- **콘텐츠 기반**: 메타데이터(장르/감독/배우) TF-IDF 또는 SBERT 임베딩
-- **영상 기반**: CLIP 임베딩 코사인 유사도 (pgvector `<=>` 연산자)
+- **메타데이터 기반**: `vod_meta_embedding`(384차원) 코사인 유사도 (pgvector `<=>`)
+- **영상 기반**: `vod_embedding`(512차원) 코사인 유사도 (pgvector `<=>`)
 - 두 스코어 앙상블 → 최종 유사도 순위
+- User 임베딩(`user_embedding` 896차원) 활용 시 개인화 검색 가능
 
 **예정 폴더 구조:**
 ```
@@ -298,12 +313,14 @@ Phase 1 (현재)          Phase 2             Phase 3             Phase 4
 ─────────────────       ─────────────────   ─────────────────   ─────────────────
 Database_Design   →     CF_Engine       →   Object_Detection →  API_Server
 RAG               →     Vector_Search   →   Shopping_Ad      →  Frontend
-VOD_Embedding     ↘
-User_Embedding    →  CF_Engine (user+item 벡터 입력)
+VOD_Embedding(512+384)↘
+User_Embedding(896) ──→  CF_Engine / Vector_Search (user+item 벡터 입력)
 Poster_Collection
 ```
 
-> **User_Embedding → CF_Engine 의존 관계**: CF_Engine 학습 전에 `vod_embedding` (VOD_Embedding)와 `user_embedding` (User_Embedding) 양쪽 모두 적재 완료 필요.
+> **의존 관계 (User_Embedding 선행 필요)**:
+> - `vod_embedding`(512) + `vod_meta_embedding`(384) 모두 적재 완료 후 User_Embedding 학습 가능
+> - CF_Engine / Vector_Search 실행 전 `user_embedding`(896) 적재 완료 필요
 
 ---
 
