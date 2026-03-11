@@ -50,7 +50,7 @@ CREATE TABLE vod (
     asset_nm            VARCHAR(255)    NOT NULL,
     ct_cl               VARCHAR(32)     NOT NULL,
     disp_rtm            VARCHAR(8),
-    disp_rtm_sec        INTEGER         NOT NULL,
+    disp_rtm_sec        INTEGER,
     genre               VARCHAR(64),
     director            VARCHAR(255),
     asset_prod          VARCHAR(64),
@@ -65,7 +65,13 @@ CREATE TABLE vod (
     rag_processed_at    TIMESTAMPTZ,
     rag_confidence      REAL,
 
-    -- Poster_Collection 파이프라인이 채우는 포스터 경로
+    -- RAG 파이프라인이 채우는 메타데이터 컬럼 (2026-03-09 추가)
+    cast_lead           TEXT,
+    cast_guest          TEXT,
+    rating              VARCHAR(16),
+    release_date        DATE,
+
+    -- Poster_Collection 파이프라인이 채우는 포스터 경로 (2026-03-11 추가)
     -- VPC 업로드 후 경로 또는 URL. NULL = 미수집.
     poster_url          TEXT
 );
@@ -164,6 +170,11 @@ COMMENT ON COLUMN vod.rag_processed     IS 'RAG 처리 완료 여부 (FALSE: 미
 COMMENT ON COLUMN vod.rag_source        IS 'RAG 데이터 출처 (예: IMDB, Wiki, KMRB)';
 COMMENT ON COLUMN vod.rag_processed_at  IS 'RAG 처리 완료 시각 (UTC)';
 COMMENT ON COLUMN vod.rag_confidence    IS 'RAG 결과 신뢰도 (0.0~1.0). 소스별 가중치 합산 점수.';
+COMMENT ON COLUMN vod.cast_lead         IS '주연 배우 (RAG 파이프라인으로 수집, NULL = 미수집)';
+COMMENT ON COLUMN vod.cast_guest        IS '게스트/조연 배우 (RAG 파이프라인으로 수집, NULL = 미수집)';
+COMMENT ON COLUMN vod.rating            IS '관람등급 (전체관람가/12세이상/15세이상/18세이상 등, NULL = 미수집)';
+COMMENT ON COLUMN vod.release_date      IS '개봉/방영일 (DATE, NULL = 미수집)';
+COMMENT ON COLUMN vod.poster_url        IS 'VPC에 저장된 포스터 이미지 경로. Poster_Collection 파이프라인이 채운다. NULL = 미수집.';
 
 -- watch_history 테이블
 COMMENT ON TABLE watch_history IS

@@ -53,6 +53,7 @@ CREATE TABLE vod_embedding (
     embedding           VECTOR(512)     NOT NULL,
 
     -- 임베딩 정보
+    model_name          VARCHAR(100)    NOT NULL DEFAULT 'clip-ViT-B-32',   -- 모델 식별명 (표시용)
     embedding_type      VARCHAR(32)     NOT NULL DEFAULT 'VISUAL',
     -- VISUAL  : 영상 프레임 기반 시각 벡터 (CLIP ViT-B/32, 512차원) ← 현재 사용
     -- CONTENT : 텍스트(줄거리/제목) 기반 의미 벡터
@@ -61,7 +62,7 @@ CREATE TABLE vod_embedding (
     model_version       VARCHAR(64)     NOT NULL DEFAULT 'clip-ViT-B-32',
 
     -- 벡터 품질 지표
-    vector_magnitude    REAL,           -- L2 norm (1.0이면 정규화 완료)
+    vector_magnitude    DOUBLE PRECISION,       -- L2 norm (1.0이면 정규화 완료)
     frame_count         SMALLINT,       -- 임베딩에 사용된 프레임 수 (기본 10)
 
     -- 소스 정보
@@ -71,8 +72,8 @@ CREATE TABLE vod_embedding (
     source_url          TEXT,           -- 원본 YouTube URL (선택)
 
     -- 시간
-    created_at          TIMESTAMPTZ     DEFAULT NOW(),
-    updated_at          TIMESTAMPTZ     DEFAULT NOW(),
+    created_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
 
     -- 제약
     CONSTRAINT fk_vod_embedding_vod
