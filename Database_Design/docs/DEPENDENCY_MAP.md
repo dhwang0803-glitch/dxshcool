@@ -118,16 +118,16 @@
 | 읽기 | `public.detected_objects` | *(스키마 미확정)* | - | |
 | 읽기 | `public.tv_schedule` | *(스키마 미확정)* | - | |
 
-### API_Server *(미구현)*
+### API_Server
 
-| 방향 | 테이블/MV | 스키마 | 비고 |
-|------|-----------|--------|------|
-| 읽기 | `vod_recommendation` | serving | 추천 결과 |
-| 읽기 | `mv_vod_watch_stats` | serving | 인기 콘텐츠 배너 |
-| 읽기 | `mv_age_grp_vod_stats` | serving | 연령대별 추천 |
-| 읽기 | `mv_daily_watch_stats` | serving | 통계 대시보드 |
-| 읽기 | `vod` | public | 콘텐츠 상세 정보 |
-| 읽기 | `"user"` | public | 사용자 정보 |
+| 방향 | 테이블 | 컬럼 | 타입 | 비고 |
+|------|--------|------|------|------|
+| 읽기 | `public.vod` | `full_asset_id`, `asset_nm`, `genre`, `director`, `cast_lead`, `smry`, `poster_url`, `release_date`, `rating` | 각종 VARCHAR/TEXT | `/vod/{asset_id}` 상세 응답 |
+| 읽기 | `public."user"` | `user_id` | VARCHAR | 사용자 존재 여부 확인 |
+| 읽기 | `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | VARCHAR/REAL | `/recommend/{user_id}` |
+| 읽기 | `serving.mv_vod_watch_stats` | *(스키마 확인 필요)* | - | 인기 콘텐츠 배너 |
+| 읽기 | `serving.mv_age_grp_vod_stats` | *(스키마 확인 필요)* | - | 연령대별 추천 |
+| 읽기 | `serving.mv_daily_watch_stats` | *(스키마 확인 필요)* | - | 통계 대시보드 |
 
 ---
 
