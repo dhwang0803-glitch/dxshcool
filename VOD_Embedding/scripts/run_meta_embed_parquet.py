@@ -39,14 +39,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
-from sentence_transformers import SentenceTransformer
 
 # src/ 경로를 모듈 탐색 경로에 추가
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import config
 from db import fetch_all_as_dict, get_conn
-from meta_embedder import build_vod_text, group_by_series, pick_representative
 
 logging.basicConfig(
     level=logging.INFO,
@@ -213,7 +211,9 @@ def run(output_path: str, upload_db: bool = False) -> None:
     else:
         accumulated = []
 
-    # 2. 모델 로드
+    # 2. 모델 로드 (임베딩 계산 모드에서만 사용 — --from-parquet 시 불필요)
+    from sentence_transformers import SentenceTransformer  # noqa: PLC0415
+    from meta_embedder import build_vod_text, group_by_series, pick_representative  # noqa: PLC0415
     logger.info(f"임베딩 모델 로드: {config.EMBEDDING_MODEL}")
     model = SentenceTransformer(config.EMBEDDING_MODEL)
 
