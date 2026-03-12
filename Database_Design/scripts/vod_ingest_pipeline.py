@@ -55,7 +55,7 @@ LOG_FILE           = Path(__file__).parent / "vod_ingest.log"
 MODEL_DIR          = Path(r"C:\Users\daewo\DX_prod_2nd\my_clip_model")
 
 EMBEDDING_DIM      = 512
-EMBEDDING_TYPE     = "VISUAL"
+EMBEDDING_TYPE     = "CLIP"
 MODEL_VERSION      = "clip-ViT-B-32"
 FRAME_SAMPLE_COUNT = 10   # 영상에서 균등 추출할 프레임 수
 

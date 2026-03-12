@@ -56,10 +56,10 @@ CREATE TABLE vod_embedding (
 
     -- 임베딩 정보
     model_name          VARCHAR(100)    NOT NULL DEFAULT 'clip-ViT-B-32',   -- 모델 식별명 (표시용)
-    embedding_type      VARCHAR(32)     NOT NULL DEFAULT 'VISUAL',
-    -- VISUAL  : 영상 프레임 기반 시각 벡터 (CLIP ViT-B/32, 512차원) ← 현재 사용
+    embedding_type      VARCHAR(32)     NOT NULL DEFAULT 'CLIP',
+    -- CLIP    : 영상 프레임 기반 시각 벡터 (CLIP ViT-B/32, 512차원) ← 현재 사용
     -- CONTENT : 텍스트(줄거리/제목) 기반 의미 벡터
-    -- HYBRID  : VISUAL + CONTENT 결합 벡터
+    -- HYBRID  : CLIP + CONTENT 결합 벡터
     embedding_dim       INTEGER         NOT NULL DEFAULT 512,
     model_version       VARCHAR(64)     NOT NULL DEFAULT 'clip-ViT-B-32',
 
@@ -81,7 +81,7 @@ CREATE TABLE vod_embedding (
     CONSTRAINT fk_vod_embedding_vod
         FOREIGN KEY (vod_id_fk) REFERENCES vod(full_asset_id) ON DELETE CASCADE,
     CONSTRAINT chk_embedding_type
-        CHECK (embedding_type IN ('VISUAL', 'CONTENT', 'HYBRID')),
+        CHECK (embedding_type IN ('CLIP', 'CONTENT', 'HYBRID')),
     CONSTRAINT chk_source_type
         CHECK (source_type IN ('TRAILER', 'FULL')),
     CONSTRAINT chk_embedding_dim
