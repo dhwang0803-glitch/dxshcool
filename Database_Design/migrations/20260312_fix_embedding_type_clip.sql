@@ -16,14 +16,14 @@
 
 BEGIN;
 
--- 1. 기존 데이터 변환: VISUAL → CLIP (데이터가 없으면 영향 없음)
+-- 1. 기존 CHECK 제약 먼저 제거 (VISUAL·CLIP 모두 허용 상태로 만든 뒤 데이터 변환)
+ALTER TABLE vod_embedding
+    DROP CONSTRAINT IF EXISTS chk_embedding_type;
+
+-- 2. 기존 데이터 변환: VISUAL → CLIP (데이터가 없으면 영향 없음)
 UPDATE vod_embedding
 SET embedding_type = 'CLIP'
 WHERE embedding_type = 'VISUAL';
-
--- 2. 기존 CHECK 제약 제거
-ALTER TABLE vod_embedding
-    DROP CONSTRAINT IF EXISTS chk_embedding_type;
 
 -- 3. 새 CHECK 제약 추가 ('CLIP' 기준)
 ALTER TABLE vod_embedding
