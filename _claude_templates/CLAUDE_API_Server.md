@@ -60,5 +60,72 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 ## 인터페이스
 
-- **업스트림**: `CF_Engine` (추천), `Vector_Search` (유사도), `Shopping_Ad` (광고), `Database_Design` (메타데이터)
-- **다운스트림**: `Frontend` — REST API 및 WebSocket 소비
+### 업스트림 (읽기)
+
+| 소스 | 레이어 | 설명 |
+|------|--------|------|
+| `serving.vod_recommendation` | Gold (MV) | 개인화 추천 결과 (pre-computed) |
+| `serving.similar_vod` | Gold (MV) | 유사 콘텐츠 결과 (pre-computed) |
+| `serving.shopping_ad` | Gold (MV) | 광고 팝업 후보 (pre-computed) |
+| `public.vod` | Silver | VOD 상세 메타데이터 |
+
+### 다운스트림 (쓰기)
+
+| 대상 | 방식 |
+|------|------|
+| `Frontend` | REST JSON 응답 / WebSocket |
+
+> API 서버는 Gold 레이어(serving.*)에서 최종 결과만 읽어 JSON으로 전달한다.
+> 벡터 연산·집계는 수행하지 않는다.
+
+---
+
+## ⚠️ DB 연결 설정 — 담당자 필독
+
+> 확인 일시: 2026-03-12 / 확인자: 조장(dhwang0803)
+
+### 현재 VPC PostgreSQL 설정값
+
+| 파라미터 | 현재값 | 환산 |
+|----------|--------|------|
+| `shared_buffers` | 131072 × 8kB | **1 GB** |
+| `work_mem` | 32768 kB | **32 MB** |
+| `max_connections` | 100 | **100개** |
+| `max_parallel_workers_per_gather` | 0 | **병렬 쿼리 비활성화** |
+
+### 설정 변경 필요 여부
+
+| 파라미터 | 변경 필요 | 판단 근거 |
+|----------|----------|----------|
+| `shared_buffers` | ❌ 불필요 | Gold MV 캐싱에 충분 |
+| `work_mem` | ❌ 불필요 | PK 단순 조회 — 4MB도 충분 |
+| `max_parallel_workers_per_gather` | ❌ 불필요 | Gold MV는 index scan, 병렬 불필요 |
+| `max_connections` | ❌ DB 변경 불필요 | **API 서버 커넥션 풀로 해결** (아래 참고) |
+
+### 🔶 max_connections 주의사항
+
+현재 100개 제한 중 팀원 백그라운드 작업(크롤러·임베딩)이 약 20~25개를 점유하고 있다.
+API 서버가 요청마다 새 연결을 열면 트래픽 spike 시 `FATAL: too many connections` 에러 발생.
+
+**필수 조치 — API 서버에서 커넥션 풀 명시적 제한:**
+
+```python
+# app/main.py 또는 app/services/db.py
+import asyncpg, os
+
+async def get_pool():
+    return await asyncpg.create_pool(
+        os.getenv("DATABASE_URL"),
+        min_size=2,
+        max_size=10,   # 100 - (팀원 연결 ~25) 여유분에서 보수적 설정
+    )
+```
+
+> `max_size=10` 기준: 동시 연결 25개(팀원) + 풀 10개 + 예약 5개 = 40개 → 여유 60개 확보.
+> API 서버를 수평 확장(인스턴스 추가)할 경우 PgBouncer 도입 검토 필요.
+
+### 🔶 MV 갱신 시 주의사항
+
+`max_parallel_workers_per_gather = 0` 이므로 `REFRESH CONCURRENTLY` 속도가 느리다.
+API 서버 운영과는 직접 무관하나, **MV 갱신 배치 주기 설계 시 반영 필요.**
+갱신 지연 → Gold 데이터 stale → 추천 결과 최신성 저하로 이어진다.
