@@ -102,7 +102,7 @@ def generate_recommendations(model, mat, item_enc, top_k=20, sample_n=100):
     item_dec = {v: k for k, v in item_enc.items()}
     rec_vod_ids = set()
     for uid in range(min(sample_n, mat.shape[0])):
-        ids, _ = model.recommend(uid, mat, N=top_k, filter_already_liked_items=True)
+        ids, _ = model.recommend(uid, mat[uid], N=top_k, filter_already_liked_items=False)
         rec_vod_ids.update(item_dec[i] for i in ids)
 
     elapsed = time.time() - t0
