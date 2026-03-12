@@ -126,9 +126,20 @@ ALTER TABLE vod ADD COLUMN poster_url TEXT;
 
 ## 인터페이스
 
-- **업스트림**: `Database_Design` — vod 테이블 (series_id, series_nm, poster_url 컬럼)
-- **다운스트림**: `API_Server` — VOD 상세 응답에 `poster_url` 포함
-- **다운스트림**: `Frontend` — 포스터 이미지 표시 (`<img src={poster_url}>`)
+> 컬럼/타입 상세 → `Database_Design/docs/DEPENDENCY_MAP.md` Poster_Collection 섹션 참조 (Rule 1).
+> 스키마 변경 시 Database_Design 기준으로 이 섹션도 업데이트할 것 (Rule 3).
+
+### 업스트림 (읽기)
+
+| 테이블 | 컬럼 | 타입 | 용도 |
+|--------|------|------|------|
+| `public.vod` | `full_asset_id`, `series_nm` | VARCHAR(64), VARCHAR | `poster_url IS NULL` 조건으로 수집 대상 조회 |
+
+### 다운스트림 (쓰기)
+
+| 테이블 | 컬럼 | 타입 | 비고 |
+|--------|------|------|------|
+| `public.vod` | `poster_url` | TEXT | VPC 경로 또는 URL |
 
 ## 협업 규칙
 
