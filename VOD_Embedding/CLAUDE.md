@@ -35,7 +35,7 @@ VOD_Embedding/
 | 메타 임베딩 → Parquet 실행 스크립트 | `scripts/run_meta_embed_parquet.py` | ✅ 완료 (산출물: data/vod_meta_embedding_20260311.parquet, 166,159건, 102.3MB) |
 | 영상 임베딩 모델 로드/추론 | `src/embedder.py` | 🔲 예정 |
 | 팀 분할 파일 생성 스크립트 | `scripts/split_tasks.py` | ✅ 완료 |
-| 트레일러 수집 스크립트 | `scripts/crawl_trailers.py` | 🔄 실행 중 (tasks_A.json, 381번~) |
+| 트레일러 수집 스크립트 | `scripts/crawl_trailers.py` | ✅ 완료 (tasks_A.json, 9,392/9,570건 성공, 실패 178건 스킵) |
 | 배치 영상 임베딩 스크립트 | `scripts/batch_embed.py` | 🔲 예정 |
 | DB 적재 스크립트 | `scripts/ingest_to_db.py` | 🔲 예정 (vod_meta_embedding 테이블 생성 후) |
 | pytest | `tests/` | 🔲 예정 |
