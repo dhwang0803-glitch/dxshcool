@@ -1,0 +1,111 @@
+╔════════════════════════════════════════════════════════════════╗
+║                                                                ║
+║   2개 프로젝트 설정 가이드                                    ║
+║                                                                ║
+║   1️⃣  Database Design                                        ║
+║   2️⃣  RAG Pipeline Design                                    ║
+║                                                                ║
+╚════════════════════════════════════════════════════════════════╝
+
+📂 프로젝트 폴더 구조 생성:
+
+project-root/
+│
+├── database-design/                 ← Project 1
+│   ├── .claude/
+│   │   └── claude.md                ← 사용: claude_md_database_design.md
+│   ├── data/
+│   │   ├── prepared_data/           (이미 생성됨)
+│   │   └── rag_analysis/            (이미 생성됨)
+│   ├── schema/
+│   │   ├── create_tables.sql        (Claude가 생성)
+│   │   └── DESIGN.md                (Claude가 생성)
+│   └── README.md
+│
+├── rag-pipeline-design/             ← Project 2
+│   ├── .claude/
+│   │   └── claude.md                ← 사용: claude_md_rag_pipeline.md
+│   ├── data/
+│   │   └── rag_analysis/            (이미 생성됨)
+│   ├── src/
+│   │   ├── search_functions.py      (Claude가 생성)
+│   │   ├── rag_pipeline.py          (Claude가 생성)
+│   │   └── validation.py            (Claude가 생성)
+│   └── README.md
+
+═════════════════════════════════════════════════════════════════
+
+🚀 설정 방법:
+
+Step 1: 폴더 생성
+$ mkdir -p database-design/.claude
+$ mkdir -p rag-pipeline-design/.claude
+
+Step 2: claude.md 복사
+$ cp claude_md_database_design.md database-design/.claude/claude.md
+$ cp claude_md_rag_pipeline.md rag-pipeline-design/.claude/claude.md
+
+Step 3: 데이터 폴더 연결
+$ ln -s ../prepared_data database-design/data/
+$ ln -s ../rag_analysis rag-pipeline-design/data/
+
+Step 4: Claude Code에서 각 프로젝트 열기
+- database-design/ 폴더 열기 → Claude Code 시작
+- rag-pipeline-design/ 폴더 열기 → Claude Code 시작
+
+═════════════════════════════════════════════════════════════════
+
+📝 두 .claude/claude.md 파일의 차이:
+
+┌─ Database Design ─────────────────────┐
+│ 목표: PostgreSQL 스키마 설계          │
+│ 입력: 샘플 데이터 + 메타데이터        │
+│ 출력: DDL 스크립트 + 설계 문서        │
+│ 기간: 1-2주                           │
+│ 우선순위: 1순위 (먼저 진행)           │
+└───────────────────────────────────────┘
+
+┌─ RAG Pipeline Design ─────────────────┐
+│ 목표: 결측치 자동 채우기 파이프라인    │
+│ 입력: 결측치 메타데이터 + 검색 전략    │
+│ 출력: 검색 함수 + 파이프라인           │
+│ 기간: 2-3주                           │
+│ 우선순위: 2순위 (DB 완료 후)          │
+└───────────────────────────────────────┘
+
+═════════════════════════════════════════════════════════════════
+
+⚠️  중요:
+
+✅ DO:
+- 각 프로젝트별로 Claude Code 열기
+- .claude/claude.md 파일 각각 사용
+- Database Design 먼저 완료
+- RAG Pipeline는 병렬로 진행 가능
+
+❌ DON'T:
+- 한 프로젝트에서 두 작업 동시 처리 (혼동)
+- claude.md 없이 작업 (맥락 상실)
+- 파일명 변경 (경로 참조)
+
+═════════════════════════════════════════════════════════════════
+
+📖 각 claude.md 파일 읽는 순서:
+
+1️⃣  claude_md_database_design.md
+    ├─ 프로젝트 개요
+    ├─ 설계 원칙
+    ├─ 데이터 구조
+    ├─ 결과물 요구사항
+    └─ Claude Code 프롬프트
+
+2️⃣  claude_md_rag_pipeline.md
+    ├─ 프로젝트 개요
+    ├─ RAG 대상 분석
+    ├─ 파이프라인 구성
+    ├─ 구현 요구사항
+    └─ Claude Code 프롬프트
+
+═════════════════════════════════════════════════════════════════
+
+이제 시작하세요! 🚀
