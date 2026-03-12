@@ -32,11 +32,13 @@ VOD_Embedding/
 | 메타데이터 임베딩 파이프라인 | `src/meta_embedder.py` | ✅ 완료 |
 | DB 연결 헬퍼 | `src/db.py` | ✅ 완료 |
 | 임베딩 설정 | `src/config.py` | ✅ 완료 |
-| 메타 임베딩 → Parquet 실행 스크립트 | `scripts/run_meta_embed_parquet.py` | ✅ 완료 (산출물: data/vod_meta_embedding_20260311.parquet, 166,159건, 102.3MB) |
+| 메타 임베딩 → Parquet 실행 스크립트 | `scripts/run_meta_embed_parquet.py` | 🔄 재작업 중 (v2: 에피소드별 개별 임베딩, v1 산출물: data/vod_meta_embedding_20260311.parquet 166,159건) |
 | 영상 임베딩 모델 로드/추론 | `src/embedder.py` | 🔲 예정 |
 | 팀 분할 파일 생성 스크립트 | `scripts/split_tasks.py` | ✅ 완료 |
 | 트레일러 수집 스크립트 | `scripts/crawl_trailers.py` | ✅ 완료 (tasks_A.json, 9,392/9,570건 성공, 실패 178건 스킵) |
 | 배치 영상 임베딩 스크립트 | `scripts/batch_embed.py` | ✅ 완료 (tasks_A.json, 8,386건, data/embeddings_아름.parquet, 7.8MB) |
+| 에피소드별 트레일러 재수집 (박아름) | `scripts/crawl_trailers_아름.py` | 🔄 재작업 중 (예능 에피소드별 개별 쿼리, data/trailers_아름/) |
+| 에피소드별 CLIP 임베딩 (박아름) | `scripts/batch_embed_아름.py` | 🔄 재작업 예정 (crawl_trailers_아름.py 완료 후) |
 | DB 적재 스크립트 | `scripts/ingest_to_db.py` | 🔲 예정 (vod_meta_embedding 테이블 생성 후) |
 | pytest | `tests/` | 🔲 예정 |
 
@@ -71,7 +73,10 @@ from pgvector.psycopg2 import register_vector
 
 - `vod` 테이블에 `is_active` 컬럼 없음 → `run_meta_embed_parquet.py`는 WHERE 조건 제거로 우회
 - `vod_meta_embedding` 테이블 미생성 (조장 담당) → 생성 후 `ingest_to_db.py`로 Parquet 적재 필요
-- 메타데이터 임베딩 산출물: `data/vod_meta_embedding_20260311.parquet` (166,159건, 102.3MB) ✅ 검증 완료
+- 메타데이터 임베딩 v1 산출물: `data/vod_meta_embedding_20260311.parquet` (166,159건, 102.3MB) — 시리즈 그룹핑 방식, v2로 대체 예정
+- **[재작업]** 메타 임베딩 v2 (`run_meta_embed_parquet.py`) 실행 중 — 에피소드별 개별 임베딩
+- **[재작업]** 영상 임베딩 — 에피소드별 트레일러 재수집(`crawl_trailers_아름.py`) 실행 중, 완료 후 `batch_embed_아름.py` 예정
+- 재작업 배경: `docs/reports/rework_아름_2026-03-12.md` 참조
 
 ## 팀 분할 실행 명령
 
