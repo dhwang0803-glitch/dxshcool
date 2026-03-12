@@ -76,10 +76,10 @@ matrix = csr_matrix((confidence, (user_idx, item_idx)), shape=(n_users, n_items)
 
 ### STEP 3. 추천 결과 포매터 (`src/recommender.py`)
 
-**역할**: ALS 출력(인덱스 배열)을 원본 `asset_id`로 역변환 후 DB 저장 형식 정리
+**역할**: ALS 출력(인덱스 배열)을 원본 `vod_id_fk`로 역변환 후 DB 저장 형식 정리
 
-- 인덱스 → `asset_id` 역매핑
-- 출력 형식: `List[dict(user_id, asset_id, score, rank)]`
+- 인덱스 → `vod_id_fk` 역매핑
+- 출력 형식: `List[dict(user_id_fk, vod_id_fk, score, rank)]`
 - `cf_recommendations` 테이블 upsert 준비
 
 ---
@@ -123,7 +123,7 @@ matrix = csr_matrix((confidence, (user_idx, item_idx)), shape=(n_users, n_items)
 **역할**: 추천 결과를 `cf_recommendations` 테이블에 upsert
 
 - `psycopg2` executemany / COPY 방식으로 대량 적재
-- `ON CONFLICT (user_id, asset_id) DO UPDATE SET score=..., updated_at=NOW()`
+- `ON CONFLICT (user_id_fk, vod_id_fk) DO UPDATE SET score=..., updated_at=NOW()`
 - 배치 크기: 1,000건 단위
 
 ---
@@ -176,4 +176,4 @@ db:
 | 방향 | 브랜치 | 테이블 | 컬럼 |
 |------|--------|--------|------|
 | 업스트림 | `Database_Design` | `watch_history` | user_id_fk, vod_id_fk, completion_rate |
-| 다운스트림 | `API_Server` | `cf_recommendations` | user_id, asset_id, score, rank |
+| 다운스트림 | `API_Server` | `cf_recommendations` | user_id_fk, vod_id_fk, score, rank |

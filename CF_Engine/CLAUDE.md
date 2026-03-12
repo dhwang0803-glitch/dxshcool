@@ -55,5 +55,5 @@ watch_history 테이블 로드
 
 ## 인터페이스
 
-- **업스트림**: `Database_Design` — watch_history 테이블 (user_id, asset_id, watch_ratio)
+- **업스트림**: `Database_Design` — watch_history 테이블 (user_id_fk, vod_id_fk, completion_rate)
 - **다운스트림**: `API_Server` — `/recommend/{user_id}` 엔드포인트가 이 결과를 반환
