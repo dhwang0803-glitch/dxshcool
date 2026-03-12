@@ -17,10 +17,19 @@ vod_meta_embedding 테이블이 생성되면 ingest_to_db.py로 적재.
 
 실행:
     cd VOD_Embedding
+    # DB 권한 없는 팀원 — parquet 출력 (기존 동작)
     python scripts/run_meta_embed_parquet.py
     python scripts/run_meta_embed_parquet.py --output data/my_output.parquet
 
-재시작 시 체크포인트에서 자동 이어받기.
+    # DB 권한 있는 조장 — 임베딩 계산 후 DB 직접 적재
+    python scripts/run_meta_embed_parquet.py --upload-db
+
+    # 이미 생성된 parquet → DB 직접 적재 (임베딩 재계산 없음)
+    python scripts/run_meta_embed_parquet.py \
+        --from-parquet data/vod_meta_embedding_20260311.parquet \
+        --upload-db
+
+재시작 시 체크포인트에서 자동 이어받기 (parquet 모드).
 """
 import argparse
 import json
@@ -30,14 +39,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
-from sentence_transformers import SentenceTransformer
 
 # src/ 경로를 모듈 탐색 경로에 추가
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import config
 from db import fetch_all_as_dict, get_conn
-from meta_embedder import build_vod_text, group_by_series, pick_representative
 
 logging.basicConfig(
     level=logging.INFO,
@@ -47,10 +54,72 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 ENCODE_BATCH_SIZE   = 128
-CHECKPOINT_INTERVAL = 20   # 시리즈 단위 체크포인트 저장 주기
+CHECKPOINT_INTERVAL = 20     # 시리즈 단위 체크포인트 저장 주기
+COMMIT_INTERVAL     = 1_000  # DB 적재 시 COMMIT 주기
 
 DATA_DIR        = Path(__file__).parent.parent / "data"
 CHECKPOINT_FILE = DATA_DIR / "meta_embed_checkpoint.json"
+
+# vod_meta_embedding 적재 상수
+SOURCE_FIELDS   = ["asset_nm", "genre", "director", "cast_lead", "smry"]
+
+INSERT_META_SQL = """
+INSERT INTO vod_meta_embedding (
+    vod_id_fk, embedding, input_text, model_name, source_fields
+)
+VALUES (
+    %(vod_id_fk)s, %(embedding)s::vector,
+    %(input_text)s, %(model_name)s, %(source_fields)s
+)
+ON CONFLICT (vod_id_fk)
+DO UPDATE SET
+    embedding    = EXCLUDED.embedding,
+    input_text   = EXCLUDED.input_text,
+    updated_at   = NOW()
+"""
+
+
+# ---------------------------------------------------------------------------
+# DB 적재 헬퍼
+# ---------------------------------------------------------------------------
+
+def to_pgvector_str(vec) -> str:
+    """list/ndarray → '[f1,f2,...,f384]' 문자열 (pgvector 형식)"""
+    return '[' + ','.join(f'{x:.8f}' for x in vec) + ']'
+
+
+def ingest_records_to_db(records: list) -> None:
+    """accumulated records를 vod_meta_embedding 테이블에 적재"""
+    logger.info(f"DB 적재 시작: {len(records):,}건 → public.vod_meta_embedding")
+    inserted = 0
+    with get_conn() as conn:
+        cur = conn.cursor()
+        for i, rec in enumerate(records):
+            cur.execute(INSERT_META_SQL, {
+                "vod_id_fk":     rec["vod_id_fk"],
+                "embedding":     to_pgvector_str(rec["embedding"]),
+                "input_text":    rec.get("input_text", ""),
+                "model_name":    rec.get("model_name", config.EMBEDDING_MODEL),
+                "source_fields": SOURCE_FIELDS,
+            })
+            inserted += 1
+            if (i + 1) % COMMIT_INTERVAL == 0:
+                conn.commit()
+                logger.info(f"  COMMIT ({i+1:,}/{len(records):,}건)")
+    logger.info(f"DB 적재 완료: {inserted:,}건")
+
+
+def upload_from_parquet(parquet_path: str) -> None:
+    """기존 parquet 파일을 DB에 직접 적재 (임베딩 재계산 없음)"""
+    p = Path(parquet_path)
+    if not p.exists():
+        logger.error(f"파일 없음: {p}")
+        sys.exit(1)
+    logger.info(f"Parquet 로드: {p}")
+    df = pd.read_parquet(p)
+    records = df.to_dict("records")
+    logger.info(f"  {len(records):,}건 로드")
+    ingest_records_to_db(records)
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +188,7 @@ def fetch_all_vods() -> list:
 # 메인 파이프라인
 # ---------------------------------------------------------------------------
 
-def run(output_path: str) -> None:
+def run(output_path: str, upload_db: bool = False) -> None:
     logger.info("=== VOD 메타데이터 임베딩 → Parquet 파이프라인 시작 ===")
 
     # 1. 체크포인트 로드
@@ -142,7 +211,9 @@ def run(output_path: str) -> None:
     else:
         accumulated = []
 
-    # 2. 모델 로드
+    # 2. 모델 로드 (임베딩 계산 모드에서만 사용 — --from-parquet 시 불필요)
+    from sentence_transformers import SentenceTransformer  # noqa: PLC0415
+    from meta_embedder import build_vod_text, group_by_series, pick_representative  # noqa: PLC0415
     logger.info(f"임베딩 모델 로드: {config.EMBEDDING_MODEL}")
     model = SentenceTransformer(config.EMBEDDING_MODEL)
 
@@ -229,22 +300,47 @@ def run(output_path: str) -> None:
             f"({ckpt['done_series']/total_series*100:.1f}%) | row {ckpt['done_vod_count']:,}건"
         )
 
-    # 6. 최종 저장
+    # 6. 최종 저장 (parquet 항상 보존)
     ckpt["done_series_keys"] = list(done_keys)
     df = pd.DataFrame(accumulated)
     df.to_parquet(out, index=False)
     save_checkpoint(ckpt)
-
     logger.info(f"저장 완료: {out} ({len(df):,}건, {out.stat().st_size / 1024 / 1024:.1f} MB)")
+
+    # 7. DB 적재 (--upload-db 옵션, 권한 없으면 parquet 백업 보존)
+    if upload_db:
+        try:
+            ingest_records_to_db(accumulated)
+        except Exception as e:
+            logger.error(f"DB 적재 실패 — parquet 백업 보존됨: {e}")
+
     logger.info("=== 완료 ===")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="VOD 메타데이터 임베딩 → Parquet")
+    parser = argparse.ArgumentParser(description="VOD 메타데이터 임베딩 → Parquet / DB 적재")
     parser.add_argument(
         "--output",
         default=f"data/vod_meta_embedding_{datetime.now().strftime('%Y%m%d')}.parquet",
         help="출력 Parquet 파일 경로 (기본: data/vod_meta_embedding_YYYYMMDD.parquet)",
     )
+    parser.add_argument(
+        "--upload-db",
+        action="store_true",
+        help="임베딩을 vod_meta_embedding 테이블에 DB 적재 (권한 없으면 parquet 저장으로 대체)",
+    )
+    parser.add_argument(
+        "--from-parquet",
+        default="",
+        metavar="PARQUET_PATH",
+        help="기존 parquet 파일을 DB에 직접 적재 (--upload-db 필요, 임베딩 재계산 생략)",
+    )
     args = parser.parse_args()
-    run(args.output)
+
+    if args.from_parquet:
+        if not args.upload_db:
+            logger.error("--from-parquet 사용 시 --upload-db 옵션 필요")
+            sys.exit(1)
+        upload_from_parquet(args.from_parquet)
+    else:
+        run(args.output, upload_db=args.upload_db)
