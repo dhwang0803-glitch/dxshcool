@@ -10,11 +10,11 @@ OS cron 등록 방법 (VPC Linux):
     0 0 * * * /usr/bin/python3 /path/to/Database_Design/migration/db_maintenance.py >> /path/to/maintenance.log 2>&1
 
 매일 수행:
-    1. MV 4개 REFRESH CONCURRENTLY (읽기 락 없음, 운영 중 실행 가능)
-       - mv_vod_satisfaction_stats  (P04: 만족도 상위 VOD)
+    1. MV 3개 REFRESH CONCURRENTLY (읽기 락 없음, 운영 중 실행 가능)
        - mv_age_grp_vod_stats       (P06: 연령대별 선호 VOD)
-       - mv_vod_watch_stats         (P02: VOD별 시청 통계 / 대시보드 배너)
+       - mv_vod_watch_stats         (P02+P04: VOD별 시청 통계 + 만족도 상위 VOD 통합)
        - mv_daily_watch_stats       (P03: 일별 시청 통계)
+       ※ mv_vod_satisfaction_stats 제거(2026-03-12): mv_vod_watch_stats로 통합
 
 매주 일요일 추가 수행:
     2. 다음 주 파티션 자동 생성 (2주 선행 생성으로 여유 확보)
@@ -88,8 +88,7 @@ def get_connection() -> psycopg2.extensions.connection:
 MATERIALIZED_VIEWS = [
     "mv_daily_watch_stats",        # P03: 일별 집계 (경량)
     "mv_age_grp_vod_stats",        # P06: 연령대별 집계
-    "mv_vod_watch_stats",          # P02: VOD별 전체 통계
-    "mv_vod_satisfaction_stats",   # P04: 만족도 상위 VOD (최중량)
+    "mv_vod_watch_stats",          # P02+P04: VOD별 전체 통계 + 만족도 상위 VOD 통합
 ]
 
 

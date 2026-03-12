@@ -279,7 +279,12 @@ CREATE TABLE vod_recommendation (
 );
 
 -- 인덱스
-CREATE INDEX idx_vod_rec_user    ON vod_recommendation (user_id_fk, rank);
+-- 커버링 인덱스: API 반환 컬럼(vod_id_fk, score, recommendation_type, expires_at)을
+-- INCLUDE에 포함 → heap fetch 없이 인덱스만으로 쿼리 완결
+-- 패턴: WHERE user_id_fk = $1 ORDER BY rank LIMIT N
+CREATE INDEX idx_vod_rec_user_covering
+    ON vod_recommendation (user_id_fk, rank)
+    INCLUDE (vod_id_fk, score, recommendation_type, expires_at);
 CREATE INDEX idx_vod_rec_expires ON vod_recommendation (expires_at);  -- TTL 만료 삭제용
 
 -- 코멘트
