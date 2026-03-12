@@ -3,6 +3,7 @@
 ## 발견 사항
 
 DB 확인 결과 `serving` 스키마에 `vod_recommendation` 테이블이 이미 존재함.
+CF_Engine 추천 결과는 이 테이블에 저장하기로 결정.
 
 ### 테이블 스키마
 
@@ -19,29 +20,11 @@ DB 확인 결과 `serving` 스키마에 `vod_recommendation` 테이블이 이미
 
 ---
 
-## 검토 필요 사항 (조장 확인 요청)
+## 조장 확인 요청
 
-### 1. CF_Engine 결과 저장 위치
-CF_Engine(ALS) 추천 결과를 어디에 저장할지 결정 필요.
+### recommendation_type 허용값 목록
 
-**Option A**: 기존 `serving.vod_recommendation` 테이블 사용
-- `recommendation_type` 컬럼에 CF 결과임을 나타내는 값 저장
-- 사용할 값 확인 필요 (예: `'CF'`, `'ALS'`, `'COLLABORATIVE'` 등)
-- 장점: 테이블 추가 불필요, 추천 결과 통합 관리
-- 단점: Vector_Search 결과와 혼재
+CF_Engine 결과를 `serving.vod_recommendation`에 저장할 때 `recommendation_type` 컬럼에 사용할 값이 정의되어 있는지 확인 필요.
 
-**Option B**: 별도 테이블 `cf_recommendations` 신규 생성
-- CF_Engine 전용 테이블로 독립 관리
-- 장점: 명확한 분리
-- 단점: 테이블 추가 필요 (마이그레이션 선행)
-
-### 2. recommendation_type 허용값 목록
-현재 기본값이 `'VISUAL_SIMILARITY'`인데, CF 결과에 사용할 값이 정의되어 있는지 확인 필요.
-
----
-
-## 요청 사항
-
-- [ ] Option A / B 중 선택
-- [ ] Option A 선택 시: `recommendation_type` 에 사용할 값 지정
-- [ ] Option B 선택 시: 마이그레이션 실행 요청 (`20260312_create_cf_recommendations.sql`)
+- [ ] CF_Engine 결과에 사용할 `recommendation_type` 값 지정 (예: `'CF'`, `'ALS'`, `'COLLABORATIVE'` 등)
+- [ ] 허용값 목록이 있다면 공유 요청
