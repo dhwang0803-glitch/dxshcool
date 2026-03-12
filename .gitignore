@@ -134,11 +134,17 @@ celerybeat.pid
 # SageMath parsed files
 *.sage.py
 
+# Data files (CSV, large datasets - do not commit)
+data/
+
 # Environments
 .env
 .env.*
 !.env.example
 .envrc
+
+# Claude Code local settings (may contain credentials)
+.claude/settings.local.json
 .venv
 
 # RAG Pipeline secrets & generated data
