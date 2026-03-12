@@ -1,0 +1,13 @@
+model:
+  factors: 128
+  iterations: 20
+  regularization: 0.01
+  alpha: 40
+
+recommend:
+  top_k: 20
+  # recommendation_type: 조장 확인 후 입력 (예: "CF", "ALS", "COLLABORATIVE")
+  recommendation_type: "CF"
+
+db:
+  batch_size: 1000
