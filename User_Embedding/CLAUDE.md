@@ -87,7 +87,22 @@ from pgvector.psycopg2 import register_vector
 
 ## 인터페이스
 
-- **업스트림**: `VOD_Embedding` — `vod_embedding`(CLIP 512) + `vod_meta_embedding`(METADATA 384) 두 테이블 적재 완료 필요
-- **업스트림**: `Database_Design` — `watch_history`, `user_embedding` 테이블 스키마
-- **다운스트림**: `CF_Engine` — User 벡터를 ALS 행렬 분해 초기값으로 활용
-- **다운스트림**: `Vector_Search` — User 임베딩으로 개인화 벡터 검색 (`/recommend/{user_id}`)
+> 컬럼/타입 상세 → `Database_Design/docs/DEPENDENCY_MAP.md` User_Embedding 섹션 참조 (Rule 1).
+> 스키마 변경 시 Database_Design 기준으로 이 섹션도 업데이트할 것 (Rule 3).
+
+### 업스트림 (읽기)
+
+| 테이블 | 컬럼 | 타입 | 용도 |
+|--------|------|------|------|
+| `public.watch_history` | `user_id_fk`, `vod_id_fk`, `completion_rate` | VARCHAR(64), VARCHAR(64), REAL | 가중 평균 가중치 |
+| `public.vod_embedding` | `vod_id_fk`, `embedding` | VARCHAR(64), VECTOR(512) | CLIP 파트 |
+| `public.vod_meta_embedding` | `vod_id_fk`, `embedding` | VARCHAR(64), VECTOR(384) | METADATA 파트 |
+
+### 다운스트림 (쓰기)
+
+| 테이블 | 컬럼 | 타입 | 비고 |
+|--------|------|------|------|
+| `public.user_embedding` | `user_id_fk` | VARCHAR(64) | ON CONFLICT 기준 (UNIQUE) |
+| `public.user_embedding` | `embedding` | VECTOR(896) | L2 정규화 후 concat(CLIP 512 + META 384) |
+| `public.user_embedding` | `vod_count` | INTEGER | 임베딩 생성에 사용된 고유 VOD 수 |
+| `public.user_embedding` | `model_name` | VARCHAR(100) | `'weighted_mean'` |
