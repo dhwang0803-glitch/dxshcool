@@ -48,7 +48,7 @@ async def issue_token(request: TokenRequest):
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            'SELECT 1 FROM public."user" WHERE user_id = $1',
+            'SELECT 1 FROM public."user" WHERE sha2_hash = $1',
             request.user_id,
         )
     if row is None:

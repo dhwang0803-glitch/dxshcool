@@ -62,12 +62,15 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 ### 업스트림 (읽기)
 
-| 소스 | 레이어 | 설명 |
-|------|--------|------|
-| `serving.vod_recommendation` | Gold (MV) | 개인화 추천 결과 (pre-computed) |
-| `serving.similar_vod` | Gold (MV) | 유사 콘텐츠 결과 (pre-computed) |
-| `serving.shopping_ad` | Gold (MV) | 광고 팝업 후보 (pre-computed) |
-| `public.vod` | Silver | VOD 상세 메타데이터 |
+| 테이블 | 컬럼 | 타입 | 용도 |
+|--------|------|------|------|
+| `public.vod` | `full_asset_id` | VARCHAR(64) | `/vod/{asset_id}` PK 조회 |
+| `public.vod` | `asset_nm`, `genre`, `ct_cl` | VARCHAR | VOD 상세 응답 |
+| `public.vod` | `director`, `cast_lead`, `cast_guest` | VARCHAR/TEXT | VOD 상세 응답 |
+| `public.vod` | `smry`, `rating`, `release_date`, `poster_url` | TEXT/VARCHAR/DATE/TEXT | VOD 상세 응답 |
+| `public."user"` | `sha2_hash` | VARCHAR | 사용자 존재 여부 확인 (PK) |
+| `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | VARCHAR/REAL/INT/VARCHAR | `/recommend/{user_id}` |
+| `serving.mv_vod_watch_stats` | `vod_id_fk`, `total_watch_count` | VARCHAR/INT | /recommend fallback (인기순) |
 
 ### 다운스트림 (쓰기)
 
