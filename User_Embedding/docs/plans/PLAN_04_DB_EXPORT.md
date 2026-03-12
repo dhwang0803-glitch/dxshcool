@@ -8,7 +8,7 @@
 
 | 항목 | 내용 |
 |------|------|
-| **입력** | `{user_id: np.ndarray(896,)}` (PLAN_03) |
+| **입력** | `{user_id_fk: np.ndarray(896,)}` (PLAN_03) |
 | **출력** | `user_embedding` 테이블 upsert 완료 |
 
 ---
@@ -16,24 +16,34 @@
 ## 테이블 스키마 (Database_Design 브랜치 기준)
 
 ```sql
+-- migrations/20260311_add_meta_user_embedding_tables.sql 참조
 CREATE TABLE user_embedding (
-    user_id       TEXT PRIMARY KEY,
-    embedding     VECTOR(896)   NOT NULL,
-    updated_at    TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+    user_emb_id         BIGINT          GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id_fk          VARCHAR(64)     NOT NULL UNIQUE,  -- "user".sha2_hash FK
+    embedding           VECTOR(896)     NOT NULL,
+    model_name          VARCHAR(100)    NOT NULL DEFAULT 'weighted_mean',
+    vod_count           INTEGER         NOT NULL DEFAULT 0,
+    vector_magnitude    DOUBLE PRECISION,
+    created_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
 ```
+
+> ⚠️ PK 컬럼은 `user_emb_id`(자동 생성). 비즈니스 키는 `user_id_fk`(UNIQUE).
+> upsert 충돌 기준은 `user_id_fk`를 사용한다.
 
 ---
 
 ## upsert 쿼리
 
 ```sql
-INSERT INTO user_embedding (user_id, embedding, updated_at)
-VALUES (%s, %s, NOW())
-ON CONFLICT (user_id)
+INSERT INTO user_embedding (user_id_fk, embedding, vod_count, updated_at)
+VALUES (%s, %s, %s, NOW())
+ON CONFLICT (user_id_fk)
 DO UPDATE SET
-    embedding  = EXCLUDED.embedding,
-    updated_at = NOW();
+    embedding       = EXCLUDED.embedding,
+    vod_count       = EXCLUDED.vod_count,
+    updated_at      = NOW();
 ```
 
 ---
@@ -50,15 +60,19 @@ from psycopg2.extras import execute_batch
 register_vector(conn)
 
 BATCH_SIZE = 1000
-rows = [(uid, vec.tolist()) for uid, vec in user_vectors.items()]
+# user_vectors: {user_id_fk: np.ndarray(896,)}
+# vod_counts:   {user_id_fk: int}  — 임베딩 생성에 사용된 고유 VOD 수
+rows = [(uid, vec.tolist(), vod_counts.get(uid, 0)) for uid, vec in user_vectors.items()]
 
 for i in range(0, len(rows), BATCH_SIZE):
     batch = rows[i:i + BATCH_SIZE]
     execute_batch(cur,
-        "INSERT INTO user_embedding (user_id, embedding, updated_at) "
-        "VALUES (%s, %s, NOW()) "
-        "ON CONFLICT (user_id) DO UPDATE SET "
-        "embedding = EXCLUDED.embedding, updated_at = NOW()",
+        "INSERT INTO user_embedding (user_id_fk, embedding, vod_count, updated_at) "
+        "VALUES (%s, %s, %s, NOW()) "
+        "ON CONFLICT (user_id_fk) DO UPDATE SET "
+        "embedding = EXCLUDED.embedding, "
+        "vod_count = EXCLUDED.vod_count, "
+        "updated_at = NOW()",
         batch
     )
     conn.commit()
@@ -97,14 +111,15 @@ run_embed.py
 SELECT COUNT(*) FROM user_embedding;
 
 -- 샘플 확인
-SELECT user_id, embedding
+SELECT user_id_fk, vod_count, vector_magnitude, updated_at
 FROM user_embedding
 LIMIT 3;
 
 -- 벡터 차원 확인 (pgvector)
-SELECT user_id, vector_dims(embedding) AS dim
+SELECT user_id_fk, vector_dims(embedding) AS dim
 FROM user_embedding
 LIMIT 1;
+-- 기대값: dim = 896
 ```
 
 ---

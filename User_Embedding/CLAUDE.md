@@ -29,8 +29,8 @@ user_embedding 테이블 upsert
 
 | 임베딩 | 출처 | 차원 | 저장 위치 |
 |--------|------|------|-----------|
-| VOD 영상 임베딩 | CLIP ViT-B/32 (`VOD_Embedding` 브랜치) | 512 | `vod_embedding` (embedding_type='CLIP') |
-| VOD 메타데이터 임베딩 | paraphrase-multilingual-MiniLM-L12-v2 (`VOD_Embedding` 브랜치) | 384 | `vod_embedding` (embedding_type='METADATA') |
+| VOD 영상 임베딩 | CLIP ViT-B/32 (`VOD_Embedding` 브랜치) | 512 | `vod_embedding` |
+| VOD 메타데이터 임베딩 | paraphrase-multilingual-MiniLM-L12-v2 (`VOD_Embedding` 브랜치) | 384 | `vod_meta_embedding` (별도 테이블) |
 | VOD 결합 임베딩 | L2 정규화 후 concat — 파이프라인 내 계산 | **896** | 저장 안 함 (런타임 계산) |
 | **User 임베딩** | 시청 VOD 결합벡터 가중 평균 | **896** | `user_embedding` 테이블 |
 
@@ -80,14 +80,14 @@ from pgvector.psycopg2 import register_vector
 
 - **저장 테이블**: `user_embedding`
 - **차원**: `VECTOR(896)`
-- **멱등성**: `ON CONFLICT (user_id) DO UPDATE SET embedding = EXCLUDED.embedding, updated_at = NOW()`
+- **멱등성**: `ON CONFLICT (user_id_fk) DO UPDATE SET embedding = EXCLUDED.embedding, vod_count = EXCLUDED.vod_count, updated_at = NOW()`
 - **최소 시청 조건**: 시청 VOD가 1건 이상 + 결합 임베딩이 DB에 존재하는 경우만 생성
 
 ---
 
 ## 인터페이스
 
-- **업스트림**: `VOD_Embedding` — `vod_embedding` 테이블 (CLIP 512 + METADATA 384 적재 완료 필요)
+- **업스트림**: `VOD_Embedding` — `vod_embedding`(CLIP 512) + `vod_meta_embedding`(METADATA 384) 두 테이블 적재 완료 필요
 - **업스트림**: `Database_Design` — `watch_history`, `user_embedding` 테이블 스키마
 - **다운스트림**: `CF_Engine` — User 벡터를 ALS 행렬 분해 초기값으로 활용
 - **다운스트림**: `Vector_Search` — User 임베딩으로 개인화 벡터 검색 (`/recommend/{user_id}`)

@@ -16,7 +16,7 @@
           user_id / asset_id / completion_rate
 
 [PLAN_02] VOD 결합 임베딩 조회
-          vod_embedding (CLIP 512 + METADATA 384)
+          vod_embedding (CLIP 512) + vod_meta_embedding (METADATA 384)
           → L2 정규화 → concat → VOD 결합 벡터 [896차원]
 
 [PLAN_03] 유저 임베딩 생성
@@ -33,10 +33,10 @@
 
 | 단계 | 파일 | 입력 | 출력 |
 |------|------|------|------|
-| PLAN_01 | `src/data_loader.py` | DB `watch_history` | `{user_id: [(asset_id, completion_rate), ...]}` |
-| PLAN_02 | `src/vod_embedding_loader.py` | DB `vod_embedding` | `{asset_id: np.ndarray(896,)}` |
-| PLAN_03 | `src/user_embedder.py` | user 시청목록 + VOD 벡터 | `{user_id: np.ndarray(896,)}` |
-| PLAN_04 | `scripts/run_embed.py` | user 벡터 dict | `user_embedding` 테이블 |
+| PLAN_01 | `src/data_loader.py` | DB `watch_history` | `{user_id_fk: [(asset_id, completion_rate), ...]}` |
+| PLAN_02 | `src/vod_embedding_loader.py` | DB `vod_embedding`(CLIP) + `vod_meta_embedding`(METADATA) | `{asset_id: np.ndarray(896,)}` |
+| PLAN_03 | `src/user_embedder.py` | user 시청목록 + VOD 벡터 | `{user_id_fk: np.ndarray(896,)}` |
+| PLAN_04 | `scripts/run_embed.py` | user 벡터 dict | `user_embedding` 테이블 (컬럼: `user_id_fk`) |
 
 ---
 
@@ -44,10 +44,10 @@
 
 | 조건 | 확인 방법 |
 |------|-----------|
-| `vod_embedding` 테이블에 CLIP(512) 적재 완료 | `SELECT COUNT(*) FROM vod_embedding WHERE embedding_type = 'CLIP'` |
-| `vod_embedding` 테이블에 METADATA(384) 적재 완료 | `SELECT COUNT(*) FROM vod_embedding WHERE embedding_type = 'METADATA'` |
-| `watch_history` 테이블 존재 | `SELECT COUNT(*) FROM watch_history` |
-| `user_embedding` 테이블 스키마 생성 완료 | `Database_Design` 브랜치 마이그레이션 선행 필요 |
+| `vod_embedding` 테이블에 CLIP(512) 적재 완료 | `SELECT COUNT(*) FROM vod_embedding;` |
+| `vod_meta_embedding` 테이블에 METADATA(384) 적재 완료 | `SELECT COUNT(*) FROM vod_meta_embedding;` |
+| `watch_history` 테이블 존재 | `SELECT COUNT(*) FROM watch_history;` |
+| `user_embedding` 테이블 스키마 생성 완료 | `Database_Design` 브랜치 `migrations/20260311_add_meta_user_embedding_tables.sql` 선행 필요 |
 
 ---
 
