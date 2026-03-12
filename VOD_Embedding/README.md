@@ -21,7 +21,7 @@ DB 쓰기 권한 없이도 작업 가능합니다.
 
 ```bash
 conda activate myenv
-pip install sentence-transformers opencv-python pillow pandas pyarrow
+pip install -r requirements.txt
 ```
 
 CLIP 모델은 처음 실행 시 HuggingFace에서 자동 다운로드됩니다 (~340MB).
