@@ -239,12 +239,15 @@ COMMENT ON COLUMN user_embedding.vector_magnitude IS
 
 
 -- =============================================================
--- [4] vod_recommendation 테이블
+-- [4] serving.vod_recommendation 테이블  [Gold / Serving 계층]
 --     사용자별 추천 결과 캐시 (TTL 7일)
 --     추천 엔진(로컬)이 계산 후 결과만 VPC DB에 저장
+--     serving 스키마: API 서버가 바라보는 Gold 계층. Silver(public.*)와 분리.
 -- =============================================================
 
-CREATE TABLE vod_recommendation (
+CREATE SCHEMA IF NOT EXISTS serving;
+
+CREATE TABLE serving.vod_recommendation (
     recommendation_id   BIGINT          GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     user_id_fk          VARCHAR(64)     NOT NULL,
     vod_id_fk           VARCHAR(64)     NOT NULL,
@@ -263,11 +266,11 @@ CREATE TABLE vod_recommendation (
     generated_at        TIMESTAMPTZ     DEFAULT NOW(),
     expires_at          TIMESTAMPTZ     DEFAULT NOW() + INTERVAL '7 days',
 
-    -- 제약
+    -- 제약 (FK는 public 스키마의 Silver 테이블 참조 — cross-schema FK 정상 동작)
     CONSTRAINT fk_vod_rec_user
-        FOREIGN KEY (user_id_fk) REFERENCES "user"(sha2_hash) ON DELETE CASCADE,
+        FOREIGN KEY (user_id_fk) REFERENCES public."user"(sha2_hash) ON DELETE CASCADE,
     CONSTRAINT fk_vod_rec_vod
-        FOREIGN KEY (vod_id_fk) REFERENCES vod(full_asset_id) ON DELETE CASCADE,
+        FOREIGN KEY (vod_id_fk) REFERENCES public.vod(full_asset_id) ON DELETE CASCADE,
     CONSTRAINT uq_vod_rec_user_vod
         UNIQUE (user_id_fk, vod_id_fk),
     CONSTRAINT chk_rec_score
@@ -283,21 +286,21 @@ CREATE TABLE vod_recommendation (
 -- INCLUDE에 포함 → heap fetch 없이 인덱스만으로 쿼리 완결
 -- 패턴: WHERE user_id_fk = $1 ORDER BY rank LIMIT N
 CREATE INDEX idx_vod_rec_user_covering
-    ON vod_recommendation (user_id_fk, rank)
+    ON serving.vod_recommendation (user_id_fk, rank)
     INCLUDE (vod_id_fk, score, recommendation_type, expires_at);
-CREATE INDEX idx_vod_rec_expires ON vod_recommendation (expires_at);  -- TTL 만료 삭제용
+CREATE INDEX idx_vod_rec_expires ON serving.vod_recommendation (expires_at);  -- TTL 만료 삭제용
 
 -- 코멘트
-COMMENT ON TABLE vod_recommendation IS
-    '사용자별 추천 결과 캐시. 추천 엔진이 로컬에서 계산 후 결과만 저장. TTL 7일.';
-COMMENT ON COLUMN vod_recommendation.expires_at IS
+COMMENT ON TABLE serving.vod_recommendation IS
+    '[Gold/Serving] 사용자별 추천 결과 캐시. 추천 엔진이 로컬에서 계산 후 결과만 저장. TTL 7일.';
+COMMENT ON COLUMN serving.vod_recommendation.expires_at IS
     'TTL 만료 시각. db_maintenance.py 자정 실행 시 만료된 레코드 삭제.';
 
 
 -- =============================================================
 -- [5] TTL 만료 추천 삭제 — db_maintenance.py에서 자정 실행
 -- =============================================================
--- DELETE FROM vod_recommendation WHERE expires_at < NOW();
+-- DELETE FROM serving.vod_recommendation WHERE expires_at < NOW();
 
 
 -- =============================================================
@@ -308,12 +311,13 @@ SELECT extname, extversion FROM pg_extension WHERE extname = 'vector';
 
 -- 테이블 및 크기 확인
 SELECT
+    schemaname,
     tablename,
     pg_size_pretty(pg_total_relation_size(schemaname || '.' || tablename)) AS total_size
 FROM pg_tables
-WHERE tablename IN ('vod_embedding', 'user_embedding', 'vod_recommendation')
-  AND schemaname = 'public'
-ORDER BY tablename;
+WHERE (schemaname = 'public'  AND tablename IN ('vod_embedding', 'user_embedding'))
+   OR (schemaname = 'serving' AND tablename = 'vod_recommendation')
+ORDER BY schemaname, tablename;
 
 -- 인덱스 확인
 SELECT indexname, indexdef

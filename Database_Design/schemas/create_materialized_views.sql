@@ -1,17 +1,19 @@
 -- =============================================================
--- Phase 3B OPT-2: Materialized View 생성
+-- Phase 3B OPT-2: Materialized View 생성  [Gold / Serving 계층]
 -- 파일: Database_Design/schema/create_materialized_views.sql
 -- 작성일: 2026-03-07  /  수정일: 2026-03-12
 -- 참조: PLAN_03B_PERFORMANCE_OPT.md
 -- =============================================================
 -- 목적: P06(연령대별 선호 VOD), P02(VOD별 시청 통계), P03(일별 통계) 집계 사전 계산
 --       원본 쿼리 대비 <10ms 응답 목표
--- 변경(2026-03-12): mv_vod_satisfaction_stats 제거 → mv_vod_watch_stats로 통합
---   mv_vod_watch_stats가 avg_satisfaction 포함, avg_satisfaction DESC 인덱스 보유
---   → P04(만족도 상위 VOD) 쿼리를 mv_vod_watch_stats에서 동일하게 처리 가능
+-- 계층: serving 스키마 (Gold) — API 서버가 직접 읽는 사전 계산 결과
+--       Silver(public.watch_history, vod, user)를 집계하여 생성
+-- 변경(2026-03-12):
+--   mv_vod_satisfaction_stats 제거 → mv_vod_watch_stats로 통합
+--   모든 MV를 serving 스키마로 이전 (Serving Layer 도입)
 -- 주의: 초기 생성 시 원본 쿼리 수준의 시간 소요 (20~40분 예상)
 --       REFRESH CONCURRENTLY는 UNIQUE INDEX 필수
---       일 1회 REFRESH 권장: REFRESH MATERIALIZED VIEW CONCURRENTLY mv_name;
+--       일 1회 REFRESH 권장: REFRESH MATERIALIZED VIEW CONCURRENTLY serving.mv_name;
 -- =============================================================
 
 
@@ -20,7 +22,9 @@
 -- 목적: 연령대별 VOD 선호도 집계 사전 계산
 -- 원본: user JOIN watch_history JOIN vod 3-table (10,355ms warm)
 -- =============================================================
-CREATE MATERIALIZED VIEW mv_age_grp_vod_stats AS
+CREATE SCHEMA IF NOT EXISTS serving;
+
+CREATE MATERIALIZED VIEW serving.mv_age_grp_vod_stats AS
 SELECT
     u.age_grp10,
     v.full_asset_id,
@@ -36,12 +40,12 @@ GROUP BY u.age_grp10, v.full_asset_id, v.asset_nm, v.genre
 HAVING COUNT(*) >= 5;
 
 -- CONCURRENTLY REFRESH를 위한 UNIQUE INDEX (필수)
-CREATE UNIQUE INDEX ON mv_age_grp_vod_stats (age_grp10, full_asset_id);
+CREATE UNIQUE INDEX ON serving.mv_age_grp_vod_stats (age_grp10, full_asset_id);
 
 -- 조회 최적화 인덱스
-CREATE INDEX ON mv_age_grp_vod_stats (age_grp10, avg_satisfaction DESC);
+CREATE INDEX ON serving.mv_age_grp_vod_stats (age_grp10, avg_satisfaction DESC);
 -- 조회수 기준 정렬 (연령대별 인기 콘텐츠)
-CREATE INDEX ON mv_age_grp_vod_stats (age_grp10, view_count DESC);
+CREATE INDEX ON serving.mv_age_grp_vod_stats (age_grp10, view_count DESC);
 
 
 -- =============================================================
@@ -53,7 +57,7 @@ CREATE INDEX ON mv_age_grp_vod_stats (age_grp10, view_count DESC);
 -- 주의: 파티셔닝 후 원본 P02 쿼리는 전체 파티션 스캔으로 오히려 느려질 수 있음
 --       → MV 조회로 대체하여 <1ms 목표
 -- =============================================================
-CREATE MATERIALIZED VIEW mv_vod_watch_stats AS
+CREATE MATERIALIZED VIEW serving.mv_vod_watch_stats AS
 SELECT
     wh.vod_id_fk,
     v.asset_nm,
@@ -69,17 +73,17 @@ JOIN vod v ON wh.vod_id_fk = v.full_asset_id
 GROUP BY wh.vod_id_fk, v.asset_nm, v.genre, v.ct_cl;
 
 -- CONCURRENTLY REFRESH를 위한 UNIQUE INDEX (필수)
-CREATE UNIQUE INDEX ON mv_vod_watch_stats (vod_id_fk);
+CREATE UNIQUE INDEX ON serving.mv_vod_watch_stats (vod_id_fk);
 
 -- 대시보드 배너: 최다 조회수 기준 정렬 인덱스
-CREATE INDEX ON mv_vod_watch_stats (total_views DESC);
+CREATE INDEX ON serving.mv_vod_watch_stats (total_views DESC);
 
 -- 만족도 기준 정렬 인덱스 (mv_vod_satisfaction_stats 통합으로 P04 담당)
-CREATE INDEX ON mv_vod_watch_stats (avg_satisfaction DESC);
+CREATE INDEX ON serving.mv_vod_watch_stats (avg_satisfaction DESC);
 
 -- 장르별 인기/만족도 필터 인덱스 (API 장르 필터 대응)
-CREATE INDEX ON mv_vod_watch_stats (genre, total_views DESC);
-CREATE INDEX ON mv_vod_watch_stats (ct_cl, avg_satisfaction DESC);
+CREATE INDEX ON serving.mv_vod_watch_stats (genre, total_views DESC);
+CREATE INDEX ON serving.mv_vod_watch_stats (ct_cl, avg_satisfaction DESC);
 
 
 -- =============================================================
@@ -89,7 +93,7 @@ CREATE INDEX ON mv_vod_watch_stats (ct_cl, avg_satisfaction DESC);
 -- 주의: COUNT(DISTINCT user_id_fk)는 일별 기준 → 주간 중복 제거 불가 (근사치)
 --       정확한 주간 DAU가 필요하면 원본 쿼리 + 파티셔닝 조합 사용
 -- =============================================================
-CREATE MATERIALIZED VIEW mv_daily_watch_stats AS
+CREATE MATERIALIZED VIEW serving.mv_daily_watch_stats AS
 SELECT
     DATE(strt_dt AT TIME ZONE 'UTC')    AS watch_date,
     COUNT(*)                            AS total_views,
@@ -100,23 +104,20 @@ FROM watch_history
 GROUP BY DATE(strt_dt AT TIME ZONE 'UTC');
 
 -- CONCURRENTLY REFRESH를 위한 UNIQUE INDEX (필수)
-CREATE UNIQUE INDEX ON mv_daily_watch_stats (watch_date);
+CREATE UNIQUE INDEX ON serving.mv_daily_watch_stats (watch_date);
 
 -- 날짜 범위 조회 인덱스
-CREATE INDEX ON mv_daily_watch_stats (watch_date DESC);
+CREATE INDEX ON serving.mv_daily_watch_stats (watch_date DESC);
 
 
 -- =============================================================
 -- 전체 MV 생성 확인
 -- =============================================================
 SELECT
+    schemaname,
     matviewname,
     ispopulated,
-    pg_size_pretty(pg_total_relation_size(matviewname::regclass)) AS total_size
+    pg_size_pretty(pg_total_relation_size((schemaname || '.' || matviewname)::regclass)) AS total_size
 FROM pg_matviews
-WHERE matviewname IN (
-    'mv_age_grp_vod_stats',
-    'mv_vod_watch_stats',
-    'mv_daily_watch_stats'
-)
+WHERE schemaname = 'serving'
 ORDER BY matviewname;

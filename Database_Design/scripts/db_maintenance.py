@@ -85,16 +85,17 @@ def get_connection() -> psycopg2.extensions.connection:
 # =============================================================
 
 # REFRESH 순서: 의존성 없는 MV는 순서 무관. 가벼운 MV 먼저.
+# serving 스키마 MV는 스키마 한정자 포함 (2026-03-12 Serving Layer 도입)
 MATERIALIZED_VIEWS = [
-    "mv_daily_watch_stats",        # P03: 일별 집계 (경량)
-    "mv_age_grp_vod_stats",        # P06: 연령대별 집계
-    "mv_vod_watch_stats",          # P02+P04: VOD별 전체 통계 + 만족도 상위 VOD 통합
+    "serving.mv_daily_watch_stats",        # P03: 일별 집계 (경량)
+    "serving.mv_age_grp_vod_stats",        # P06: 연령대별 집계
+    "serving.mv_vod_watch_stats",          # P02+P04: VOD별 전체 통계 + 만족도 상위 VOD 통합
 ]
 
 
 def refresh_materialized_views(conn: psycopg2.extensions.connection) -> bool:
     """
-    MV 4개를 CONCURRENTLY REFRESH.
+    serving 스키마 MV 3개를 CONCURRENTLY REFRESH.
     CONCURRENTLY: 기존 데이터 유지하며 갱신 → 조회 중단 없음.
     단, 각 MV에 UNIQUE INDEX 존재해야 함 (없으면 일반 REFRESH로 폴백).
     """
