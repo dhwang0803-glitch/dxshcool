@@ -1,6 +1,7 @@
 # 메타데이터 임베딩 코드 이식 보고서
 
 - **작성일**: 2026-03-11
+- **작성자**: 박아름
 - **출처**: `billionaireahreum/lg2-ahreum` — `user_embedding/pipeline/`
 - **대상 경로**: `VOD_Embedding/src/`
 
