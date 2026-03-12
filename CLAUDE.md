@@ -118,6 +118,49 @@ Frontend/
 
 ---
 
+## 🗄️ DB 스키마 협업 규칙 (Rule 1 & Rule 3 — 모든 브랜치 적용)
+
+### Rule 1 — DB 스키마 참조 규칙
+
+**`Database_Design` 브랜치가 스키마 단일 진실 원천(SSoT)이다. 직접 기재 금지.**
+
+**확인 순서:**
+```
+테이블/컬럼 정보가 필요할 때 →
+  1순위: Database_Design/schemas/ SQL 파일 직접 확인
+  2순위: Database_Design/docs/DEPENDENCY_MAP.md 컬럼 상세
+  ← 둘 중 하나와 다른 내용이 CLAUDE.md/문서에 있으면 Database_Design 기준으로 즉시 수정
+```
+
+**신규 브랜치 생성 시 (DB 접근 코드 작성 전 필수):**
+1. `Database_Design/docs/DEPENDENCY_MAP.md` 에 브랜치 등록 (→ Rule 4)
+2. 브랜치 CLAUDE.md 인터페이스 섹션을 Rule 3 형식으로 작성
+
+### Rule 3 — 인터페이스 섹션 표준화 형식
+
+각 브랜치 CLAUDE.md의 **인터페이스** 섹션은 테이블·컬럼·타입 수준으로 명시한다.
+
+```markdown
+## 인터페이스
+
+### 업스트림 (읽기)
+
+| 테이블 | 컬럼 | 타입 | 용도 |
+|--------|------|------|------|
+| `public.vod` | `full_asset_id`, `asset_nm` | VARCHAR(64), VARCHAR | 처리 대상 |
+
+### 다운스트림 (쓰기)
+
+| 테이블 | 컬럼 | 타입 | 비고 |
+|--------|------|------|------|
+| `public.some_table` | `col_name` | TYPE | ON CONFLICT 기준 등 |
+```
+
+스키마 변경은 `Database_Design` 에 먼저 반영 후 이 섹션을 업데이트한다.
+컬럼/타입이 불확실하면 `Database_Design/docs/DEPENDENCY_MAP.md` 를 기준으로 한다.
+
+---
+
 ## 🔒 보안 규칙 (MANDATORY — 모든 브랜치 적용)
 
 **파일 수정/생성 또는 git commit 전 반드시 검증한다.**
