@@ -1,0 +1,21 @@
+# 대용량 데이터 파일
+data/*.pkl
+data/*.json
+data/*.log
+data/video_embs_batch_*.pkl
+data/crawl_status.json
+data/embed_status.json
+
+# 트레일러 영상
+trailers/
+*.webm
+*.mp4
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# .gitkeep은 추적
+!data/.gitkeep
