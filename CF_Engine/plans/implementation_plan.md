@@ -39,15 +39,15 @@ watch_history 테이블 로드
 **역할**: DB에서 `watch_history`를 읽어 ALS 입력용 희소 행렬로 변환
 
 - DB 연결: `psycopg2` + `.env` (DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME)
-- 쿼리: `SELECT user_id, asset_id, watch_ratio FROM watch_history`
-- `user_id`, `asset_id` → 정수 인덱스 매핑 (인코더 딕셔너리 반환)
-- `watch_ratio` → 신뢰도(confidence) 가중치로 사용
+- 쿼리: `SELECT user_id_fk, vod_id_fk, completion_rate FROM watch_history`
+- `user_id_fk`, `vod_id_fk` → 정수 인덱스 매핑 (인코더 딕셔너리 반환)
+- `completion_rate` → 신뢰도(confidence) 가중치로 사용
 - 출력: `(csr_matrix, user_encoder, item_encoder)`
 
 **핵심 설계**
 ```python
-# watch_ratio → confidence 변환 (implicit 라이브러리 관례)
-confidence = 1 + alpha * watch_ratio   # alpha=40 기본값
+# completion_rate → confidence 변환 (implicit 라이브러리 관례)
+confidence = 1 + alpha * completion_rate   # alpha=40 기본값
 matrix = csr_matrix((confidence, (user_idx, item_idx)), shape=(n_users, n_items))
 ```
 
@@ -175,5 +175,5 @@ db:
 
 | 방향 | 브랜치 | 테이블 | 컬럼 |
 |------|--------|--------|------|
-| 업스트림 | `Database_Design` | `watch_history` | user_id, asset_id, watch_ratio |
+| 업스트림 | `Database_Design` | `watch_history` | user_id_fk, vod_id_fk, completion_rate |
 | 다운스트림 | `API_Server` | `cf_recommendations` | user_id, asset_id, score, rank |
