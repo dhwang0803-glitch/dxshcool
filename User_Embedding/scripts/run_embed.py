@@ -33,12 +33,13 @@ logger = logging.getLogger(__name__)
 BATCH_SIZE = 1_000
 
 UPSERT_SQL = """
-INSERT INTO user_embedding (user_id_fk, embedding, vod_count, updated_at)
-VALUES (%s, %s::vector, %s, NOW())
+INSERT INTO user_embedding (user_id_fk, embedding, vod_count, vector_magnitude, updated_at)
+VALUES (%s, %s::vector, %s, %s, NOW())
 ON CONFLICT (user_id_fk) DO UPDATE SET
-    embedding   = EXCLUDED.embedding,
-    vod_count   = EXCLUDED.vod_count,
-    updated_at  = NOW()
+    embedding        = EXCLUDED.embedding,
+    vod_count        = EXCLUDED.vod_count,
+    vector_magnitude = EXCLUDED.vector_magnitude,
+    updated_at       = NOW()
 """
 
 
@@ -52,7 +53,7 @@ def save_user_embeddings(
     vod_counts: dict[str, int],
 ) -> None:
     rows = [
-        (uid, _to_pgvector_str(vec), vod_counts.get(uid, 0))
+        (uid, _to_pgvector_str(vec), vod_counts.get(uid, 0), 1.0)
         for uid, vec in user_vectors.items()
     ]
     total = len(rows)
