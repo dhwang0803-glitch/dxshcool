@@ -58,6 +58,19 @@ final_score = α * clip_score + (1 - α) * content_score
 
 ## 인터페이스
 
-- **업스트림**: `VOD_Embedding` — vod_embedding 테이블 (512차원 벡터)
-- **업스트림**: `Database_Design` — vod 테이블 메타데이터 (장르, 감독, 배우)
-- **다운스트림**: `API_Server` — `/similar/{asset_id}` 엔드포인트
+> 컬럼/타입 상세 → `Database_Design/docs/DEPENDENCY_MAP.md` Vector_Search 섹션 참조 (Rule 1).
+> 스키마 변경 시 Database_Design 기준으로 이 섹션도 업데이트할 것 (Rule 3).
+
+### 업스트림 (읽기)
+
+| 테이블 | 컬럼 | 타입 | 용도 |
+|--------|------|------|------|
+| `public.vod_embedding` | `vod_id_fk`, `embedding` | VARCHAR(64), VECTOR(512) | 콘텐츠 유사도 검색 |
+| `public.vod_meta_embedding` | `vod_id_fk`, `embedding` | VARCHAR(64), VECTOR(384) | 메타데이터 유사도 검색 |
+| `public.user_embedding` | `user_id_fk`, `embedding` | VARCHAR(64), VECTOR(896) | 개인화 검색 |
+
+### 다운스트림 (쓰기)
+
+| 테이블 | 컬럼 | 타입 | 비고 |
+|--------|------|------|------|
+| `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score` | VARCHAR/SMALLINT/REAL | recommendation_type = `'VISUAL_SIMILARITY'` |

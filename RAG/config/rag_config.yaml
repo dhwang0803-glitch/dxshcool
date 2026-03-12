@@ -1,0 +1,47 @@
+# RAG Pipeline 설정
+
+pipeline:
+  batch_size: 50
+  max_workers: 5          # ThreadPoolExecutor (API 검색 병렬)
+  request_delay_s: 0.5    # API 요청 간격 (Rate Limit 준수)
+  confidence_threshold: 0.6  # 이 미만은 DB UPDATE 안 함
+
+llm:
+  host: "http://localhost:11434"
+  model: "exaone3.5:7.8b"
+  temperature: 0.2
+  max_tokens: 100
+
+embedding:
+  model: "snunlp/KR-SBERT-V40K-klueNLI-augmented"
+  cache_dir: "RAG/config/embeddings_cache"
+  chroma_db_dir: "RAG/config/chroma_db"
+  retrieval_k: 3
+
+search:
+  wikipedia_lang: "ko"     # 1차 한국어, 실패 시 "en"
+  imdb_results: 3
+  kmrb_results: 1
+
+checkpoint:
+  path: "RAG/config/checkpoint.json"
+  save_every: 50           # 50건마다 체크포인트 저장
+
+columns:
+  # NULL 건수 기준 (2026-03-09 NULL 표준화 후)
+  high_priority:
+    - cast_lead       # 166,159건 (100%)
+    - cast_guest      # 166,159건 (100%)
+    - rating          # 166,159건 (100%)
+    - release_date    # 166,159건 (100%)
+    - director        #  19,130건 (11.5%) — '-'/'미상'/'.' 포함 표준화 완료
+  medium_priority:
+    - smry            #      15건 (0.0%)
+    - series_nm       #     431건 (0.3%)
+    - disp_rtm        #     707건 (0.4%) — disp_rtm_sec와 동기화 필요
+  low_priority:
+    - genre           #       1건
+    - asset_prod      #       1건
+
+  # disp_rtm 처리 시 disp_rtm_sec도 함께 업데이트 필요
+  # (NOT NULL 제약 해제 완료 — 2026-03-09)
