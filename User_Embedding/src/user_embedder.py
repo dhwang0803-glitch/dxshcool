@@ -70,8 +70,9 @@ def build_user_embeddings(
 
     total = len(history)
     generated = len(user_vectors)
+    pct = generated / total * 100 if total > 0 else 0.0
     logger.info(
-        f"유저 임베딩 생성: {generated:,} / {total:,} ({generated / total * 100:.1f}%)"
+        f"유저 임베딩 생성: {generated:,} / {total:,} ({pct:.1f}%)"
         f" | 스킵: {skipped:,}명 (결합 임베딩 있는 시청 VOD 없음)"
     )
     return user_vectors, vod_counts
