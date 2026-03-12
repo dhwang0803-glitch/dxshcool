@@ -123,7 +123,7 @@
 | 방향 | 테이블 | 컬럼 | 타입 | 비고 |
 |------|--------|------|------|------|
 | 읽기 | `public.vod` | `full_asset_id`, `asset_nm`, `genre`, `director`, `cast_lead`, `smry`, `poster_url`, `release_date`, `rating` | 각종 VARCHAR/TEXT | `/vod/{asset_id}` 상세 응답 |
-| 읽기 | `public."user"` | `user_id` | VARCHAR | 사용자 존재 여부 확인 |
+| 읽기 | `public."user"` | `sha2_hash` | VARCHAR | 사용자 존재 여부 확인 (PK) |
 | 읽기 | `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | VARCHAR/REAL | `/recommend/{user_id}` |
 | 읽기 | `serving.mv_vod_watch_stats` | *(스키마 확인 필요)* | - | 인기 콘텐츠 배너 |
 | 읽기 | `serving.mv_age_grp_vod_stats` | *(스키마 확인 필요)* | - | 연령대별 추천 |
