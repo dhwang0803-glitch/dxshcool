@@ -106,29 +106,88 @@ Frontend/
 
 ---
 
+## 프로젝트 개요 (Database_Design 브랜치)
+
+- **프로젝트**: VOD 추천 시스템 PostgreSQL 데이터베이스
+- **DB**: PostgreSQL on VPC
+- **접속 정보**: `.env` 파일 (Git 제외, 팀 내 별도 공유)
+
+## 커밋 금지 파일
+
+- `.env` — DB 접속 정보
+- `.claude/settings.local.json` — Claude Code 로컬 설정 (자격증명 포함 가능)
+- `data/` — CSV 원본 데이터 (대용량)
+
+---
+
+## 🗄️ DB 스키마 협업 규칙 (Rule 1 & Rule 3 — 모든 브랜치 적용)
+
+### Rule 1 — DB 스키마 참조 규칙
+
+**`Database_Design` 브랜치가 스키마 단일 진실 원천(SSoT)이다. 직접 기재 금지.**
+
+**확인 순서:**
+```
+테이블/컬럼 정보가 필요할 때 →
+  1순위: Database_Design/schemas/ SQL 파일 직접 확인
+  2순위: Database_Design/docs/DEPENDENCY_MAP.md 컬럼 상세
+  ← 둘 중 하나와 다른 내용이 CLAUDE.md/문서에 있으면 Database_Design 기준으로 즉시 수정
+```
+
+**신규 브랜치 생성 시 (DB 접근 코드 작성 전 필수):**
+1. `Database_Design/docs/DEPENDENCY_MAP.md` 에 브랜치 등록 (→ Rule 4)
+2. 브랜치 CLAUDE.md 인터페이스 섹션을 Rule 3 형식으로 작성
+
+### Rule 3 — 인터페이스 섹션 표준화 형식
+
+각 브랜치 CLAUDE.md의 **인터페이스** 섹션은 테이블·컬럼·타입 수준으로 명시한다.
+
+```markdown
+## 인터페이스
+
+### 업스트림 (읽기)
+
+| 테이블 | 컬럼 | 타입 | 용도 |
+|--------|------|------|------|
+| `public.vod` | `full_asset_id`, `asset_nm` | VARCHAR(64), VARCHAR | 처리 대상 |
+
+### 다운스트림 (쓰기)
+
+| 테이블 | 컬럼 | 타입 | 비고 |
+|--------|------|------|------|
+| `public.some_table` | `col_name` | TYPE | ON CONFLICT 기준 등 |
+```
+
+스키마 변경은 `Database_Design` 에 먼저 반영 후 이 섹션을 업데이트한다.
+컬럼/타입이 불확실하면 `Database_Design/docs/DEPENDENCY_MAP.md` 를 기준으로 한다.
+
+---
+
 ## 🔒 보안 규칙 (MANDATORY — 모든 브랜치 적용)
 
 **파일 수정/생성 또는 git commit 전 반드시 검증한다.**
 
 ### 1. 하드코딩된 자격증명 금지
+
 ```python
-# ❌ 절대 금지
+# 절대 금지
 TMDB_API_KEY = "abcd1234..."
 DB_PASSWORD  = "mysecret"
 
-# ✅ 올바른 방식
+# 올바른 방식
 TMDB_API_KEY = os.getenv("TMDB_API_KEY", "")
 DB_PASSWORD  = os.getenv("DB_PASSWORD")
 ```
 
 ### 2. os.getenv() 기본값에 실제 인프라 정보 금지
+
 ```python
-# ❌ 절대 금지 — 실제 서버 IP·DB명·사용자명 노출
+# 절대 금지 — 실제 서버 IP, DB명, 사용자명 노출
 host=os.getenv("DB_HOST", "10.0.0.1")
 dbname=os.getenv("DB_NAME", "prod_db")
 user=os.getenv("DB_USER", "dbadmin")
 
-# ✅ 올바른 방식
+# 올바른 방식
 host=os.getenv("DB_HOST")
 dbname=os.getenv("DB_NAME")
 user=os.getenv("DB_USER")
@@ -137,16 +196,19 @@ port=int(os.getenv("DB_PORT", "5432"))  # 공개 표준 포트는 허용
 
 ### 3. .env 파일 직접 읽기 금지
 - `.env` 파일을 Read 도구로 읽지 않는다
-- `.env` 내용을 대화창·로그에 출력하지 않는다
-- DB 비밀번호·API 키 실제 값을 응답 텍스트에 포함하지 않는다
+- `.env` 내용을 대화창, 로그에 출력하지 않는다
+- DB 비밀번호, API 키 실제 값을 응답 텍스트에 포함하지 않는다
+- 자격증명이 필요한 경우 사용자가 직접 터미널에서 입력하도록 안내
+- 새 자격증명 설정 시 `.env.example`만 제공하고 실제 값은 사용자가 직접 입력
 
 ### 4. DB 접속 명령어 작성 규칙
+
 ```bash
-# ✅ 올바른 방식
+# 올바른 방식
 set -a && source .env && set +a
 PGPASSWORD=$DB_PASSWORD psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME
 
-# ❌ 절대 금지
+# 절대 금지
 PGPASSWORD=실제비밀번호 psql -h 실제IP ...
 ```
 
@@ -159,7 +221,7 @@ PGPASSWORD=실제비밀번호 psql -h 실제IP ...
 ### 6. Pre-commit 점검 절차
 ```
 파일 수정 시 →
-  Grep: "os\.getenv\(.*,\s*[\"']" 패턴 스캔 →
+  Grep: "os.getenv\(.*," 패턴 스캔 →
     기본값에 실제 인프라 정보 있으면 즉시 제거 →
       commit 전 보안 점검 결과 명시적으로 보고
 ```

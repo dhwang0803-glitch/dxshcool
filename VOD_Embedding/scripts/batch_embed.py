@@ -18,6 +18,7 @@ import json
 import pickle
 import argparse
 import logging
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
@@ -267,7 +268,13 @@ def main():
 
     work_list = build_work_list(crawl_vods, done_ids, TRAILERS_DIR)
     status["total_trailers"] = len(crawl_vods)
-    log.info(f"임베딩 대상: {len(work_list):,}개")
+
+    # filename 기준으로 그룹핑 — 같은 YouTube 영상을 참조하는 vod_id들을 묶음
+    file_groups: dict[str, list] = defaultdict(list)
+    for item in work_list:
+        file_groups[item["filename"]].append(item)
+    total_files = len(file_groups)
+    log.info(f"임베딩 대상: {len(work_list):,}개 vod_id / {total_files:,}개 고유 파일")
 
     if not work_list:
         log.info("처리할 새 항목 없음")
@@ -287,50 +294,54 @@ def main():
     batch_num   = max(args.start_batch, completed_batches + 1)
     batch_data  = []
 
-    for i, item in enumerate(work_list):
+    for file_idx, (filename, items) in enumerate(file_groups.items()):
         # end-batch 제한 (pkl 모드 전용)
         if not use_parquet and args.end_batch > 0 and batch_num > args.end_batch:
             log.info(f"--end-batch {args.end_batch} 도달, 중단")
             break
 
-        vod_id    = item["vod_id"]
-        filepath  = item["filepath"]
+        filepath = items[0]["filepath"]
 
-        embed_ok = False
         try:
             vec = get_video_embedding(filepath, model)
             if not check_vector_quality(vec):
                 raise ValueError(f"이상 벡터 (magnitude={float(np.linalg.norm(vec)):.4f})")
 
-            record = {
-                "vod_id":       vod_id,
-                "title":        item["title"],
-                "video_file":   item["filename"],
-                "vector":       vec,
-                "magnitude":    float(np.linalg.norm(vec)),
-                "embedded_at":  datetime.now().isoformat(),
-                "ct_cl":        item.get("ct_cl"),
-                "series_nm":    item.get("series_nm"),
-            }
-            if use_parquet:
-                parquet_results.append(record)
-            else:
-                batch_data.append(record)
+            # 동일 파일을 참조하는 모든 vod_id에 같은 벡터 복사 (vod_id마다 독립 행)
+            now = datetime.now().isoformat()
+            mag = float(np.linalg.norm(vec))
+            for item in items:
+                record = {
+                    "vod_id":      item["vod_id"],
+                    "title":       item["title"],
+                    "video_file":  filename,
+                    "vector":      vec,
+                    "magnitude":   mag,
+                    "embedded_at": now,
+                    "ct_cl":       item.get("ct_cl"),
+                    "series_nm":   item.get("series_nm"),
+                }
+                if use_parquet:
+                    parquet_results.append(record)
+                else:
+                    batch_data.append(record)
 
-            status["success"] = status.get("success", 0) + 1
-            log.info(f"[{i+1}/{len(work_list)}] OK  {vod_id}")
-            embed_ok = True
+            status["success"] = status.get("success", 0) + len(items)
+            shared_note = f" (벡터 공유 {len(items)}건)" if len(items) > 1 else ""
+            log.info(f"[{file_idx+1}/{total_files}] OK  {filename}{shared_note}")
+
+            # 파일 삭제는 모든 vod_id 처리 완료 후 1회만
+            if args.delete_after_embed:
+                delete_video_file(filepath)
 
         except Exception as e:
-            status["failed"] = status.get("failed", 0) + 1
-            status.setdefault("failed_vods", {})[vod_id] = str(e)
-            log.warning(f"[{i+1}/{len(work_list)}] FAIL {vod_id}: {e}")
+            status["failed"] = status.get("failed", 0) + len(items)
+            err_msg = str(e)
+            for item in items:
+                status.setdefault("failed_vods", {})[item["vod_id"]] = err_msg
+            log.warning(f"[{file_idx+1}/{total_files}] FAIL {filename}: {e} ({len(items)}건 영향)")
 
-        # 임베딩 성공 후 영상 삭제 (--delete-after-embed 옵션)
-        if embed_ok and args.delete_after_embed:
-            delete_video_file(filepath)
-
-        status["processed"] = status.get("processed", 0) + 1
+        status["processed"] = status.get("processed", 0) + len(items)
 
         # pkl 모드: 배치 단위 저장
         if not use_parquet and len(batch_data) >= BATCH_SIZE:
