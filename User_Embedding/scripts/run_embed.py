@@ -98,24 +98,20 @@ def run(pilot: int | None, user_id: str | None) -> None:
     logger.info("=== User_Embedding 파이프라인 시작 ===")
 
     with get_conn() as conn:
-        # PLAN_01: watch_history 로드
-        history = load_watch_history(conn)
+        # PLAN_01: watch_history 로드 (pilot/user_id는 DB 쿼리 단계에서 제한)
+        history = load_watch_history(conn, user_limit=pilot, user_id=user_id)
 
         if not history:
             logger.warning("시청 이력 없음. 종료합니다.")
             return
 
-        # 필터링
+        if user_id and user_id not in history:
+            logger.error(f"user_id '{user_id}'의 시청 이력이 없습니다.")
+            return
+        if pilot:
+            logger.info(f"파이럿 모드: {len(history):,}명")
         if user_id:
-            if user_id not in history:
-                logger.error(f"user_id '{user_id}'의 시청 이력이 없습니다.")
-                return
-            history = {user_id: history[user_id]}
             logger.info(f"단일 유저 모드: {user_id}")
-        elif pilot:
-            sampled = dict(list(history.items())[:pilot])
-            history = sampled
-            logger.info(f"파이럿 모드: {pilot}명")
 
         # PLAN_02: 필요한 asset_ids만 조회 (메모리 절약)
         needed_assets = list({aid for items in history.values() for aid, _ in items})

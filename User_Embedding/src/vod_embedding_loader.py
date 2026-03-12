@@ -38,17 +38,21 @@ def load_vod_combined(
     logger.info("VOD 임베딩 로드 중...")
 
     # --- CLIP 임베딩 로드 ---
+    def _parse_vec(raw) -> np.ndarray:
+        """pgvector 컬럼을 문자열로 받아 numpy array로 변환."""
+        return np.fromstring(str(raw).strip("[]"), sep=",", dtype=np.float32)
+
     clip_vecs: dict[str, np.ndarray] = {}
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
         if asset_ids:
             cur.execute(
-                "SELECT vod_id_fk, embedding FROM vod_embedding WHERE vod_id_fk = ANY(%s)",
+                "SELECT vod_id_fk, embedding::text FROM vod_embedding WHERE vod_id_fk = ANY(%s)",
                 (asset_ids,),
             )
         else:
-            cur.execute("SELECT vod_id_fk, embedding FROM vod_embedding ORDER BY vod_id_fk")
+            cur.execute("SELECT vod_id_fk, embedding::text FROM vod_embedding ORDER BY vod_id_fk")
         for row in cur:
-            clip_vecs[row["vod_id_fk"]] = np.array(row["embedding"], dtype=np.float32)
+            clip_vecs[row["vod_id_fk"]] = _parse_vec(row["embedding"])
     logger.info(f"  CLIP 임베딩: {len(clip_vecs):,}건")
 
     # --- METADATA 임베딩 로드 ---
@@ -56,13 +60,13 @@ def load_vod_combined(
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
         if asset_ids:
             cur.execute(
-                "SELECT vod_id_fk, embedding FROM vod_meta_embedding WHERE vod_id_fk = ANY(%s)",
+                "SELECT vod_id_fk, embedding::text FROM vod_meta_embedding WHERE vod_id_fk = ANY(%s)",
                 (asset_ids,),
             )
         else:
-            cur.execute("SELECT vod_id_fk, embedding FROM vod_meta_embedding ORDER BY vod_id_fk")
+            cur.execute("SELECT vod_id_fk, embedding::text FROM vod_meta_embedding ORDER BY vod_id_fk")
         for row in cur:
-            meta_vecs[row["vod_id_fk"]] = np.array(row["embedding"], dtype=np.float32)
+            meta_vecs[row["vod_id_fk"]] = _parse_vec(row["embedding"])
     logger.info(f"  META 임베딩: {len(meta_vecs):,}건")
 
     # --- inner join: 두 테이블 모두 있는 VOD만 결합 ---
