@@ -32,6 +32,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from dotenv import load_dotenv
 
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -82,30 +83,15 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
-def load_env():
-    env_path = PROJECT_ROOT.parent / "Database_Design" / ".env"
-    if not env_path.exists():
-        env_path = PROJECT_ROOT.parent / ".env"
-    env = {}
-    if env_path.exists():
-        with open(env_path, encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#') and '=' in line:
-                    k, v = line.split('=', 1)
-                    env[k.strip()] = v.strip()
-    return env
-
-
 def get_db_conn():
-    env = load_env()
+    load_dotenv()
     import psycopg2
     conn = psycopg2.connect(
-        host=env.get('DB_HOST', 'localhost'),
-        port=int(env.get('DB_PORT', 5432)),
-        dbname=env.get('DB_NAME', 'postgres'),
-        user=env.get('DB_USER', 'postgres'),
-        password=env.get('DB_PASSWORD', ''),
+        host=os.getenv("DB_HOST"),
+        port=int(os.getenv("DB_PORT", "5432")),
+        dbname=os.getenv("DB_NAME"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD"),
     )
     conn.autocommit = False
     return conn

@@ -6,8 +6,13 @@ data/video_embs_batch_*.pkl
 data/crawl_status.json
 data/embed_status.json
 
+# 박아름 개인 작업 스크립트
+scripts/crawl_trailers_아름.py
+scripts/batch_embed_아름.py
+
 # 트레일러 영상
 trailers/
+trailers_아름/
 *.webm
 *.mp4
 
