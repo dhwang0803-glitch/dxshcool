@@ -63,3 +63,17 @@ migrations/
 ├── 20260309_add_cast_lead_cast_guest.sql
 └── 20260311_add_user_embedding_table.sql
 ```
+
+---
+
+## 🤝 협업 규칙 (루트 CLAUDE.md 전문 참조)
+
+- **직접 Push 금지** — 반드시 PR을 통해 병합
+- **PR description 필수 항목**:
+  1. 변경사항 요약
+  2. 사후영향 평가 (`agents/IMPACT_ASSESSOR.md` 실행 결과) — **DB는 모든 레이어의 기반이므로 특히 중요**
+  3. 보안 점검 보고서 (`agents/SECURITY_AUDITOR.md` 실행 결과)
+- PR 템플릿: `.github/pull_request_template.md`
+
+> ⚠️ DB 스키마 변경(ALTER/DROP)은 리스크 등급 🔴 HIGH 이상.
+> 반드시 마이그레이션 DOWN 스크립트 포함 후 PR 제출.

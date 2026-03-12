@@ -35,7 +35,7 @@ DATA_DIR     = PROJECT_ROOT / "data"
 
 COMMIT_INTERVAL  = 1000         # N건마다 COMMIT
 MODEL_VERSION    = "clip-ViT-B-32"
-EMBEDDING_TYPE   = "VISUAL"     # VISUAL / CONTENT / HYBRID
+EMBEDDING_TYPE   = "CLIP"       # CLIP / CONTENT / HYBRID
 EMBEDDING_DIM    = 512
 FRAME_COUNT      = 10           # batch_embed.py N_FRAMES와 동일
 SOURCE_TYPE      = "TRAILER"    # TRAILER / FULL
@@ -131,7 +131,7 @@ CREATE TABLE IF NOT EXISTS vod_embedding (
     vod_embedding_id    BIGINT          GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     vod_id_fk           VARCHAR(64)     NOT NULL UNIQUE,
     embedding           VECTOR(512)     NOT NULL,
-    embedding_type      VARCHAR(32)     NOT NULL DEFAULT 'VISUAL',
+    embedding_type      VARCHAR(32)     NOT NULL DEFAULT 'CLIP',
     embedding_dim       INTEGER         NOT NULL DEFAULT 512,
     model_version       VARCHAR(64)     NOT NULL DEFAULT 'clip-ViT-B-32',
     vector_magnitude    REAL,
@@ -140,7 +140,7 @@ CREATE TABLE IF NOT EXISTS vod_embedding (
     source_url          TEXT,
     created_at          TIMESTAMPTZ     DEFAULT NOW(),
     updated_at          TIMESTAMPTZ     DEFAULT NOW(),
-    CONSTRAINT chk_embedding_type CHECK (embedding_type IN ('VISUAL', 'CONTENT', 'HYBRID')),
+    CONSTRAINT chk_embedding_type CHECK (embedding_type IN ('CLIP', 'CONTENT', 'HYBRID')),
     CONSTRAINT chk_source_type    CHECK (source_type IN ('TRAILER', 'FULL')),
     CONSTRAINT chk_embedding_dim  CHECK (embedding_dim > 0)
 );
