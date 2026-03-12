@@ -58,6 +58,6 @@ final_score = α * clip_score + (1 - α) * content_score
 
 ## 인터페이스
 
-- **업스트림**: `VOD_Embedding` — clip_embeddings 테이블 (512차원 벡터)
+- **업스트림**: `VOD_Embedding` — vod_embedding 테이블 (512차원 벡터)
 - **업스트림**: `Database_Design` — vod 테이블 메타데이터 (장르, 감독, 배우)
 - **다운스트림**: `API_Server` — `/similar/{asset_id}` 엔드포인트
