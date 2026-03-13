@@ -379,6 +379,14 @@ def ingest_parquet_file(conn, parquet_path: str, dry_run: bool) -> tuple:
     log.info(f"Parquet 로드: {p}")
     df = pd.read_parquet(p)
 
+    # 컬럼 정규화: batch_embed.py 출력 형식 호환 (vector → embedding, full_asset_id/vod_id_fk → vod_id)
+    if "vector" in df.columns and "embedding" not in df.columns:
+        df = df.rename(columns={"vector": "embedding"})
+    if "vod_id_fk" in df.columns and "vod_id" not in df.columns:
+        df = df.rename(columns={"vod_id_fk": "vod_id"})
+    if "full_asset_id" in df.columns and "vod_id" not in df.columns:
+        df = df.rename(columns={"full_asset_id": "vod_id"})
+
     # 컬럼 검증
     required = {"vod_id", "embedding"}
     missing = required - set(df.columns)
