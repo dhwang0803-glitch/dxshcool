@@ -61,13 +61,13 @@
 ## 내일 재개 시 명령
 
 ```bash
-cd C:/Users/user/Documents/GitHub/dxshcool/VOD_Embedding
+cd "$(git rev-parse --show-toplevel)/VOD_Embedding"
 
 # 현황 확인
-"C:/Users/user/miniconda3/envs/myenv/python.exe" scripts/progress_report.py
+conda run -n myenv python scripts/progress_report.py
 
 # 크롤링 재개 (자동 루프가 종료된 경우)
-"C:/Users/user/miniconda3/envs/myenv/python.exe" scripts/crawl_trailers.py --task-file data/tasks_C.json --trailers-dir data/trailers
+conda run -n myenv python scripts/crawl_trailers.py --task-file data/tasks_C.json --trailers-dir data/trailers
 
 # 임베딩 자동 루프 재시작
 # (아래 while 루프를 백그라운드로 실행)

@@ -58,21 +58,21 @@
 ## 재시작 절차 (다음 세션)
 
 ```bash
-cd C:/Users/user/Documents/GitHub/dxshcool/VOD_Embedding
+cd "$(git rev-parse --show-toplevel)/VOD_Embedding"
 
 # 1. 크롤링 현황 확인
-"C:/Users/user/miniconda3/envs/myenv/python.exe" scripts/progress_report.py
+conda run -n myenv python scripts/progress_report.py
 
 # 2. 크롤링이 완료되지 않았다면 재시작
-nohup "C:/Users/user/miniconda3/envs/myenv/python.exe" scripts/crawl_trailers.py \
+nohup conda run -n myenv python scripts/crawl_trailers.py \
   --task-file data/tasks_C.json --trailers-dir data/trailers >> data/auto_progress.log 2>&1 &
 
 # 3. 크롤링 완료 후 임베딩 재실행 (중복 버그 수정 버전)
-"C:/Users/user/miniconda3/envs/myenv/python.exe" scripts/batch_embed.py \
+conda run -n myenv python scripts/batch_embed.py \
   --trailers-dir data/trailers --output pkl --delete-after-embed
 
 # 4. parquet 재생성 (전체 통합)
-"C:/Users/user/miniconda3/envs/myenv/python.exe" scripts/batch_embed.py \
+conda run -n myenv python scripts/batch_embed.py \
   --output parquet --out-file data/embeddings_신정윤.parquet
 ```
 

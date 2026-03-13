@@ -135,7 +135,7 @@ Database_Design/
 ```
 PLAN_01: crawl_trailers.py
   yt-dlp로 YouTube 트레일러 수집 (asset_nm → 검색 → 다운로드)
-  저장 경로: C:/Users/daewo/DX_prod_2nd/trailers/
+  저장 경로: <DATA_DIR>/trailers/
 
 PLAN_02: batch_embed.py
   CLIP ViT-B/32 모델로 512차원 임베딩 추출

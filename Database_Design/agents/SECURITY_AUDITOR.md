@@ -162,7 +162,7 @@ done
 
 ```bash
 #!/usr/bin/env bash
-cd "C:/Users/daewo/OneDrive/문서/GitHub/vod_recommendation"
+cd "$(git rev-parse --show-toplevel)"
 
 echo "=== Security Audit 시작 ==="
 echo "점검 시각: $(date '+%Y-%m-%d %H:%M')"

@@ -174,13 +174,13 @@ conda activate myenv
 cd Database_Design/migration
 
 # pkl 파일로 실행 (이미 임베딩된 경우)
-python vod_ingest_pipeline.py --pkl C:/Users/daewo/DX_prod_2nd/video_embs.pkl
+python vod_ingest_pipeline.py --pkl <DATA_DIR>/video_embs.pkl
 
 # trailers 폴더로 실행 (임베딩부터 새로 실행)
-python vod_ingest_pipeline.py --trailers-dir C:/Users/daewo/DX_prod_2nd/trailers
+python vod_ingest_pipeline.py --trailers-dir <DATA_DIR>/trailers
 
 # DRY-RUN (DB 변경 없이 결과 미리 확인)
-python vod_ingest_pipeline.py --trailers-dir C:/Users/daewo/DX_prod_2nd/trailers --dry-run
+python vod_ingest_pipeline.py --trailers-dir <DATA_DIR>/trailers --dry-run
 
 # Milvus 없이 PostgreSQL만 삽입 (Milvus 설치 전 테스트)
 python vod_ingest_pipeline.py --trailers-dir ./trailers --no-milvus --dry-run
