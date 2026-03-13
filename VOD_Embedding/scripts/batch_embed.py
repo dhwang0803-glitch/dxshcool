@@ -22,6 +22,7 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
+import torch  # sentence_transformers 보다 먼저 로드해야 shm.dll 정상 초기화
 import numpy as np
 
 sys.stdout.reconfigure(encoding='utf-8')

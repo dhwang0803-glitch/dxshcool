@@ -10,7 +10,7 @@ DB 쓰기 권한 없이 실행 가능.
 vod_meta_embedding 테이블이 생성되면 ingest_to_db.py로 적재.
 
 출력 파일: data/vod_meta_embedding_<날짜>.parquet
-체크포인트: data/meta_embed_checkpoint_v2.json (500 VOD마다 저장)
+체크포인트: data/meta_embed_checkpoint_v2.json (20 VOD마다 저장)
 컬럼:
     vod_id_fk       : str   (vod.full_asset_id)
     embedding       : list  (384차원 float32)
@@ -59,7 +59,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 ENCODE_BATCH_SIZE   = 128
-CHECKPOINT_INTERVAL = 500    # VOD 단위 체크포인트 저장 주기 (v2: 에피소드별)
+CHECKPOINT_INTERVAL = 20     # VOD 단위 체크포인트 저장 주기 (v2: 에피소드별)
 COMMIT_INTERVAL     = 1_000  # DB 적재 시 COMMIT 주기
 
 DATA_DIR        = Path(__file__).parent.parent / "data"
