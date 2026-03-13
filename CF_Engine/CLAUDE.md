@@ -49,9 +49,51 @@ watch_history 테이블 로드
     → User-Item 희소 행렬 구성
     → ALS 학습 (factors=128, iterations=20, regularization=0.01)
     → 유저별 Top-K 추천 생성
-    → cf_recommendations 테이블 저장
+    → [권한에 따라 분기] ─┬─ DB 쓰기 권한 있음 (조장) → serving.vod_recommendation upsert
+                          └─ DB 쓰기 권한 없음 (팀원) → data/cf_recommendations_YYYYMMDD.parquet 저장
     → API_Server /recommend/{user_id} 서빙
 ```
+
+## ⚠️ DB 쓰기 권한 분리 (MANDATORY)
+
+### 배경
+- **팀원**: DB 읽기 권한만 보유 — `watch_history` 로드는 가능, `serving.vod_recommendation` 직접 INSERT 불가
+- **조장 (dhwang0803)**: DB 쓰기 권한 보유 — parquet 파일을 받아 DB에 최종 적재
+
+### `scripts/train.py` 실행 방법
+
+```bash
+# 팀원 (DB 쓰기 권한 없음) — parquet 출력
+python scripts/train.py --output parquet
+# → data/cf_recommendations_YYYYMMDD.parquet 생성 후 조장에게 전달
+
+# 조장 — parquet 받아서 DB 직접 적재
+python scripts/train.py --from-parquet data/cf_recommendations_YYYYMMDD.parquet
+# → serving.vod_recommendation DELETE + INSERT
+
+# 조장 — DB 직접 학습 + 적재 (1회성 전체 실행)
+python scripts/train.py
+```
+
+### Parquet 스키마
+
+```python
+# data/cf_recommendations_YYYYMMDD.parquet
+# 컬럼: user_id_fk, vod_id_fk, rank, score, recommendation_type
+# 타입: str,        str,        int,  float, str
+```
+
+### 구현 요구사항 (scripts/train.py 수정 필요)
+
+| 옵션 | 동작 |
+|------|------|
+| `(없음)` | DB 학습 + serving.vod_recommendation 직접 적재 (조장 전용) |
+| `--output parquet` | DB 읽기 + 추천 생성 + parquet 저장 (팀원용) |
+| `--from-parquet <파일>` | parquet → serving.vod_recommendation 적재 (조장 전용) |
+| `--dry-run` | DB 저장/parquet 저장 없이 추천 결과만 로그 출력 |
+
+> `--output parquet` 모드는 DB 쓰기를 시도하지 않으므로 팀원 환경에서 안전하게 실행 가능.
+> `--from-parquet` 모드는 `export_to_db.py`의 `export()` 함수를 재사용.
 
 ## 인터페이스
 
