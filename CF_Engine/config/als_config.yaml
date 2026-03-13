@@ -6,8 +6,9 @@ model:
 
 recommend:
   top_k: 20
-  # recommendation_type: 조장 확인 후 입력 (예: "CF", "ALS", "COLLABORATIVE")
-  recommendation_type: "CF"
+  # DB CHECK 제약 허용값: 'VISUAL_SIMILARITY' | 'COLLABORATIVE' | 'HYBRID'
+  # (Database_Design/schemas/create_embedding_tables.sql chk_rec_type 참조)
+  recommendation_type: "COLLABORATIVE"
 
 db:
   batch_size: 1000
