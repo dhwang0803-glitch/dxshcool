@@ -52,13 +52,13 @@
 ## 내일 재개 시 확인 사항
 
 ```bash
-cd C:/Users/user/Documents/GitHub/dxshcool/VOD_Embedding
+cd "$(git rev-parse --show-toplevel)/VOD_Embedding"
 
 # 1. 루프 생존 여부 확인
 tail -3 data/auto_progress.log
 
 # 2. 전체 현황
-"C:/Users/user/miniconda3/envs/myenv/python.exe" scripts/progress_report.py
+conda run -n myenv python scripts/progress_report.py
 
 # 3. 루프 종료된 경우 재시작
 #    (crawl_trailers.py + 임베딩 루프 재실행)
