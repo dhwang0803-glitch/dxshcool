@@ -95,7 +95,34 @@ python scripts/train.py
 > `--output parquet` 모드는 DB 쓰기를 시도하지 않으므로 팀원 환경에서 안전하게 실행 가능.
 > `--from-parquet` 모드는 `export_to_db.py`의 `export()` 함수를 재사용.
 
+### recommendation_type 확정값
+
+- **사용값**: `'COLLABORATIVE'` (config/als_config.yaml 반영 완료)
+- **DB CHECK 허용값**: `'VISUAL_SIMILARITY'` | `'COLLABORATIVE'` | `'HYBRID'`
+  (Database_Design/schemas/create_embedding_tables.sql `chk_rec_type` 참조)
+
+### serving.vod_recommendation UNIQUE constraint
+
+- **확인 완료**: `UNIQUE (user_id_fk, vod_id_fk)`
+- recommendation_type 미포함 → 타입별 공존 불가
+- **DELETE+INSERT 패턴 유지** (UPSERT 전환 불필요)
+
 ## 인터페이스
 
-- **업스트림**: `Database_Design` — watch_history 테이블 (user_id_fk, vod_id_fk, completion_rate)
-- **다운스트림**: `API_Server` — `/recommend/{user_id}` 엔드포인트가 이 결과를 반환
+### 업스트림 (읽기)
+
+| 테이블 | 컬럼 | 타입 | 용도 |
+|--------|------|------|------|
+| `public.watch_history` | `user_id_fk` | VARCHAR | 유저 식별자 |
+| `public.watch_history` | `vod_id_fk` | VARCHAR | VOD 식별자 |
+| `public.watch_history` | `completion_rate` | FLOAT | confidence 계산 (alpha=40) |
+
+### 다운스트림 (쓰기)
+
+| 테이블 | 컬럼 | 타입 | 비고 |
+|--------|------|------|------|
+| `serving.vod_recommendation` | `user_id_fk` | VARCHAR | UNIQUE(user_id_fk, vod_id_fk) |
+| `serving.vod_recommendation` | `vod_id_fk` | VARCHAR | UNIQUE(user_id_fk, vod_id_fk) |
+| `serving.vod_recommendation` | `rank` | SMALLINT | Top-K 순위 |
+| `serving.vod_recommendation` | `score` | REAL | ALS 추천 점수 |
+| `serving.vod_recommendation` | `recommendation_type` | VARCHAR | 고정값: `'COLLABORATIVE'` |
