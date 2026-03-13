@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# 환경변수 (절대 커밋 금지)
+.env
+
+# 가상환경
+venv/
+.venv/
+
+# pytest 캐시
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+
+# 로그
+*.log

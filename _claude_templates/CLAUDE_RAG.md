@@ -59,5 +59,27 @@ from validation import validate_cast
 
 ## 인터페이스
 
-- **업스트림**: `Database_Design` 스키마 — vod 테이블
-- **다운스트림**: vod 테이블 결측치 채움 → API_Server가 완성된 메타데이터를 서빙
+> 컬럼/타입 상세 → `Database_Design/docs/DEPENDENCY_MAP.md` RAG 섹션 참조 (Rule 1).
+> 스키마 변경 시 Database_Design 기준으로 이 섹션도 업데이트할 것 (Rule 3).
+
+### 업스트림 (읽기)
+
+| 테이블 | 컬럼 | 타입 | 용도 |
+|--------|------|------|------|
+| `public.vod` | `full_asset_id` | VARCHAR(64) | 처리 대상 식별 |
+| `public.vod` | `asset_nm`, `genre`, `ct_cl` | VARCHAR | RAG 검색 쿼리 생성 |
+| `public.vod` | `rag_processed` | BOOLEAN | FALSE인 레코드만 처리 |
+
+### 다운스트림 (쓰기)
+
+| 테이블 | 컬럼 | 타입 | 비고 |
+|--------|------|------|------|
+| `public.vod` | `director` | VARCHAR(255) | |
+| `public.vod` | `cast_lead`, `cast_guest` | TEXT | |
+| `public.vod` | `rating` | VARCHAR(16) | |
+| `public.vod` | `release_date` | DATE | |
+| `public.vod` | `smry` | TEXT | |
+| `public.vod` | `rag_processed` | BOOLEAN | 완료 시 TRUE |
+| `public.vod` | `rag_source` | VARCHAR(64) | TMDB/KMDB/JW 등 |
+| `public.vod` | `rag_processed_at` | TIMESTAMPTZ | |
+| `public.vod` | `rag_confidence` | REAL | 0.0~1.0 |

@@ -395,6 +395,8 @@ def main():
                         help='ct_cl 층화 100개 파일럿 실행 (시간/성공률 검증용)')
     parser.add_argument('--trailers-dir', type=str, default=str(DEFAULT_TRAILERS_DIR),
                         help=f'트레일러 저장 경로 (기본: {DEFAULT_TRAILERS_DIR})')
+    parser.add_argument('--task-file', type=str, default='',
+                        help='팀원별 작업 파일 (split_tasks.py 출력). 지정 시 --ct-cl/--pilot 무시')
     args = parser.parse_args()
     TRAILERS_DIR = Path(args.trailers_dir)
 
@@ -406,36 +408,48 @@ def main():
         return
 
     # VOD 목록 로드
-    log.info("vod 테이블에서 대상 목록 조회 중...")
-    try:
-        vod_list = fetch_vod_list(ct_cl_filter=args.ct_cl)
-    except Exception as e:
-        log.error(f"DB 연결 실패: {e}")
-        log.info("테스트용 샘플 데이터로 대체합니다.")
-        vod_list = [
-            {"vod_id": "TEST001", "asset_nm": "어바웃 타임", "ct_cl": "영화", "genre": "로맨스"},
-            {"vod_id": "TEST002", "asset_nm": "기생충", "ct_cl": "영화", "genre": "드라마"},
-        ]
-
-    # --pilot: ct_cl 층화 100개 샘플
-    if args.pilot:
-        log.info("=== 파일럿 모드: ct_cl 층화 100개 샘플 ===")
-        vod_list = stratified_sample(vod_list, total=100)
-        status["mode"] = "pilot"
+    if args.task_file:
+        # 팀원 분할 파일 사용 (dedup·필터 이미 적용된 상태)
+        task_path = Path(args.task_file)
+        with open(task_path, encoding='utf-8') as f:
+            task_data = json.load(f)
+        vod_list = task_data["vods"]
+        log.info(
+            f"작업 파일 로드: {task_path.name} — "
+            f"팀원 {task_data.get('team', '?')} / {task_data.get('description', '')} "
+            f"/ {len(vod_list):,}건"
+        )
     else:
-        # 전체 실행: 임베딩 전략에 따라 시리즈 중복 제거
-        series_pool  = [v for v in vod_list if v["ct_cl"] in SERIES_EMBED_CT_CL]
-        episode_pool = [v for v in vod_list if v["ct_cl"] in EPISODE_EMBED_CT_CL]
-        other_pool   = [v for v in vod_list if v["ct_cl"] not in SERIES_EMBED_CT_CL
-                                             and v["ct_cl"] not in EPISODE_EMBED_CT_CL]
+        log.info("vod 테이블에서 대상 목록 조회 중...")
+        try:
+            vod_list = fetch_vod_list(ct_cl_filter=args.ct_cl)
+        except Exception as e:
+            log.error(f"DB 연결 실패: {e}")
+            log.info("테스트용 샘플 데이터로 대체합니다.")
+            vod_list = [
+                {"vod_id": "TEST001", "asset_nm": "어바웃 타임", "ct_cl": "영화", "genre": "로맨스"},
+                {"vod_id": "TEST002", "asset_nm": "기생충", "ct_cl": "영화", "genre": "드라마"},
+            ]
 
-        deduped_series = dedup_by_series_nm(series_pool)
-        before = len(series_pool)
-        after  = len(deduped_series)
-        log.info(f"시리즈 dedup: {before:,}건 → {after:,}건 (제거 {before-after:,}건)")
-        log.info(f"에피소드 단위(TV 연예/오락): {len(episode_pool):,}건")
+        # --pilot: ct_cl 층화 100개 샘플
+        if args.pilot:
+            log.info("=== 파일럿 모드: ct_cl 층화 100개 샘플 ===")
+            vod_list = stratified_sample(vod_list, total=100)
+            status["mode"] = "pilot"
+        else:
+            # 전체 실행: 임베딩 전략에 따라 시리즈 중복 제거
+            series_pool  = [v for v in vod_list if v["ct_cl"] in SERIES_EMBED_CT_CL]
+            episode_pool = [v for v in vod_list if v["ct_cl"] in EPISODE_EMBED_CT_CL]
+            other_pool   = [v for v in vod_list if v["ct_cl"] not in SERIES_EMBED_CT_CL
+                                                 and v["ct_cl"] not in EPISODE_EMBED_CT_CL]
 
-        vod_list = deduped_series + episode_pool + other_pool
+            deduped_series = dedup_by_series_nm(series_pool)
+            before = len(series_pool)
+            after  = len(deduped_series)
+            log.info(f"시리즈 dedup: {before:,}건 → {after:,}건 (제거 {before-after:,}건)")
+            log.info(f"에피소드 단위(TV 연예/오락): {len(episode_pool):,}건")
+
+            vod_list = deduped_series + episode_pool + other_pool
 
     if args.limit > 0:
         vod_list = vod_list[:args.limit]
