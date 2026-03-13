@@ -1,7 +1,18 @@
 다음 단계를 순서대로 실행해서 세션을 초기화해줘.
 
 ## 1. 프로젝트 메모리 로드
-`C:\Users\daewo\.claude\projects\C--Users-daewo-OneDrive----GitHub-vod-recommendation\memory\MEMORY.md` 파일을 읽고 프로젝트 현황을 파악해.
+아래 명령으로 현재 작업 디렉토리를 확인한 뒤, 해당 프로젝트의 메모리 파일을 읽어줘.
+
+```bash
+pwd
+```
+
+메모리 경로 구성 규칙:
+- `~/.claude/projects/<인코딩된경로>/memory/MEMORY.md`
+- 인코딩: 경로 구분자(`\` 또는 `/`)를 `-`로 치환, 드라이브 콜론(`:`) 제거
+- 예) `C:\Users\user\Documents\GitHub\repo` → `C--Users-user-Documents-GitHub-repo`
+
+파일이 없으면 "메모리 없음"으로 처리하고 계속 진행해.
 
 ## 2. 현재 상태 확인
 아래 명령들을 실행해서 현재 상태를 요약해줘.
@@ -12,8 +23,8 @@ git status
 git log --oneline -5
 
 # 파이프라인 상태 (파일 있을 때만)
-"C:/Users/daewo/anaconda3/envs/myenv/python.exe" VOD_Embedding/pipeline/crawl_trailers.py --status 2>/dev/null
-"C:/Users/daewo/anaconda3/envs/myenv/python.exe" VOD_Embedding/pipeline/batch_embed.py --status 2>/dev/null
+conda run -n myenv python VOD_Embedding/scripts/crawl_trailers.py --status 2>/dev/null
+conda run -n myenv python VOD_Embedding/scripts/batch_embed.py --status 2>/dev/null
 ```
 
 ## 3. 세션 규칙 적용
