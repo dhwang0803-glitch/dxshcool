@@ -110,12 +110,20 @@ import re as _re
 def normalize_title(name: str) -> str:
     """
     DB 저장 제목의 붙여쓰기를 검색 친화적으로 정규화.
-    예) '1724기방난동사건' → '1724 기방난동사건'
-        '2001스페이스오디세이' → '2001 스페이스오디세이'
+    예) '1724기방난동사건'   → '1724 기방난동사건'
+        'EBS어린이극장'      → 'EBS 어린이극장'
+        '또봇12기-내친구또봇' → '또봇 12기 내친구 또봇'
     """
     # 숫자↔한글 경계에 공백 삽입
     name = _re.sub(r'(\d)([가-힣])', r'\1 \2', name)
     name = _re.sub(r'([가-힣])(\d)', r'\1 \2', name)
+    # 영문↔한글 경계에 공백 삽입
+    name = _re.sub(r'([A-Za-z])([가-힣])', r'\1 \2', name)
+    name = _re.sub(r'([가-힣])([A-Za-z])', r'\1 \2', name)
+    # 하이픈(-) → 공백
+    name = _re.sub(r'\s*-\s*', ' ', name)
+    # 연속 공백 → 단일 공백
+    name = _re.sub(r' {2,}', ' ', name)
     return name.strip()
 
 
@@ -137,8 +145,8 @@ def strip_episode_suffix(asset_nm: str) -> str:
 def build_search_queries(asset_nm: str, ct_cl: str, genre: str, series_nm: str = None) -> list:
     queries = []
     name     = asset_nm.strip()
-    norm     = normalize_title(name)       # 숫자-한글 공백 정규화
-    series   = strip_episode_suffix(name)  # 에피소드 번호 제거한 시리즈명
+    norm     = normalize_title(name)                              # 숫자-한글 공백 정규화
+    series   = normalize_title(strip_episode_suffix(name))       # 에피소드 번호 제거 + 정규화
     # 영화: series_nm이 화질판/더빙판 제거된 순수 제목
     movie_nm = normalize_title(series_nm.strip()) if series_nm else norm
 
