@@ -27,7 +27,8 @@ watch_history 테이블 로드
     → User-Item 희소 행렬 구성 (scipy.sparse.csr_matrix)
     → ALS 학습 (factors=128, iterations=20, regularization=0.01)
     → 유저별 Top-K 추천 생성
-    → serving.vod_recommendation 테이블 저장
+    → [권한에 따라 분기] ─┬─ DB 쓰기 권한 있음 (조장) → serving.vod_recommendation DELETE+INSERT
+                          └─ DB 쓰기 권한 없음 (팀원) → data/cf_recommendations_YYYYMMDD.parquet 저장
     → API_Server /recommend/{user_id} 서빙
 ```
 
@@ -41,7 +42,7 @@ watch_history 테이블 로드
 | `src/data_loader.py` | ✅ 완료 | DB → csr_matrix 변환, 인코더 반환 |
 | `src/als_model.py` | ✅ 완료 | ALS 학습 + 전체 유저 추천 생성 |
 | `src/recommender.py` | ✅ 완료 | 인덱스 → vod_id_fk 역변환, 레코드 포매팅 |
-| `scripts/train.py` | ✅ 완료 | 전체 파이프라인 실행 진입점 |
+| `scripts/train.py` | 🔧 수정 필요 | --output parquet / --from-parquet 옵션 미구현 |
 | `scripts/export_to_db.py` | ✅ 완료 | serving.vod_recommendation DELETE+INSERT |
 | `scripts/evaluate.py` | ✅ 완료 | NDCG@K, MRR, HitRate@K 평가 |
 | `tests/test_data_loader.py` | ✅ 완료 | 희소 행렬 shape, 인코더 정합성, confidence 값 |
@@ -55,7 +56,14 @@ watch_history 테이블 로드
 ## 실행 방법
 
 ```bash
-# 전체 파이프라인 (학습 + DB 저장)
+# 팀원 (DB 쓰기 권한 없음) — parquet 출력 후 조장에게 전달
+python scripts/train.py --output parquet
+# → data/cf_recommendations_YYYYMMDD.parquet 생성
+
+# 조장 — parquet 받아서 DB 적재
+python scripts/train.py --from-parquet data/cf_recommendations_YYYYMMDD.parquet
+
+# 조장 — DB 직접 학습 + 적재 (1회성 전체 실행)
 python scripts/train.py
 
 # dry-run (DB 저장 없이 추천만 생성)
@@ -64,6 +72,8 @@ python scripts/train.py --dry-run
 # 성능 평가
 python scripts/evaluate.py --k 20
 ```
+
+> ⚠️ `--output parquet` / `--from-parquet` 옵션은 `scripts/train.py` 구현 필요
 
 ---
 
@@ -95,7 +105,7 @@ python scripts/evaluate.py --k 20
 3. `als_model` → 학습
 4. `als_model` → 추천 생성
 5. `recommender` → 레코드 변환
-6. `export_to_db` → DB 저장
+6. `export_to_db` → DB 저장 또는 parquet 출력 (권한에 따라 분기)
 
 ### STEP 5. 평가 스크립트 (`scripts/evaluate.py`)
 
@@ -107,7 +117,7 @@ python scripts/evaluate.py --k 20
 
 - DELETE 기존 CF 추천 (해당 유저 + recommendation_type)
 - INSERT 신규 추천 (배치 1,000건)
-- unique constraint 미확인으로 DELETE+INSERT 패턴 사용
+- **UNIQUE (user_id_fk, vod_id_fk) 확인 완료** → DELETE+INSERT 패턴 유지
 
 ---
 
@@ -120,21 +130,43 @@ python scripts/evaluate.py --k 20
 | regularization | 0.01 |
 | alpha | 40 |
 | top_k | 20 |
-| recommendation_type | "CF" ← **조장 확인 후 변경** |
+| recommendation_type | `"COLLABORATIVE"` ✅ 확정 |
 | batch_size | 1,000 |
+
+### recommendation_type DB CHECK 허용값
+
+`'VISUAL_SIMILARITY'` | `'COLLABORATIVE'` | `'HYBRID'`
+(Database_Design/schemas/create_embedding_tables.sql `chk_rec_type` 참조)
 
 ---
 
-## ⚠️ 미결 사항
+## ✅ 확인 완료 사항
 
-- [ ] `recommendation_type` 허용값 조장 확인 후 `config/als_config.yaml` 업데이트
-- [ ] `serving.vod_recommendation` unique constraint 확인 후 필요시 UPSERT로 전환
+- [x] `recommendation_type` → `'COLLABORATIVE'` 확정 (config 반영 완료)
+- [x] `serving.vod_recommendation` UNIQUE (user_id_fk, vod_id_fk) 확인 → DELETE+INSERT 유지
+
+## 🔧 미결 사항
+
+- [ ] `scripts/train.py` — `--output parquet` / `--from-parquet` 옵션 구현
 
 ---
 
 ## 인터페이스
 
-| 방향 | 브랜치 | 테이블 | 컬럼 |
-|------|--------|--------|------|
-| 업스트림 | `Database_Design` | `watch_history` | user_id_fk, vod_id_fk, completion_rate |
-| 다운스트림 | `API_Server` | `serving.vod_recommendation` | user_id_fk, vod_id_fk, score, rank, recommendation_type |
+### 업스트림 (읽기)
+
+| 테이블 | 컬럼 | 타입 | 용도 |
+|--------|------|------|------|
+| `public.watch_history` | `user_id_fk` | VARCHAR | 유저 식별자 |
+| `public.watch_history` | `vod_id_fk` | VARCHAR | VOD 식별자 |
+| `public.watch_history` | `completion_rate` | FLOAT | confidence 계산 (alpha=40) |
+
+### 다운스트림 (쓰기)
+
+| 테이블 | 컬럼 | 타입 | 비고 |
+|--------|------|------|------|
+| `serving.vod_recommendation` | `user_id_fk` | VARCHAR | UNIQUE(user_id_fk, vod_id_fk) |
+| `serving.vod_recommendation` | `vod_id_fk` | VARCHAR | UNIQUE(user_id_fk, vod_id_fk) |
+| `serving.vod_recommendation` | `rank` | SMALLINT | Top-K 순위 |
+| `serving.vod_recommendation` | `score` | REAL | ALS 추천 점수 |
+| `serving.vod_recommendation` | `recommendation_type` | VARCHAR | 고정값: `'COLLABORATIVE'` |
