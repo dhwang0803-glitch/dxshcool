@@ -27,15 +27,19 @@
      └──────────────┼────────────────┘
                     │
 ┌───────────────────▼─────────────────────────────────────────┐
-│                  PostgreSQL + pgvector                       │
-│  vod / vod_embedding(512) / vod_meta_embedding(384) / user_embedding(896) / vod_recommendation / tv_schedule │
+│          VPC PostgreSQL + pgvector (thin serving layer)      │
+│  1 core / 1GB RAM (+3GB swap) / 150GB Storage               │
+│  vod / vod_embedding(512) / vod_meta_embedding(384)         │
+│  user_embedding(896) / serving.shopping_ad                  │
 └───────────┬──────────────────────────────────────────────────┘
-            │ 데이터 공급
+            │ 데이터 공급 (로컬 → VPC 적재)
 ┌───────────▼──────────────────────────────────────────────────┐
-│              데이터 파이프라인                                │
+│              데이터 파이프라인 (로컬 연산)                    │
 │   RAG (메타데이터)  ·  VOD_Embedding (CLIP 512 + 메타 384)  │
 │   User_Embedding (ALS 행렬분해, 896차원)                     │
-│   Poster_Collection (포스터)  ·  Object_Detection (사물인식) │
+│   Poster_Collection (포스터)                                 │
+│   Object_Detection (YOLO 배치 → parquet, 로컬 전용)         │
+│   Shopping_Ad (매칭 엔진 → serving.shopping_ad VPC 적재)     │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -224,44 +228,78 @@ Vector_Search/
 
 ## Phase 3 — 영상 AI
 
-### `Object_Detection` — 영상 실시간 사물인식
-- 모델: YOLO v8 또는 Detectron2
-- 입력: TV 방송/VOD 영상 프레임
-- 출력: 감지된 객체 레이블 + 신뢰도 + 바운딩박스
-- DB 저장: `detected_objects` 테이블
+> **인프라 제약**: VPC 1 core / 1GB RAM (+3GB swap) / 150GB Storage
+> → 모든 연산은 **로컬**에서 수행, VPC는 `serving.*` 테이블만 제공하는 **thin serving layer**
+
+### `Object_Detection` — VOD 배치 사물인식
+- 모델: YOLOv8n (속도 우선) / YOLOv8x (정확도 우선)
+- 방식: **배치 사전 분석** (실시간 아님) — VOD 프레임을 로컬에서 일괄 추론
+- 입력: VOD 영상 파일 프레임 (N fps 샘플링)
+- 출력: `vod_detected_object.parquet` (로컬 저장, VPC 미적재)
+- 산출물: `(vod_id, frame_ts, label, confidence, bbox)` — Shopping_Ad에서 소비
+
+**테이블 소유:**
+
+| 테이블 | 위치 | 설명 |
+|--------|------|------|
+| `vod_detected_object` | 로컬 parquet | VOD별 감지 객체 (label, confidence, bbox, frame_ts) |
+
+**데이터 플로우:**
+```
+VOD 영상 파일
+    → 프레임 추출 (N fps 샘플링)
+    → YOLOv8 배치 추론 (로컬 GPU/CPU)
+    → 신뢰도 필터링 (>= 0.5)
+    → vod_detected_object.parquet 저장 (로컬)
+    → Shopping_Ad가 parquet 소비
+```
 
 **예정 폴더 구조:**
 ```
 Object_Detection/
-├── src/           ← 모델 로드, 프레임 추출, 추론 로직
-├── scripts/       ← run_detection.py, batch_process.py
+├── src/           ← detector.py, frame_extractor.py
+├── scripts/       ← batch_detect.py (배치 사전 분석)
 ├── tests/
-└── config/
+├── config/        ← detection_config.yaml (모델, 임계값, fps)
+└── docs/
 ```
 
 ---
 
-### `Shopping_Ad` — 홈쇼핑 광고 팝업 시스템
-- TV 실시간 시간표 수집 (EPG 파싱)
-- Object_Detection 결과 → 유사 홈쇼핑 상품 매핑
-- 시청 중 팝업: 상품 링크 or 채널 이동 or 시청예약
+### `Shopping_Ad` — 홈쇼핑 광고 매칭 시스템
+- Object_Detection parquet 소비 → YOLO 클래스를 상품 카테고리로 해석 (비즈니스 로직)
+- TV 실시간 시간표 수집 (EPG 파싱) → 홈쇼핑 채널 방영 상품 매칭
+- 매칭 결과를 `serving.shopping_ad` 테이블에 적재 (VPC — API_Server가 직접 조회)
+
+**테이블 소유:**
+
+| 테이블 | 위치 | 설명 |
+|--------|------|------|
+| `tv_schedule` | 로컬 DB/parquet | EPG 기반 TV 시간표 (채널, 시간, 프로그램) |
+| `homeshopping_product` | 로컬 DB/parquet | 홈쇼핑 상품 카탈로그 (상품명, 카테고리, 가격) |
+| `product_object_mapping` | 로컬 DB/parquet | YOLO 클래스 → 상품 카테고리 매핑 (비즈니스 로직) |
+| `serving.shopping_ad` | **VPC** | 최종 광고 팝업 데이터 (API_Server 직접 조회) |
+
+> `product_object_mapping`이 Shopping_Ad 소유인 이유: YOLO 클래스(`chair`, `couch`)를 상품 카테고리(`소파`)로 해석하는 것은 탐지가 아닌 **비즈니스 로직**
 
 **데이터 플로우:**
 ```
-TV 방송 프레임
-    → Object_Detection (사물 감지)
-    → 상품 카테고리 매핑 테이블
-    → 홈쇼핑 채널 EPG 매칭
-    → 팝업 메시지 생성 → API_Server → Frontend
+vod_detected_object.parquet (Object_Detection 산출물)
+    → product_object_mapping (YOLO label → 상품 카테고리)
+    → homeshopping_product (카테고리 매칭 → 후보 상품)
+    → tv_schedule (현재 홈쇼핑 채널 방영 확인)
+    → serving.shopping_ad (VPC 적재 — 팝업 데이터)
+    → API_Server /ad/popup → Frontend 팝업 오버레이
 ```
 
 **예정 폴더 구조:**
 ```
 Shopping_Ad/
-├── src/           ← epg_parser, product_mapper, popup_builder
-├── scripts/       ← run_epg_sync.py, run_ad_pipeline.py
+├── src/           ← epg_parser.py, product_mapper.py, popup_builder.py, serving_writer.py
+├── scripts/       ← run_epg_sync.py, run_ad_pipeline.py, export_to_serving.py
 ├── tests/
-└── config/
+├── config/        ← ad_config.yaml (EPG 소스, 매핑 규칙)
+└── docs/
 ```
 
 ---

@@ -60,12 +60,12 @@ pip install git+https://github.com/openai/CLIP.git
 | `CF_Engine` | 행렬 분해 기반 협업 필터링 추천 엔진 |
 | `Vector_Search` | 벡터 유사도 검색 엔진 (콘텐츠 기반 + 임베딩 기반) |
 
-### Phase 3 — 영상 AI
+### Phase 3 — 영상 AI (로컬 연산 → VPC thin serving)
 
-| 브랜치 | 역할 |
-|--------|------|
-| `Object_Detection` | 영상 실시간 사물인식 (YOLO/Detectron2) |
-| `Shopping_Ad` | 사물인식 결과 → TV 시간표 연동 → 홈쇼핑 팝업 광고 출력 |
+| 브랜치 | 역할 | 주요 경로 |
+|--------|------|-----------|
+| `Object_Detection` | YOLOv8 배치 사전 분석 → `vod_detected_object.parquet` (로컬 전용) | `Object_Detection/src/`, `Object_Detection/scripts/` |
+| `Shopping_Ad` | 탐지 결과 + EPG + 상품 카탈로그 매칭 → `serving.shopping_ad` (VPC 적재) | `Shopping_Ad/src/`, `Shopping_Ad/scripts/` |
 
 ### Phase 4 — 서비스 레이어
 
