@@ -1,0 +1,16 @@
+# User_Embedding 파이프라인 설정
+# 환경변수(.env)로 DB 연결 정보를 관리하며, 이 파일은 알고리즘 파라미터만 다룬다.
+
+pipeline:
+  batch_size: 1000          # DB upsert 배치 크기 (행 단위)
+  server_cursor_itersize: 50000  # watch_history server-side cursor fetch 크기
+
+embedding:
+  combined_dim: 896         # CLIP(512) + META(384)
+  clip_dim: 512
+  meta_dim: 384
+  model_name: "weighted_mean"
+
+filters:
+  min_completion_rate: 0.0  # completion_rate > 0 (data_loader에서 적용)
+  require_both_embeddings: true  # CLIP + META 모두 있어야 결합 대상

@@ -120,21 +120,24 @@ def check_pgvector(conn) -> bool:
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS vod_embedding (
     vod_embedding_id    BIGINT          GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    vod_id_fk           VARCHAR(64)     NOT NULL UNIQUE,
+    vod_id_fk           VARCHAR(64)     NOT NULL,
     embedding           VECTOR(512)     NOT NULL,
+    model_name          VARCHAR(100)    NOT NULL DEFAULT 'clip-ViT-B-32',
+    vector_magnitude    DOUBLE PRECISION,
+    created_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     embedding_type      VARCHAR(32)     NOT NULL DEFAULT 'CLIP',
     embedding_dim       INTEGER         NOT NULL DEFAULT 512,
     model_version       VARCHAR(64)     NOT NULL DEFAULT 'clip-ViT-B-32',
-    vector_magnitude    REAL,
     frame_count         SMALLINT,
     source_type         VARCHAR(32)     NOT NULL DEFAULT 'TRAILER',
     source_url          TEXT,
-    created_at          TIMESTAMPTZ     DEFAULT NOW(),
-    updated_at          TIMESTAMPTZ     DEFAULT NOW(),
+    CONSTRAINT uq_vod_embedding   UNIQUE (vod_id_fk),
     CONSTRAINT chk_embedding_type CHECK (embedding_type IN ('CLIP', 'CONTENT', 'HYBRID')),
-    CONSTRAINT chk_source_type    CHECK (source_type IN ('TRAILER', 'FULL')),
-    CONSTRAINT chk_embedding_dim  CHECK (embedding_dim > 0)
+    CONSTRAINT chk_source_type    CHECK (source_type IN ('TRAILER', 'FULL'))
 );
+CREATE INDEX IF NOT EXISTS idx_vod_emb_type    ON vod_embedding (embedding_type);
+CREATE INDEX IF NOT EXISTS idx_vod_emb_updated ON vod_embedding (updated_at DESC);
 """
 
 def ensure_table(conn):
@@ -185,6 +188,11 @@ def ingest_batch_file(conn, pkl_path: Path, dry_run: bool) -> tuple:
             log.warning(f"벡터 차원 불일치 {vec.shape}: {vod_id}")
             skipped += 1
             continue
+
+        # L2 정규화 (DB 적재 직전)
+        norm = np.linalg.norm(vec)
+        if norm > 0:
+            vec = vec / norm
 
         params = {
             "vod_id":          vod_id,
@@ -370,6 +378,14 @@ def ingest_parquet_file(conn, parquet_path: str, dry_run: bool) -> tuple:
 
     log.info(f"Parquet 로드: {p}")
     df = pd.read_parquet(p)
+
+    # 컬럼 정규화: batch_embed.py 출력 형식 호환 (vector → embedding, full_asset_id/vod_id_fk → vod_id)
+    if "vector" in df.columns and "embedding" not in df.columns:
+        df = df.rename(columns={"vector": "embedding"})
+    if "vod_id_fk" in df.columns and "vod_id" not in df.columns:
+        df = df.rename(columns={"vod_id_fk": "vod_id"})
+    if "full_asset_id" in df.columns and "vod_id" not in df.columns:
+        df = df.rename(columns={"full_asset_id": "vod_id"})
 
     # 컬럼 검증
     required = {"vod_id", "embedding"}
