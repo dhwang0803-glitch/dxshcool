@@ -149,6 +149,67 @@ python scripts/batch_detect.py --dry-run --limit 5  # 테스트
 
 ---
 
+## TDD 개발 워크플로우
+
+Object_Detection은 **Test Driven Development** 방식으로 개발한다.
+
+### 사이클
+
+```
+1. Security Audit (Phase 시작 전)
+   └── agents/SECURITY_AUDITOR.md 실행
+
+2. PLAN 읽기
+   └── docs/plans/PLAN_0X_*.md
+
+3. Test Writer → 테스트 작성 (Red)
+   └── agents/TEST_WRITER.md
+   └── 출력: tests/test_phase{N}_*.py
+
+4. Developer → 구현 (Green)
+   └── agents/DEVELOPER.md
+   └── 출력: src/frame_extractor.py, src/detector.py, scripts/batch_detect.py
+
+5. Tester → 테스트 실행
+   └── agents/TESTER.md
+   └── FAIL 존재: Developer 재호출 (최대 3회)
+
+6. Refactor → 코드 품질 개선 (Refactor)
+   └── agents/REFACTOR.md
+
+7. Reporter → 보고서 작성
+   └── agents/REPORTER.md
+   └── 출력: reports/phase{N}_report.md
+
+8. Security Audit (커밋 직전)
+   └── agents/SECURITY_AUDITOR.md
+
+9. git commit / push / PR
+```
+
+### 에이전트 목록
+
+| 파일 | 역할 |
+|------|------|
+| `agents/ORCHESTRATOR.md` | TDD 사이클 전체 관리 |
+| `agents/TEST_WRITER.md` | 테스트 코드 작성 (Red) |
+| `agents/DEVELOPER.md` | 구현 코드 작성 (Green) |
+| `agents/TESTER.md` | pytest 실행 및 결과 수집 |
+| `agents/REFACTOR.md` | 코드 품질 개선 (Refactor) |
+| `agents/REPORTER.md` | 진행 보고서 생성 |
+| `agents/SECURITY_AUDITOR.md` | 보안 점검 (커밋 전후) |
+
+### 보고서 위치
+
+```
+Object_Detection/reports/
+├── phase1_report.md    ← Phase 1 완료 후 생성
+├── phase2_report.md    ← Phase 2 완료 후 생성
+└── phase3_report.md    ← Phase 3 완료 후 생성
+```
+
+---
+
 ## 협업 규칙
 
 - `main` 브랜치에 직접 Push 금지 — 반드시 Pull Request
