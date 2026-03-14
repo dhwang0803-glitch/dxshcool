@@ -1,3 +1,11 @@
+# Node.js
+node_modules/
+package.json
+package-lock.json
+
+# 중복 저장소 방지
+dxshcool/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
