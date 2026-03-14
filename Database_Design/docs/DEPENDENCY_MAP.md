@@ -105,11 +105,18 @@
 | 읽기 | `public.user_embedding` | `user_id_fk`, `embedding` | VECTOR(896) | 개인화 검색 |
 | 쓰기 | `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | - | `'VISUAL_SIMILARITY'` |
 
-### Object_Detection *(미구현)*
+### Object_Detection
 
-| 방향 | 테이블 | 컬럼 | 타입 | 비고 |
-|------|--------|------|------|------|
-| 쓰기 | `public.detected_objects` | *(스키마 미확정)* | - | Database_Design과 협의 후 확정 |
+| 방향 | 테이블/파일 | 컬럼 | 타입 | 비고 |
+|------|------------|------|------|------|
+| 읽기 | 로컬 VOD 영상 파일 | `file_path`, `vod_id` | str | 추론 입력 |
+| 읽기 | `public.vod` | `full_asset_id` | VARCHAR(64) | VOD 식별자 매핑 (선택) |
+| 쓰기 | `data/vod_detected_object.parquet` (로컬) | `vod_id` | str | Shopping_Ad 소비 |
+| 쓰기 | `data/vod_detected_object.parquet` (로컬) | `frame_ts` | float | 프레임 타임스탬프(초) |
+| 쓰기 | `data/vod_detected_object.parquet` (로컬) | `label` | str | YOLO COCO 클래스명 |
+| 쓰기 | `data/vod_detected_object.parquet` (로컬) | `confidence` | float | 0.5 이상만 저장 |
+| 쓰기 | `data/vod_detected_object.parquet` (로컬) | `bbox` | list[float] | [x1,y1,x2,y2] 픽셀 좌표 |
+| 쓰기 | `public.detected_objects` (VPC — 예정) | *(스키마 미확정)* | - | Database_Design과 협의 후 확정 |
 
 ### Shopping_Ad *(미구현)*
 

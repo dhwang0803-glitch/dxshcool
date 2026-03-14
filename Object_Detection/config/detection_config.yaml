@@ -1,0 +1,25 @@
+# Object_Detection 설정 파일
+# 실제 경로/값은 .env 또는 CLI 인자로 오버라이드 가능
+
+model:
+  name: yolov8s          # yolov8n | yolov8s | yolov8m | yolov8l | yolov8x
+  weights_path: null     # null이면 ultralytics 자동 다운로드
+  device: cpu            # cpu | cuda:0 | mps
+
+inference:
+  confidence_threshold: 0.5   # 이 값 미만 객체 제거
+  iou_threshold: 0.45          # NMS IoU 임계값
+  max_det: 100                 # 프레임당 최대 검출 객체 수
+
+frame_sampling:
+  fps: 1                 # 초당 추출 프레임 수 (1 = 1fps)
+  max_frames: 300        # 영상당 최대 프레임 수 (null = 제한 없음)
+
+output:
+  parquet_path: data/vod_detected_object.parquet
+  status_file: data/detect_status.json
+  batch_save_interval: 50      # N개 VOD마다 parquet 저장
+
+pipeline:
+  batch_size: 1          # 병렬 추론 배치 크기 (GPU 환경에서 늘릴 것)
+  request_delay_sec: 0   # VOD 간 딜레이 (초)
