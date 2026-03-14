@@ -259,7 +259,7 @@ def main():
         # PLAN_01 미완료 시 trailers/ 폴더에서 직접 스캔
         log.warning("crawl_status.json 없음 — trailers/ 폴더 직접 스캔")
         crawl_vods = {}
-        for f in TRAILERS_DIR.glob("*.webm"):
+        for f in TRAILERS_DIR.glob("*.*"):
             vod_id = f.stem   # filename without extension
             crawl_vods[vod_id] = {
                 "status": "success",
