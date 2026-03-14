@@ -197,16 +197,25 @@ def build_search_queries(asset_nm: str, ct_cl: str, genre: str,
         queries.append(f"{series} 공식 예고편")
 
     else:
+        # 검색용 시리즈명: ' Classic' 접미사 제거 (YouTube 검색 정확도 향상)
+        search_series = (series_nm or norm).replace(' Classic', '').strip()
         # release_date 신뢰 시리즈: 방영일자 기반 쿼리 우선 배치
         if series_nm in RELEASE_DATE_TRUSTED_SERIES and release_date:
             date_str = str(release_date)[:10]  # YYYY-MM-DD
             if bc:
-                queries.append(f"{bc} {series_nm.replace(' Classic', '')} {date_str}")
-            queries.append(f"{series_nm.replace(' Classic', '')} {date_str}")
+                queries.append(f"{bc} {search_series} {date_str}")
+            queries.append(f"{search_series} {date_str}")
+        # 에피소드 번호 포함 시: 'SBS 런닝맨 166회' 형태 쿼리 추가
+        ep_match = _re.search(r'(\d{1,3})\s*회', asset_nm)
+        if ep_match:
+            ep_num = ep_match.group(1)
+            if bc:
+                queries.append(f"{bc} {search_series} {ep_num}회")
+            queries.append(f"{search_series} {ep_num}회")
         if bc:
-            queries.append(f"{norm} {bc} 예고편")
-        queries.append(f"{norm} 예고편")
-        queries.append(f"{norm} trailer")
+            queries.append(f"{search_series} {bc} 예고편")
+        queries.append(f"{search_series} 예고편")
+        queries.append(f"{search_series} trailer")
 
     # 중복 제거 (순서 유지)
     seen = set()
@@ -254,6 +263,18 @@ def pick_best_entry(entries: list) -> dict | None:
     if not valid:
         return None
     return sorted(valid, key=lambda e: (-score_entry(e), e.get('duration') or 9999))[0]
+
+
+def duration_filter(info, incomplete):
+    """fast path용 match_filter: 30초~5분 허용."""
+    if incomplete:
+        return None
+    duration = info.get('duration') or 0
+    if duration < DURATION_MIN_SEC:
+        return f"너무 짧음 ({duration}초)"
+    if duration > DURATION_MAX_SEC:
+        return f"너무 김 ({duration}초)"
+    return None
 
 
 def duration_filter_slow(info, incomplete):
