@@ -51,6 +51,13 @@ EXCLUDE_CT_CL       = {'우리동네', '미분류'}
 SERIES_EMBED_CT_CL  = {'TV드라마', 'TV 시사/교양', 'TV애니메이션', '키즈', '영화'}
 EPISODE_EMBED_CT_CL = {'TV 연예/오락'}
 
+# release_date 기반 YouTube 검색을 신뢰할 수 있는 시리즈 화이트리스트
+# 조건: DB의 release_date가 실제 방영일자와 일치하는 것이 확인된 시리즈만 등록
+# 추가 방법: 방영일자 정확성 확인 후 series_nm 값을 그대로 추가
+RELEASE_DATE_TRUSTED_SERIES = {
+    '무한도전 Classic',   # 블로그 출처 563회치 방영일자 수작업 검증 완료 (2026-03-15)
+}
+
 # provider → YouTube 검색 키워드 매핑
 # 목록에 없는 provider(애니메이션/해외드라마/영화 등)는 키워드 없이 제목만 사용
 PROVIDER_KEYWORD = {
@@ -141,10 +148,13 @@ def strip_episode_suffix(asset_nm: str) -> str:
 
 
 def build_search_queries(asset_nm: str, ct_cl: str, genre: str,
-                         series_nm: str = None, provider: str = None) -> list:
+                         series_nm: str = None, provider: str = None,
+                         release_date: str = None) -> list:
     """
     검색 쿼리 목록 생성.
     provider가 PROVIDER_KEYWORD에 있으면 '제목 + 방송사' 쿼리를 우선 배치.
+    series_nm이 RELEASE_DATE_TRUSTED_SERIES에 있고 release_date가 있으면
+    방영일자 기반 쿼리를 우선 추가 (YouTube 검색 정확도 향상).
     """
     queries = []
     name      = asset_nm.strip()
@@ -187,6 +197,12 @@ def build_search_queries(asset_nm: str, ct_cl: str, genre: str,
         queries.append(f"{series} 공식 예고편")
 
     else:
+        # release_date 신뢰 시리즈: 방영일자 기반 쿼리 우선 배치
+        if series_nm in RELEASE_DATE_TRUSTED_SERIES and release_date:
+            date_str = str(release_date)[:10]  # YYYY-MM-DD
+            if bc:
+                queries.append(f"{bc} {series_nm.replace(' Classic', '')} {date_str}")
+            queries.append(f"{series_nm.replace(' Classic', '')} {date_str}")
         if bc:
             queries.append(f"{norm} {bc} 예고편")
         queries.append(f"{norm} 예고편")
@@ -358,14 +374,14 @@ def try_download(vod_id: str, queries: list, output_dir: Path, dry_run: bool,
 
 
 def fetch_vod_list(ct_cl_filter=None) -> list:
-    """vod 테이블에서 처리 대상 목록 조회 (provider 포함)"""
+    """vod 테이블에서 처리 대상 목록 조회 (provider, release_date 포함)"""
     conn = get_db_conn()
     try:
         cur = conn.cursor()
         if ct_cl_filter:
             placeholders = ','.join(['%s'] * len(ct_cl_filter))
             cur.execute(
-                f"SELECT full_asset_id, asset_nm, ct_cl, genre, series_nm, provider "
+                f"SELECT full_asset_id, asset_nm, ct_cl, genre, series_nm, provider, release_date "
                 f"FROM vod WHERE ct_cl IN ({placeholders}) "
                 f"ORDER BY ct_cl, full_asset_id",
                 ct_cl_filter
@@ -373,7 +389,7 @@ def fetch_vod_list(ct_cl_filter=None) -> list:
         else:
             excluded = tuple(EXCLUDE_CT_CL)
             cur.execute(
-                "SELECT full_asset_id, asset_nm, ct_cl, genre, series_nm, provider "
+                "SELECT full_asset_id, asset_nm, ct_cl, genre, series_nm, provider, release_date "
                 "FROM vod WHERE ct_cl NOT IN %s "
                 "ORDER BY ct_cl, full_asset_id",
                 (excluded,)
@@ -381,7 +397,8 @@ def fetch_vod_list(ct_cl_filter=None) -> list:
         rows = cur.fetchall()
         return [
             {"vod_id": r[0], "asset_nm": r[1], "ct_cl": r[2],
-             "genre": r[3], "series_nm": r[4], "provider": r[5]}
+             "genre": r[3], "series_nm": r[4], "provider": r[5],
+             "release_date": str(r[6]) if r[6] else None}
             for r in rows
         ]
     finally:
@@ -516,6 +533,7 @@ def main():
                 info.get("ct_cl", ""),
                 "",                         # genre은 status에 미저장, 쿼리 빌드에 미사용
                 info.get("series_nm"),
+                release_date=info.get("release_date"),
             )
             result = try_download(vod_id, queries, TRAILERS_DIR, args.dry_run, slow=True)
             result["ct_cl"]            = info.get("ct_cl")
@@ -551,7 +569,8 @@ def main():
             vod_list = [
                 {"vod_id": t["vod_id"], "asset_nm": t["asset_nm"],
                  "ct_cl": t["ct_cl"], "genre": t.get("genre", ""),
-                 "series_nm": t.get("series_nm"), "provider": t.get("provider")}
+                 "series_nm": t.get("series_nm"), "provider": t.get("provider"),
+                 "release_date": t.get("release_date")}
                 for t in raw
             ]
         else:
@@ -597,7 +616,8 @@ def main():
 
         queries = build_search_queries(
             vod["asset_nm"], vod["ct_cl"], vod.get("genre", ""),
-            vod.get("series_nm"), vod.get("provider")
+            vod.get("series_nm"), vod.get("provider"),
+            release_date=vod.get("release_date")
         )
         result = try_download(vod_id, queries, TRAILERS_DIR, args.dry_run)
 
