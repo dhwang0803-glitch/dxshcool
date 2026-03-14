@@ -36,7 +36,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 PROJECT_ROOT = Path(__file__).parent.parent
 DATA_DIR     = PROJECT_ROOT / "data"
 DEFAULT_TRAILERS_DIR = Path("C:/Users/daewo/DX_prod_2nd/trailers")
-STATUS_FILE  = DATA_DIR / "crawl_status.json"
+STATUS_FILE  = DATA_DIR / "crawl_status.json"   # --status-file 인자로 덮어씀
 
 BATCH_SAVE_INTERVAL = 20
 REQUEST_DELAY_MIN   = 1.5
@@ -103,9 +103,9 @@ def get_db_conn():
     )
 
 
-def load_status() -> dict:
-    if STATUS_FILE.exists():
-        with open(STATUS_FILE, encoding='utf-8') as f:
+def load_status(status_file: Path) -> dict:
+    if status_file.exists():
+        with open(status_file, encoding='utf-8') as f:
             return json.load(f)
     return {
         "last_updated": None,
@@ -117,10 +117,10 @@ def load_status() -> dict:
     }
 
 
-def save_status(status: dict):
+def save_status(status: dict, status_file: Path):
     status["last_updated"] = datetime.now().isoformat()
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with open(STATUS_FILE, 'w', encoding='utf-8') as f:
+    with open(status_file, 'w', encoding='utf-8') as f:
         json.dump(status, f, ensure_ascii=False, indent=2)
 
 
@@ -461,11 +461,15 @@ def main():
     parser.add_argument('--task-file',   type=str, default='',
                         help='작업 파일 경로 (tasks_missing.json / tasks_A.json 등). '
                              '지정 시 --ct-cl/--pilot 무시')
+    parser.add_argument('--status-file', type=str, default='',
+                        help='크롤 상태 저장 파일 (기본: data/crawl_status.json). '
+                             '병렬 실행 시 파티션별로 다르게 지정')
     args = parser.parse_args()
     TRAILERS_DIR = Path(args.trailers_dir)
+    STATUS_FILE  = Path(args.status_file) if args.status_file else DATA_DIR / "crawl_status.json"  # noqa: F841
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    status = load_status()
+    status = load_status(STATUS_FILE)
 
     if args.status:
         print_status(status)
@@ -557,10 +561,10 @@ def main():
 
         done_count += 1
         if done_count % BATCH_SAVE_INTERVAL == 0:
-            save_status(status)
+            save_status(status, STATUS_FILE)
             log.info(f"체크포인트 저장 ({done_count}건 처리)")
 
-    save_status(status)
+    save_status(status, STATUS_FILE)
     print_status(status)
     log.info("크롤링 완료")
 
