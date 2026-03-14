@@ -2,7 +2,8 @@
 # 실제 경로/값은 .env 또는 CLI 인자로 오버라이드 가능
 
 model:
-  name: yolov8s          # yolov8n | yolov8s | yolov8m | yolov8l | yolov8x
+  name: yolo11s.pt       # yolo11n | yolo11s | yolo11m | yolo11l | yolo11x
+                         # 비교 실험: yolov8s.pt (동일 파이프라인, 모델명만 교체)
   weights_path: null     # null이면 ultralytics 자동 다운로드
   device: cpu            # cpu | cuda:0 | mps
 
