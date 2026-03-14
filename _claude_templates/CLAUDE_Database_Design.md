@@ -44,7 +44,8 @@ import sqlalchemy        # ORM (선택)
 | 테이블 | 설명 |
 |--------|------|
 | `vod` | VOD 메타데이터 (166,159건) |
-| `clip_embeddings` | CLIP 512차원 벡터 |
+| `vod_embedding` | VOD CLIP 512차원 벡터 (pgvector) |
+| `user_embedding` | 사용자 행동 벡터 512차원 (pgvector) |
 | `watch_history` | 시청 이력 (CF_Engine 입력) |
 | `detected_objects` | 사물인식 결과 (Shopping_Ad 입력) |
 | `tv_schedule` | TV 실시간 시간표 (EPG) |
@@ -60,5 +61,5 @@ import sqlalchemy        # ORM (선택)
 migrations/
 ├── 20260308_add_rag_columns.sql
 ├── 20260309_add_cast_lead_cast_guest.sql
-└── 20260310_create_clip_embeddings.sql
+└── 20260311_add_user_embedding_table.sql
 ```

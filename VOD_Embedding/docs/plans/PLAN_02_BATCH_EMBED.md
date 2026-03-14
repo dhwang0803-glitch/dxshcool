@@ -20,7 +20,7 @@ PLAN_01에서 수집한 트레일러 영상에 대해:
 ## 모델 설정
 
 ```python
-MODEL_PATH = "C:/Users/daewo/DX_prod_2nd/my_clip_model"
+MODEL_PATH = os.getenv("CLIP_MODEL_PATH", "clip-ViT-B-32")
 # sentence-transformers 방식으로 로드
 from sentence_transformers import SentenceTransformer
 model = SentenceTransformer(MODEL_PATH)

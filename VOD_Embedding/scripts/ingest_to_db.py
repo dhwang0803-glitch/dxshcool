@@ -10,6 +10,10 @@ data/embeddings_*.parquet → vod_embedding 테이블
     python scripts/ingest_to_db.py --verify
     python scripts/ingest_to_db.py --propagate                          # 시리즈 전체 vod_id에 임베딩 복사
 
+    # 팀원이 제출한 parquet → DB 적재 (L2 정규화 자동 적용)
+    python scripts/ingest_to_db.py --from-parquet data/embeddings_홍길동.parquet
+    python scripts/ingest_to_db.py --from-parquet data/embeddings_홍길동.parquet --dry-run
+
 전략:
     시리즈 단위 ct_cl (TV드라마/TV애니메이션/키즈/TV시사교양/영화):
         대표 에피소드 1개 적재 후 --propagate로 같은 series_nm 전체에 복사
@@ -130,21 +134,23 @@ def check_pgvector(conn) -> bool:
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS vod_embedding (
     vod_embedding_id    BIGINT          GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    vod_id_fk           VARCHAR(64)     NOT NULL UNIQUE,
+    vod_id_fk           VARCHAR(64)     NOT NULL,
     embedding           VECTOR(512)     NOT NULL,
     embedding_type      VARCHAR(32)     NOT NULL DEFAULT 'CLIP',
     embedding_dim       INTEGER         NOT NULL DEFAULT 512,
     model_version       VARCHAR(64)     NOT NULL DEFAULT 'clip-ViT-B-32',
-    vector_magnitude    REAL,
     frame_count         SMALLINT,
     source_type         VARCHAR(32)     NOT NULL DEFAULT 'TRAILER',
     source_url          TEXT,
-    created_at          TIMESTAMPTZ     DEFAULT NOW(),
-    updated_at          TIMESTAMPTZ     DEFAULT NOW(),
+    created_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_vod_embedding   UNIQUE (vod_id_fk),
     CONSTRAINT chk_embedding_type CHECK (embedding_type IN ('CLIP', 'CONTENT', 'HYBRID')),
     CONSTRAINT chk_source_type    CHECK (source_type IN ('TRAILER', 'FULL')),
     CONSTRAINT chk_embedding_dim  CHECK (embedding_dim > 0)
 );
+CREATE INDEX IF NOT EXISTS idx_vod_emb_type    ON vod_embedding (embedding_type);
+CREATE INDEX IF NOT EXISTS idx_vod_emb_updated ON vod_embedding (updated_at DESC);
 """
 
 
@@ -197,6 +203,11 @@ def ingest_parquet_file(conn, parquet_path: Path, dry_run: bool) -> tuple:
             log.warning(f"벡터 차원 불일치 {vec.shape}: {vod_id}")
             skipped += 1
             continue
+
+        # L2 정규화 (DB 적재 직전)
+        norm = np.linalg.norm(vec)
+        if norm > 0:
+            vec = vec / norm
 
         params = {
             "vod_id":         vod_id,
@@ -427,6 +438,97 @@ def create_index_after_ingest(conn):
     log.info("인덱스 생성 완료")
 
 
+def ingest_from_parquet(conn, parquet_path: str, dry_run: bool) -> tuple:
+    """
+    팀원 제출 parquet (batch_embed.py --output parquet 산출물) → vod_embedding 적재.
+    컬럼: vod_id (str), embedding (list[float32], 512차원)
+
+    L2 정규화: batch_embed.py는 비정규화 벡터를 저장하므로
+    vod_meta_embedding(magnitude=1.0)과 스케일 통일을 위해 적재 시 자동 정규화.
+    """
+    p = Path(parquet_path)
+    if not p.exists():
+        log.error(f"파일 없음: {p}")
+        sys.exit(1)
+
+    log.info(f"Parquet 로드: {p}")
+    df = pd.read_parquet(p)
+
+    # 컬럼 정규화: batch_embed.py 출력 형식 호환 (vector → embedding, full_asset_id/vod_id_fk → vod_id)
+    if "vector" in df.columns and "embedding" not in df.columns:
+        df = df.rename(columns={"vector": "embedding"})
+    if "vod_id_fk" in df.columns and "vod_id" not in df.columns:
+        df = df.rename(columns={"vod_id_fk": "vod_id"})
+    if "full_asset_id" in df.columns and "vod_id" not in df.columns:
+        df = df.rename(columns={"full_asset_id": "vod_id"})
+
+    # 컬럼 검증
+    required = {"vod_id", "embedding"}
+    missing = required - set(df.columns)
+    if missing:
+        log.error(f"필수 컬럼 없음: {missing}")
+        sys.exit(1)
+
+    log.info(f"  {len(df):,}건 로드 완료")
+    if dry_run:
+        log.info("[DRY-RUN] 실제 INSERT 없음")
+
+    inserted = 0
+    skipped  = 0
+    errors   = 0
+    cur      = conn.cursor()
+
+    for i, row in enumerate(df.itertuples(index=False)):
+        vod_id = row.vod_id
+        vec    = np.array(row.embedding, dtype=np.float32)
+
+        if vec.shape != (512,):
+            log.warning(f"벡터 차원 불일치 {vec.shape}: {vod_id}")
+            skipped += 1
+            continue
+
+        # L2 정규화 (비정규화 벡터를 magnitude=1.0으로 통일)
+        norm = float(np.linalg.norm(vec))
+        if norm < 1e-6:
+            log.warning(f"영벡터 스킵: {vod_id}")
+            skipped += 1
+            continue
+        vec = vec / norm
+
+        params = {
+            "vod_id":         vod_id,
+            "embedding":      to_pgvector_str(vec),
+            "embedding_type": EMBEDDING_TYPE,
+            "embedding_dim":  EMBEDDING_DIM,
+            "model_version":  MODEL_VERSION,
+            "magnitude":      1.0,
+            "frame_count":    FRAME_COUNT,
+            "source_type":    SOURCE_TYPE,
+        }
+
+        if dry_run:
+            inserted += 1
+            continue
+
+        try:
+            cur.execute(INSERT_SQL, params)
+            inserted += 1
+        except Exception as e:
+            log.error(f"INSERT 실패 {vod_id}: {e}")
+            conn.rollback()
+            errors += 1
+            continue
+
+        if (i + 1) % COMMIT_INTERVAL == 0:
+            conn.commit()
+            log.info(f"  COMMIT ({i+1:,}/{len(df):,})")
+
+    if not dry_run:
+        conn.commit()
+
+    return inserted, skipped, errors
+
+
 def main():
     parser = argparse.ArgumentParser(description="pgvector DB 적재 (parquet → vod_embedding)")
     parser.add_argument('--file',         type=str, default='', help='특정 parquet 파일만 적재')
@@ -438,6 +540,8 @@ def main():
                              '(대표 적재 완료 후 실행)')
     parser.add_argument('--normalize',    action='store_true',
                         help='L2 정규화되지 않은 벡터(magnitude≠1.0)를 정규화 후 UPDATE')
+    parser.add_argument('--from-parquet', type=str, default='', metavar='PARQUET_PATH',
+                        help='팀원 제출 parquet → vod_embedding 적재 (L2 정규화 자동 적용)')
     args = parser.parse_args()
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -452,6 +556,17 @@ def main():
             sys.exit(1)
         ensure_table(conn)
 
+        # --from-parquet: 팀원 제출 parquet 적재 (L2 정규화 자동 적용)
+        if args.from_parquet:
+            log.info("=== parquet → vod_embedding 적재 시작 (L2 정규화 적용) ===")
+            if args.dry_run:
+                log.info("[DRY-RUN] 실제 INSERT 없음")
+            ins, skip, err = ingest_from_parquet(conn, args.from_parquet, args.dry_run)
+            log.info(f"완료 — 삽입:{ins:,}  스킵:{skip}  오류:{err}")
+            run_verify(conn)
+            return
+
+        # --propagate: 시리즈 전파만 실행
         if args.propagate:
             log.info("=== 시리즈 임베딩 전파 시작 ===")
             propagated = propagate_series_embeddings(conn, args.dry_run)

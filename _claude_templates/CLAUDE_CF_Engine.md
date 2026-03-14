@@ -32,6 +32,15 @@ CF_Engine/
 
 **`CF_Engine/` 루트 또는 프로젝트 루트에 `.py` 파일 직접 생성 금지.**
 
+## 실행 환경
+
+```bash
+conda activate myenv          # 전 브랜치 공통 환경
+pip install -r requirements.txt  # 루트 requirements.txt
+```
+
+> 개별 패키지 별도 설치 금지. 루트 `requirements.txt`에 `implicit`, `scipy`가 포함되어 있음.
+
 ## 기술 스택
 
 ```python
@@ -55,5 +64,18 @@ watch_history 테이블 로드
 
 ## 인터페이스
 
-- **업스트림**: `Database_Design` — watch_history 테이블 (user_id, asset_id, watch_ratio)
-- **다운스트림**: `API_Server` — `/recommend/{user_id}` 엔드포인트가 이 결과를 반환
+> 컬럼/타입 상세 → `Database_Design/docs/DEPENDENCY_MAP.md` CF_Engine 섹션 참조 (Rule 1).
+> 스키마 변경 시 Database_Design 기준으로 이 섹션도 업데이트할 것 (Rule 3).
+
+### 업스트림 (읽기)
+
+| 테이블 | 컬럼 | 타입 | 용도 |
+|--------|------|------|------|
+| `public.user_embedding` | `user_id_fk`, `embedding` | VARCHAR(64), VECTOR(896) | ALS 초기값 |
+| `public.watch_history` | `user_id_fk`, `vod_id_fk`, `satisfaction` | VARCHAR/REAL | 행렬 분해 입력 |
+
+### 다운스트림 (쓰기)
+
+| 테이블 | 컬럼 | 타입 | 비고 |
+|--------|------|------|------|
+| `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score` | VARCHAR/SMALLINT/REAL | recommendation_type = `'COLLABORATIVE'` |

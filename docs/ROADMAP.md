@@ -27,14 +27,19 @@
      └──────────────┼────────────────┘
                     │
 ┌───────────────────▼─────────────────────────────────────────┐
-│                  PostgreSQL + pgvector                       │
-│  vod 테이블 / clip_embeddings / cf_matrix / tv_schedule     │
+│          VPC PostgreSQL + pgvector (thin serving layer)      │
+│  1 core / 1GB RAM (+3GB swap) / 150GB Storage               │
+│  vod / vod_embedding(512) / vod_meta_embedding(384)         │
+│  user_embedding(896) / serving.shopping_ad                  │
 └───────────┬──────────────────────────────────────────────────┘
-            │ 데이터 공급
+            │ 데이터 공급 (로컬 → VPC 적재)
 ┌───────────▼──────────────────────────────────────────────────┐
-│              데이터 파이프라인                                │
-│   RAG (메타데이터)  ·  VOD_Embedding (CLIP)                  │
-│   Object_Detection (사물인식)                                │
+│              데이터 파이프라인 (로컬 연산)                    │
+│   RAG (메타데이터)  ·  VOD_Embedding (CLIP 512 + 메타 384)  │
+│   User_Embedding (ALS 행렬분해, 896차원)                     │
+│   Poster_Collection (포스터)                                 │
+│   Object_Detection (YOLO 배치 → parquet, 로컬 전용)         │
+│   Shopping_Ad (매칭 엔진 → serving.shopping_ad VPC 적재)     │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -43,8 +48,8 @@
 ## Phase 1 — 데이터 인프라 `진행 중`
 
 ### `Database_Design`
-- PostgreSQL 스키마 설계 (vod, clip_embeddings, cf_matrix 등)
-- pgvector 확장 설정
+- PostgreSQL 스키마 설계 (vod, vod_embedding, user_embedding, vod_recommendation 등)
+- pgvector 확장 설정 — **벡터 저장소 pgvector 단일화 결정 (2026-03-08)**. Milvus 미사용 (인프라 복잡도 사유)
 - 마이그레이션 이력 관리
 
 **폴더 구조:**
@@ -83,21 +88,103 @@ RAG/
 ---
 
 ### `VOD_Embedding`
-- YouTube 트레일러 수집 (yt-dlp)
-- CLIP ViT-B/32 영상 임베딩 → 512차원 벡터
-- pgvector DB 적재
+- YouTube 트레일러 수집 (yt-dlp) → CLIP ViT-B/32 영상 임베딩 → **512차원** → `vod_embedding` 적재
+- VOD 메타데이터 (제목/장르/감독/출연/줄거리) → paraphrase-multilingual-MiniLM-L12-v2 → **384차원** → `vod_meta_embedding` 적재
+- 두 벡터를 concat하면 **896차원 VOD 결합 벡터** → `User_Embedding` 학습 입력으로 사용
+
+**팀 분할 (4명 병렬 작업):**
+| 팀원 | 담당 | 건수 |
+|------|------|-----:|
+| A | TV 연예/오락 앞 절반 | ~9,570 |
+| B | TV 연예/오락 뒤 절반 | ~9,571 |
+| C | 영화 + TV드라마 + 키즈 | ~11,508 |
+| D | TV애니메이션 + TV 시사/교양 + 기타 등 | ~11,102 |
 
 **현황 (파일럿 100건):**
-- 크롤링 98%, 임베딩 78%, DB 적재 완료
+- 영상 임베딩: 크롤링 98%, 임베딩 78%, DB 적재 완료
+- 메타데이터 임베딩: `src/meta_embedder.py` 구현 완료, 전체 실행 예정
 
 **폴더 구조:**
 ```
 VOD_Embedding/
-├── src/           ← 임베딩 로직 라이브러리
-├── scripts/       ← crawl_trailers, batch_embed, ingest_to_db
+├── src/           ← meta_embedder.py, embedder.py(예정), db.py, config.py
+├── scripts/       ← crawl_trailers, batch_embed, ingest_to_db, split_tasks
 ├── tests/
 ├── config/
-└── docs/          ← plans/, reports/
+└── docs/
+```
+
+---
+
+### `User_Embedding`
+- `vod_embedding`(512차원) + `vod_meta_embedding`(384차원)을 L2 정규화 후 concat → **896차원 VOD 결합 벡터** 구성
+- ALS(Alternating Least Squares) 행렬 분해로 동일 896차원 잠재 공간에서 **User 임베딩** 학습
+- 출력: `user_embedding` 테이블 (`VECTOR(896)`) → pgvector 적재
+- CF_Engine 및 Vector_Search에서 개인화 추천 입력으로 사용
+
+> ⚠️ **차원 축소 미확정**: 896차원 연산 부담 시 PCA/Autoencoder로 축소 예정.
+> 원본 VOD 임베딩(512, 384)은 별도 테이블에 보존되므로 재학습 시 차원 변경 가능.
+
+**사전 조건:**
+- `VOD_Embedding` — `vod_embedding`(512), `vod_meta_embedding`(384) 적재 완료
+- `Database_Design` — `user_embedding VECTOR(896)` 테이블 생성 완료
+
+**워크플로우:**
+```
+vod_embedding(512) + vod_meta_embedding(384)
+    → 각각 L2 정규화 → concat → VOD 결합 벡터 [896차원]
+
+watch_history (user_id, asset_id, completion_rate)
+    → User-Item 희소 행렬 구성
+    → ALS 학습 (item latent factor 초기값 = VOD 결합 벡터 [896차원])
+    → User 잠재 벡터 [896차원] 산출
+    → user_embedding 테이블 upsert
+```
+
+**예정 폴더 구조:**
+```
+User_Embedding/
+├── src/           ← mf_model.py, vod_embedding_loader.py, data_loader.py
+├── scripts/       ← train.py, export_to_db.py
+├── tests/
+└── config/        ← mf_config.yaml (factors: 896, iterations: 20)
+```
+
+---
+
+### `Poster_Collection`
+- Naver 이미지 검색 API로 시리즈별 포스터 URL 수집
+- 이미지 다운로드 → 로컬 저장 → Google Drive로 DB 관리자에게 전달
+- DB 관리자가 VPC에 업로드 후 `vod.poster_url` 컬럼 업데이트
+
+**워크플로우:**
+```
+개발자: crawl_posters.py 실행
+    → Naver API에서 series_nm 기반 포스터 URL 수집
+    → 이미지 다운로드 → {LOCAL_POSTER_DIR}/{series_id}.jpg
+    → export_manifest.py → manifest.csv 생성
+    → Google Drive로 DB 관리자에게 전달
+
+DB 관리자: (수동 작업)
+    → VPC 서버에 이미지 업로드
+    → update_poster_url.py 실행
+    → vod 테이블 poster_url 컬럼 업데이트
+```
+
+**사전 조건:** `Database_Design` 브랜치에서 아래 마이그레이션 선행 필요
+```sql
+ALTER TABLE vod ADD COLUMN poster_url TEXT;
+```
+
+**폴더 구조:**
+```
+Poster_Collection/
+├── src/           ← naver_poster, image_downloader, db_updater
+├── scripts/       ← crawl_posters.py, export_manifest.py, update_poster_url.py
+├── tests/
+├── config/        ← poster_config.yaml
+├── plans/
+└── reports/
 ```
 
 ---
@@ -121,9 +208,10 @@ CF_Engine/
 ---
 
 ### `Vector_Search` — 벡터 유사도 검색 (2종)
-- **콘텐츠 기반**: 메타데이터(장르/감독/배우) TF-IDF 또는 SBERT 임베딩
-- **영상 기반**: CLIP 임베딩 코사인 유사도 (pgvector `<=>` 연산자)
+- **메타데이터 기반**: `vod_meta_embedding`(384차원) 코사인 유사도 (pgvector `<=>`)
+- **영상 기반**: `vod_embedding`(512차원) 코사인 유사도 (pgvector `<=>`)
 - 두 스코어 앙상블 → 최종 유사도 순위
+- User 임베딩(`user_embedding` 896차원) 활용 시 개인화 검색 가능
 
 **예정 폴더 구조:**
 ```
@@ -140,44 +228,78 @@ Vector_Search/
 
 ## Phase 3 — 영상 AI
 
-### `Object_Detection` — 영상 실시간 사물인식
-- 모델: YOLO v8 또는 Detectron2
-- 입력: TV 방송/VOD 영상 프레임
-- 출력: 감지된 객체 레이블 + 신뢰도 + 바운딩박스
-- DB 저장: `detected_objects` 테이블
+> **인프라 제약**: VPC 1 core / 1GB RAM (+3GB swap) / 150GB Storage
+> → 모든 연산은 **로컬**에서 수행, VPC는 `serving.*` 테이블만 제공하는 **thin serving layer**
+
+### `Object_Detection` — VOD 배치 사물인식
+- 모델: YOLOv8n (속도 우선) / YOLOv8x (정확도 우선)
+- 방식: **배치 사전 분석** (실시간 아님) — VOD 프레임을 로컬에서 일괄 추론
+- 입력: VOD 영상 파일 프레임 (N fps 샘플링)
+- 출력: `vod_detected_object.parquet` (로컬 저장, VPC 미적재)
+- 산출물: `(vod_id, frame_ts, label, confidence, bbox)` — Shopping_Ad에서 소비
+
+**테이블 소유:**
+
+| 테이블 | 위치 | 설명 |
+|--------|------|------|
+| `vod_detected_object` | 로컬 parquet | VOD별 감지 객체 (label, confidence, bbox, frame_ts) |
+
+**데이터 플로우:**
+```
+VOD 영상 파일
+    → 프레임 추출 (N fps 샘플링)
+    → YOLOv8 배치 추론 (로컬 GPU/CPU)
+    → 신뢰도 필터링 (>= 0.5)
+    → vod_detected_object.parquet 저장 (로컬)
+    → Shopping_Ad가 parquet 소비
+```
 
 **예정 폴더 구조:**
 ```
 Object_Detection/
-├── src/           ← 모델 로드, 프레임 추출, 추론 로직
-├── scripts/       ← run_detection.py, batch_process.py
+├── src/           ← detector.py, frame_extractor.py
+├── scripts/       ← batch_detect.py (배치 사전 분석)
 ├── tests/
-└── config/
+├── config/        ← detection_config.yaml (모델, 임계값, fps)
+└── docs/
 ```
 
 ---
 
-### `Shopping_Ad` — 홈쇼핑 광고 팝업 시스템
-- TV 실시간 시간표 수집 (EPG 파싱)
-- Object_Detection 결과 → 유사 홈쇼핑 상품 매핑
-- 시청 중 팝업: 상품 링크 or 채널 이동 or 시청예약
+### `Shopping_Ad` — 홈쇼핑 광고 매칭 시스템
+- Object_Detection parquet 소비 → YOLO 클래스를 상품 카테고리로 해석 (비즈니스 로직)
+- TV 실시간 시간표 수집 (EPG 파싱) → 홈쇼핑 채널 방영 상품 매칭
+- 매칭 결과를 `serving.shopping_ad` 테이블에 적재 (VPC — API_Server가 직접 조회)
+
+**테이블 소유:**
+
+| 테이블 | 위치 | 설명 |
+|--------|------|------|
+| `tv_schedule` | 로컬 DB/parquet | EPG 기반 TV 시간표 (채널, 시간, 프로그램) |
+| `homeshopping_product` | 로컬 DB/parquet | 홈쇼핑 상품 카탈로그 (상품명, 카테고리, 가격) |
+| `product_object_mapping` | 로컬 DB/parquet | YOLO 클래스 → 상품 카테고리 매핑 (비즈니스 로직) |
+| `serving.shopping_ad` | **VPC** | 최종 광고 팝업 데이터 (API_Server 직접 조회) |
+
+> `product_object_mapping`이 Shopping_Ad 소유인 이유: YOLO 클래스(`chair`, `couch`)를 상품 카테고리(`소파`)로 해석하는 것은 탐지가 아닌 **비즈니스 로직**
 
 **데이터 플로우:**
 ```
-TV 방송 프레임
-    → Object_Detection (사물 감지)
-    → 상품 카테고리 매핑 테이블
-    → 홈쇼핑 채널 EPG 매칭
-    → 팝업 메시지 생성 → API_Server → Frontend
+vod_detected_object.parquet (Object_Detection 산출물)
+    → product_object_mapping (YOLO label → 상품 카테고리)
+    → homeshopping_product (카테고리 매칭 → 후보 상품)
+    → tv_schedule (현재 홈쇼핑 채널 방영 확인)
+    → serving.shopping_ad (VPC 적재 — 팝업 데이터)
+    → API_Server /ad/popup → Frontend 팝업 오버레이
 ```
 
 **예정 폴더 구조:**
 ```
 Shopping_Ad/
-├── src/           ← epg_parser, product_mapper, popup_builder
-├── scripts/       ← run_epg_sync.py, run_ad_pipeline.py
+├── src/           ← epg_parser.py, product_mapper.py, popup_builder.py, serving_writer.py
+├── scripts/       ← run_epg_sync.py, run_ad_pipeline.py, export_to_serving.py
 ├── tests/
-└── config/
+├── config/        ← ad_config.yaml (EPG 소스, 매핑 규칙)
+└── docs/
 ```
 
 ---
@@ -229,14 +351,24 @@ Phase 1 (현재)          Phase 2             Phase 3             Phase 4
 ─────────────────       ─────────────────   ─────────────────   ─────────────────
 Database_Design   →     CF_Engine       →   Object_Detection →  API_Server
 RAG               →     Vector_Search   →   Shopping_Ad      →  Frontend
-VOD_Embedding
+VOD_Embedding(512+384)↘
+User_Embedding(896) ──→  CF_Engine / Vector_Search (user+item 벡터 입력)
+Poster_Collection
 ```
+
+> **의존 관계 (User_Embedding 선행 필요)**:
+> - `vod_embedding`(512) + `vod_meta_embedding`(384) 모두 적재 완료 후 User_Embedding 학습 가능
+> - CF_Engine / Vector_Search 실행 전 `user_embedding`(896) 적재 완료 필요
 
 ---
 
 ## 브랜치 생성 명령어 참고
 
 ```bash
+# Phase 1 (추가)
+git checkout main && git checkout -b User_Embedding
+git checkout main && git checkout -b Poster_Collection
+
 # Phase 2
 git checkout main && git checkout -b CF_Engine
 git checkout main && git checkout -b Vector_Search
