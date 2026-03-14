@@ -1,44 +1,47 @@
 """
 PLAN_03: pgvector DB 적재
-data/video_embs_batch_*.pkl → vod_embedding 테이블
+data/embeddings_*.parquet → vod_embedding 테이블
 
 실행:
     conda activate myenv
-    python pipeline/ingest_to_db.py                  # 대표 에피소드 적재
-    python pipeline/ingest_to_db.py --dry-run
-    python pipeline/ingest_to_db.py --batch data/video_embs_batch_001.pkl
-    python pipeline/ingest_to_db.py --verify
-    python pipeline/ingest_to_db.py --propagate      # 시리즈 전체 vod_id에 임베딩 복사
+    python scripts/ingest_to_db.py                                      # data/ 내 전체 parquet 적재
+    python scripts/ingest_to_db.py --dry-run
+    python scripts/ingest_to_db.py --file data/embeddings_아름_v2.parquet  # 특정 파일 적재
+    python scripts/ingest_to_db.py --verify
+    python scripts/ingest_to_db.py --propagate                          # 시리즈 전체 vod_id에 임베딩 복사
 
 전략:
     시리즈 단위 ct_cl (TV드라마/TV애니메이션/키즈/TV시사교양/영화):
         대표 에피소드 1개 적재 후 --propagate로 같은 series_nm 전체에 복사
     에피소드 단위 ct_cl (TV 연예/오락):
         각 에피소드 개별 적재, 전파 없음
+
+parquet 필수 컬럼:
+    vod_id     : VOD 식별자 (vod.full_asset_id FK)
+    embedding  : numpy.ndarray (512-dim, float32/float64)
 """
 
 import sys
 import os
 import json
-import pickle
 import argparse
 import logging
-from datetime import datetime
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 sys.stdout.reconfigure(encoding='utf-8')
 
 PROJECT_ROOT = Path(__file__).parent.parent
 DATA_DIR     = PROJECT_ROOT / "data"
 
-COMMIT_INTERVAL  = 1000         # N건마다 COMMIT
-MODEL_VERSION    = "clip-ViT-B-32"
-EMBEDDING_TYPE   = "VISUAL"     # VISUAL / CONTENT / HYBRID
-EMBEDDING_DIM    = 512
-FRAME_COUNT      = 10           # batch_embed.py N_FRAMES와 동일
-SOURCE_TYPE      = "TRAILER"    # TRAILER / FULL
+COMMIT_INTERVAL = 1000          # N건마다 COMMIT
+MODEL_VERSION   = "clip-ViT-B-32"
+EMBEDDING_TYPE  = "CLIP"        # DB 스키마 CHECK: ('CLIP', 'CONTENT', 'HYBRID')
+EMBEDDING_DIM   = 512
+FRAME_COUNT     = 10            # batch_embed.py N_FRAMES와 동일
+SOURCE_TYPE     = "TRAILER"     # TRAILER / FULL
 
 # 에피소드 단위 임베딩 ct_cl — 시리즈 전파 제외
 EPISODE_EMBED_CT_CL = {'TV 연예/오락'}
@@ -96,42 +99,40 @@ def get_db_conn():
     env = load_env()
     import psycopg2
     conn = psycopg2.connect(
-        host=env.get('DB_HOST', 'localhost'),
+        host=env.get('DB_HOST'),
         port=int(env.get('DB_PORT', 5432)),
-        dbname=env.get('DB_NAME', 'postgres'),
-        user=env.get('DB_USER', 'postgres'),
-        password=env.get('DB_PASSWORD', ''),
+        dbname=env.get('DB_NAME'),
+        user=env.get('DB_USER'),
+        password=env.get('DB_PASSWORD'),
     )
     conn.autocommit = False
     return conn
 
 
 def to_pgvector_str(vec: np.ndarray) -> str:
-    """numpy float32 → '[f1,f2,...,f512]' 문자열 (pgvector 형식)"""
-    return '[' + ','.join(f'{x:.8f}' for x in vec) + ']'
+    """numpy array → '[f1,f2,...,f512]' 문자열 (pgvector 형식)"""
+    return '[' + ','.join(f'{x:.8f}' for x in vec.astype(np.float32)) + ']'
 
 
 def check_pgvector(conn) -> bool:
-    """pgvector 확장 설치 여부 확인"""
     cur = conn.cursor()
     cur.execute("SELECT extversion FROM pg_extension WHERE extname = 'vector'")
     row = cur.fetchone()
     if row:
         log.info(f"pgvector {row[0]} 확인됨")
         return True
-    else:
-        log.error("pgvector 미설치 — CREATE EXTENSION IF NOT EXISTS vector 실행 필요")
-        return False
+    log.error("pgvector 미설치 — CREATE EXTENSION IF NOT EXISTS vector 실행 필요")
+    return False
 
 
-# Database_Design/schema/create_embedding_tables.sql 과 동일한 스키마
+# Database_Design/schemas/create_embedding_tables.sql 과 동일한 스키마
 # VPC에서는 create_embedding_tables.sql로 생성. 로컬 개발 시에만 여기서 자동 생성.
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS vod_embedding (
     vod_embedding_id    BIGINT          GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     vod_id_fk           VARCHAR(64)     NOT NULL UNIQUE,
     embedding           VECTOR(512)     NOT NULL,
-    embedding_type      VARCHAR(32)     NOT NULL DEFAULT 'VISUAL',
+    embedding_type      VARCHAR(32)     NOT NULL DEFAULT 'CLIP',
     embedding_dim       INTEGER         NOT NULL DEFAULT 512,
     model_version       VARCHAR(64)     NOT NULL DEFAULT 'clip-ViT-B-32',
     vector_magnitude    REAL,
@@ -140,14 +141,14 @@ CREATE TABLE IF NOT EXISTS vod_embedding (
     source_url          TEXT,
     created_at          TIMESTAMPTZ     DEFAULT NOW(),
     updated_at          TIMESTAMPTZ     DEFAULT NOW(),
-    CONSTRAINT chk_embedding_type CHECK (embedding_type IN ('VISUAL', 'CONTENT', 'HYBRID')),
+    CONSTRAINT chk_embedding_type CHECK (embedding_type IN ('CLIP', 'CONTENT', 'HYBRID')),
     CONSTRAINT chk_source_type    CHECK (source_type IN ('TRAILER', 'FULL')),
     CONSTRAINT chk_embedding_dim  CHECK (embedding_dim > 0)
 );
 """
 
+
 def ensure_table(conn):
-    """vod_embedding 테이블 없으면 자동 생성"""
     cur = conn.cursor()
     cur.execute("SELECT to_regclass('public.vod_embedding')")
     if cur.fetchone()[0] is None:
@@ -159,36 +160,38 @@ def ensure_table(conn):
         log.info("vod_embedding 테이블 확인됨")
 
 
-def get_batch_files(data_dir: Path, specific_file: str = None) -> list:
+def get_parquet_files(data_dir: Path, specific_file: str = None) -> list:
     if specific_file:
         p = Path(specific_file)
         if not p.is_absolute():
             p = data_dir / specific_file
         return [p] if p.exists() else []
-    return sorted(data_dir.glob("video_embs_batch_*.pkl"))
+    return sorted(data_dir.glob("embeddings_*.parquet"))
 
 
-def ingest_batch_file(conn, pkl_path: Path, dry_run: bool) -> tuple:
+def ingest_parquet_file(conn, parquet_path: Path, dry_run: bool) -> tuple:
     """
-    pkl 파일 하나를 DB에 적재.
+    parquet 파일을 읽어 vod_embedding 테이블에 적재.
+    필수 컬럼: vod_id, embedding (512-dim)
     반환: (inserted, skipped, errors)
     """
-    with open(pkl_path, 'rb') as f:
-        batch = pickle.load(f)
+    df = pd.read_parquet(parquet_path)
+
+    required = {'vod_id', 'embedding'}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"parquet 필수 컬럼 누락: {missing}")
+
+    log.info(f"  parquet 로드: {len(df):,}행, 컬럼={df.columns.tolist()}")
 
     inserted = 0
     skipped  = 0
     errors   = 0
     cur      = conn.cursor()
 
-    for i, item in enumerate(batch):
-        vod_id = item.get("vod_id")
-        vec    = item.get("vector")
-
-        if vec is None or not isinstance(vec, np.ndarray):
-            log.warning(f"벡터 없음: {vod_id}")
-            skipped += 1
-            continue
+    for i, row in enumerate(df.itertuples(index=False)):
+        vod_id = row.vod_id
+        vec    = np.array(row.embedding)
 
         if vec.shape != (512,):
             log.warning(f"벡터 차원 불일치 {vec.shape}: {vod_id}")
@@ -196,14 +199,14 @@ def ingest_batch_file(conn, pkl_path: Path, dry_run: bool) -> tuple:
             continue
 
         params = {
-            "vod_id":          vod_id,
-            "embedding":       to_pgvector_str(vec),
-            "embedding_type":  EMBEDDING_TYPE,
-            "embedding_dim":   EMBEDDING_DIM,
-            "model_version":   MODEL_VERSION,
-            "magnitude":       float(np.linalg.norm(vec)),
-            "frame_count":     FRAME_COUNT,
-            "source_type":     SOURCE_TYPE,
+            "vod_id":         vod_id,
+            "embedding":      to_pgvector_str(vec),
+            "embedding_type": EMBEDDING_TYPE,
+            "embedding_dim":  EMBEDDING_DIM,
+            "model_version":  MODEL_VERSION,
+            "magnitude":      float(np.linalg.norm(vec)),
+            "frame_count":    FRAME_COUNT,
+            "source_type":    SOURCE_TYPE,
         }
 
         if dry_run:
@@ -221,7 +224,7 @@ def ingest_batch_file(conn, pkl_path: Path, dry_run: bool) -> tuple:
 
         if (i + 1) % COMMIT_INTERVAL == 0:
             conn.commit()
-            log.info(f"  COMMIT ({i+1}/{len(batch)})")
+            log.info(f"  COMMIT ({i+1}/{len(df)})")
 
     if not dry_run:
         conn.commit()
@@ -243,17 +246,17 @@ def run_verify(conn):
     cur.execute("SELECT COUNT(*) FROM vod_embedding WHERE vector_magnitude < 0.01 OR vector_magnitude > 100")
     anomalies = cur.fetchone()[0]
 
-    cur.execute("SELECT model_name, COUNT(*) FROM vod_embedding GROUP BY model_name ORDER BY COUNT(*) DESC")
-    models = cur.fetchall()
+    cur.execute("SELECT embedding_type, COUNT(*) FROM vod_embedding GROUP BY embedding_type ORDER BY COUNT(*) DESC")
+    types = cur.fetchall()
 
     print("\n=== 적재 검증 결과 ===")
     print(f"  vod_embedding 건수: {embedded:,}개")
     print(f"  vod 테이블 전체:    {total_vod:,}개")
     print(f"  커버리지:           {coverage}%")
     print(f"  이상 벡터:          {anomalies}개")
-    print(f"  모델별 분포:")
-    for model, cnt in models:
-        print(f"    {model}: {cnt:,}개")
+    print(f"  타입별 분포:")
+    for etype, cnt in types:
+        print(f"    {etype}: {cnt:,}개")
     print()
 
     if coverage < 70.0:
@@ -262,98 +265,158 @@ def run_verify(conn):
         log.info(f"커버리지 목표 달성: {coverage}%")
 
 
-def propagate_series_embeddings(conn, crawl_status_path: Path, dry_run: bool = False) -> int:
+def propagate_series_embeddings(conn, dry_run: bool = False) -> int:
     """
-    crawl_status.json 기반으로 시리즈 대표 vod_id의 임베딩을
-    같은 series_nm 내 전체 vod_id에 SQL 수준으로 복사.
+    vod 테이블 기반으로 시리즈 대표 vod_id의 임베딩을
+    같은 (series_nm, ct_cl) 내 미적재 vod_id 전체에 SQL로 복사.
 
-    - EPISODE_EMBED_CT_CL(TV 연예/오락): 건너뜀
-    - series_nm 없는 항목: 건너뜀
-    - 대표 vod_id가 vod_embedding에 없는 항목: 건너뜀
+    전략:
+    - TV 연예/오락: 에피소드별 개별 임베딩 → 전파 제외
+    - 그 외 ct_cl: series_nm 동일 = 동일 콘텐츠 → 대표 임베딩 복사
+    - series_nm이 NULL인 vod: 전파 불가 → 제외
+    - 이미 vod_embedding에 있는 vod_id: ON CONFLICT DO NOTHING으로 건너뜀
     """
-    with open(crawl_status_path, encoding='utf-8') as f:
-        crawl_data = json.load(f)
-    crawl_vods = crawl_data.get("vods", {})
-
     cur = conn.cursor()
-    total_propagated = 0
-    total_skipped    = 0
 
-    for rep_vod_id, info in crawl_vods.items():
-        if info.get("status") != "success":
-            continue
+    # 전파 대상 건수 미리 확인
+    excluded = ', '.join(f"'{c}'" for c in EPISODE_EMBED_CT_CL)
+    cur.execute(f"""
+        SELECT COUNT(DISTINCT v_target.full_asset_id)
+        FROM vod v_target
+        JOIN vod v_src
+          ON v_src.series_nm = v_target.series_nm
+         AND v_src.ct_cl     = v_target.ct_cl
+        JOIN vod_embedding ve_src ON ve_src.vod_id_fk = v_src.full_asset_id
+        WHERE v_target.ct_cl NOT IN ({excluded})
+          AND v_target.series_nm IS NOT NULL
+          AND v_src.full_asset_id != v_target.full_asset_id
+          AND NOT EXISTS (
+              SELECT 1 FROM vod_embedding ve_chk
+              WHERE ve_chk.vod_id_fk = v_target.full_asset_id
+          )
+    """)
+    target_count = cur.fetchone()[0]
+    log.info(f"전파 대상: {target_count:,}건")
 
-        ct_cl          = info.get("ct_cl")
-        series_nm      = info.get("series_nm")
-        series_key     = info.get("series_key") or series_nm
-        is_bad         = info.get("series_nm_is_bad", False)
+    if dry_run:
+        log.info("[DRY-RUN] 실제 INSERT 없음")
+        return target_count
 
-        if ct_cl in EPISODE_EMBED_CT_CL or not series_key:
-            continue
+    if target_count == 0:
+        log.info("전파 대상 없음")
+        return 0
 
-        # 대표 vod_id가 vod_embedding에 있는지 확인
-        cur.execute("SELECT 1 FROM vod_embedding WHERE vod_id_fk = %s", (rep_vod_id,))
-        if not cur.fetchone():
-            total_skipped += 1
-            continue
+    # 시리즈별로 대표 1건 선택(MIN vod_id_fk) 후 전체 미적재 형제에 복사
+    cur.execute(f"""
+        INSERT INTO vod_embedding (
+            vod_id_fk, embedding, embedding_type, embedding_dim,
+            model_version, vector_magnitude, frame_count, source_type
+        )
+        SELECT DISTINCT ON (v_target.full_asset_id)
+            v_target.full_asset_id,
+            ve_src.embedding,
+            ve_src.embedding_type,
+            ve_src.embedding_dim,
+            ve_src.model_version,
+            ve_src.vector_magnitude,
+            ve_src.frame_count,
+            ve_src.source_type
+        FROM vod v_target
+        JOIN vod v_src
+          ON v_src.series_nm = v_target.series_nm
+         AND v_src.ct_cl     = v_target.ct_cl
+        JOIN vod_embedding ve_src ON ve_src.vod_id_fk = v_src.full_asset_id
+        WHERE v_target.ct_cl NOT IN ({excluded})
+          AND v_target.series_nm IS NOT NULL
+          AND v_src.full_asset_id != v_target.full_asset_id
+          AND NOT EXISTS (
+              SELECT 1 FROM vod_embedding ve_chk
+              WHERE ve_chk.vod_id_fk = v_target.full_asset_id
+          )
+        ORDER BY v_target.full_asset_id, v_src.full_asset_id
+        ON CONFLICT (vod_id_fk) DO NOTHING
+    """)
+    propagated = cur.rowcount
+    conn.commit()
 
-        # 같은 시리즈의 나머지 vod_id 조회
-        # series_nm이 오염된 경우(is_bad): asset_nm LIKE '{series_key}%' 패턴으로 매칭
-        # 정상인 경우: series_nm exact match
-        if is_bad:
-            cur.execute(
-                "SELECT full_asset_id FROM vod "
-                "WHERE ct_cl = %s AND asset_nm LIKE %s AND full_asset_id != %s",
-                (ct_cl, series_key + '%', rep_vod_id)
-            )
-        else:
-            cur.execute(
-                "SELECT full_asset_id FROM vod "
-                "WHERE series_nm = %s AND ct_cl = %s AND full_asset_id != %s",
-                (series_nm, ct_cl, rep_vod_id)
-            )
-        siblings = [r[0] for r in cur.fetchall()]
-        if not siblings:
-            continue
+    log.info(f"시리즈 전파 완료: {propagated:,}건")
+    return propagated
 
-        if dry_run:
-            log.info(f"[DRY-RUN] {series_nm}: {len(siblings)}개 vod_id에 전파 예정")
-            total_propagated += len(siblings)
-            continue
 
-        # 대표의 임베딩을 형제 vod_id들에 SQL로 복사 (벡터 재인코딩 없이)
-        for sib_id in siblings:
+def normalize_embeddings(conn, dry_run: bool = False) -> int:
+    """
+    vector_magnitude가 1.0이 아닌 벡터를 L2 정규화 후 DB UPDATE.
+    정규화 기준: |magnitude - 1.0| > 0.001
+    배치(FETCH_SIZE)로 처리하여 메모리 절약.
+    """
+    FETCH_SIZE = 500
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT COUNT(*) FROM vod_embedding
+        WHERE vector_magnitude IS NULL
+           OR vector_magnitude < 0.999
+           OR vector_magnitude > 1.001
+    """)
+    total = cur.fetchone()[0]
+    log.info(f"정규화 대상: {total:,}건")
+
+    if dry_run:
+        log.info("[DRY-RUN] 실제 UPDATE 없음")
+        return total
+
+    if total == 0:
+        log.info("정규화 대상 없음 — 모든 벡터가 이미 L2 정규화 완료")
+        return 0
+
+    cur.execute("""
+        SELECT vod_embedding_id, embedding
+        FROM vod_embedding
+        WHERE vector_magnitude IS NULL
+           OR vector_magnitude < 0.999
+           OR vector_magnitude > 1.001
+    """)
+
+    updated = 0
+    errors  = 0
+    batch   = cur.fetchmany(FETCH_SIZE)
+    upd_cur = conn.cursor()
+
+    while batch:
+        for emb_id, vec_raw in batch:
+            # pgvector는 '[f1,f2,...]' 문자열로 반환 — 파싱
+            if isinstance(vec_raw, str):
+                vec_raw = vec_raw.strip('[]').split(',')
+            vec = np.array(vec_raw, dtype=np.float32)
+            norm = np.linalg.norm(vec)
+            if norm < 1e-10:
+                log.warning(f"vod_embedding_id={emb_id}: 영벡터(norm≈0) — 건너뜀")
+                errors += 1
+                continue
+            vec_normalized = vec / norm
             try:
-                cur.execute("""
-                    INSERT INTO vod_embedding (
-                        vod_id_fk, embedding, embedding_type, embedding_dim,
-                        model_version, vector_magnitude, frame_count, source_type
-                    )
-                    SELECT %s, embedding, embedding_type, embedding_dim,
-                           model_version, vector_magnitude, frame_count, source_type
-                    FROM vod_embedding
-                    WHERE vod_id_fk = %s
-                    ON CONFLICT (vod_id_fk) DO UPDATE SET
-                        embedding        = EXCLUDED.embedding,
+                upd_cur.execute("""
+                    UPDATE vod_embedding
+                    SET embedding        = %s::vector,
+                        vector_magnitude = %s,
                         updated_at       = NOW()
-                """, (sib_id, rep_vod_id))
-                total_propagated += 1
+                    WHERE vod_embedding_id = %s
+                """, (to_pgvector_str(vec_normalized), float(np.linalg.norm(vec_normalized)), emb_id))
+                updated += 1
             except Exception as e:
-                log.warning(f"전파 실패 {sib_id}: {e}")
+                log.error(f"UPDATE 실패 id={emb_id}: {e}")
                 conn.rollback()
+                errors += 1
 
-        if total_propagated % COMMIT_INTERVAL == 0:
-            conn.commit()
-
-    if not dry_run:
         conn.commit()
+        log.info(f"  정규화 진행: {updated:,}/{total:,}")
+        batch = cur.fetchmany(FETCH_SIZE)
 
-    log.info(f"시리즈 전파 완료: {total_propagated:,}건 전파, {total_skipped}건 스킵(미적재)")
-    return total_propagated
+    log.info(f"정규화 완료: {updated:,}건 업데이트, {errors}건 오류")
+    return updated
 
 
 def create_index_after_ingest(conn):
-    """전체 적재 완료 후 IVF_FLAT 인덱스 생성"""
     log.info("IVF_FLAT 인덱스 생성 중... (수 분 소요)")
     cur = conn.cursor()
     cur.execute("""
@@ -365,14 +428,16 @@ def create_index_after_ingest(conn):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="pgvector DB 적재")
-    parser.add_argument('--batch',      type=str, default='', help='특정 pkl 파일만 적재')
-    parser.add_argument('--dry-run',    action='store_true', help='DB INSERT 없이 확인만')
-    parser.add_argument('--verify',     action='store_true', help='적재 결과 검증만')
-    parser.add_argument('--create-index', action='store_true', help='적재 후 IVF_FLAT 인덱스 생성')
-    parser.add_argument('--propagate',  action='store_true',
+    parser = argparse.ArgumentParser(description="pgvector DB 적재 (parquet → vod_embedding)")
+    parser.add_argument('--file',         type=str, default='', help='특정 parquet 파일만 적재')
+    parser.add_argument('--dry-run',      action='store_true',  help='DB INSERT 없이 확인만')
+    parser.add_argument('--verify',       action='store_true',  help='적재 결과 검증만')
+    parser.add_argument('--create-index', action='store_true',  help='적재 후 IVF_FLAT 인덱스 생성')
+    parser.add_argument('--propagate',    action='store_true',
                         help='시리즈 대표 임베딩을 같은 series_nm 전체 vod_id에 복사 '
                              '(대표 적재 완료 후 실행)')
+    parser.add_argument('--normalize',    action='store_true',
+                        help='L2 정규화되지 않은 벡터(magnitude≠1.0)를 정규화 후 UPDATE')
     args = parser.parse_args()
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -387,26 +452,26 @@ def main():
             sys.exit(1)
         ensure_table(conn)
 
-        # --propagate: 시리즈 전파만 실행
         if args.propagate:
-            crawl_status_path = DATA_DIR / "crawl_status.json"
-            if not crawl_status_path.exists():
-                log.error("crawl_status.json 없음 — PLAN_01 (crawl_trailers.py) 먼저 실행")
-                sys.exit(1)
             log.info("=== 시리즈 임베딩 전파 시작 ===")
-            if args.dry_run:
-                log.info("[DRY-RUN] 실제 INSERT 없음")
-            propagated = propagate_series_embeddings(conn, crawl_status_path, args.dry_run)
+            propagated = propagate_series_embeddings(conn, args.dry_run)
             log.info(f"전파 완료: {propagated:,}건")
             run_verify(conn)
             return
 
-        batch_files = get_batch_files(DATA_DIR, args.batch)
-        if not batch_files:
-            log.error("적재할 pkl 파일 없음 — PLAN_02 (batch_embed.py) 먼저 실행")
+        if args.normalize:
+            log.info("=== L2 정규화 시작 ===")
+            updated = normalize_embeddings(conn, args.dry_run)
+            log.info(f"정규화 완료: {updated:,}건")
+            run_verify(conn)
+            return
+
+        parquet_files = get_parquet_files(DATA_DIR, args.file)
+        if not parquet_files:
+            log.error("적재할 parquet 파일 없음 — --file 옵션으로 경로 지정 또는 data/embeddings_*.parquet 배치")
             sys.exit(1)
 
-        log.info(f"적재 대상 배치 파일: {len(batch_files)}개")
+        log.info(f"적재 대상 파일: {len(parquet_files)}개")
         if args.dry_run:
             log.info("[DRY-RUN] 실제 INSERT 없음")
 
@@ -414,9 +479,9 @@ def main():
         total_skipped  = 0
         total_errors   = 0
 
-        for pkl_path in batch_files:
-            log.info(f"처리 중: {pkl_path.name}")
-            ins, skip, err = ingest_batch_file(conn, pkl_path, args.dry_run)
+        for pq_path in parquet_files:
+            log.info(f"처리 중: {pq_path.name}")
+            ins, skip, err = ingest_parquet_file(conn, pq_path, args.dry_run)
             total_inserted += ins
             total_skipped  += skip
             total_errors   += err
