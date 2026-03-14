@@ -83,7 +83,36 @@
 
 ---
 
-## 3. 분석 및 평가
+## 3. PLAN_01 카테고리별 인식률 분석
+
+| 카테고리 | 탐지 VOD | 비율 | 평가 |
+|---------|---------|------|------|
+| 음식/식기 | 9 / 10 | **90%** | VOD 커버율 높음. 단, 서양 식기류(bowl/bottle/cup)만 — 한식 0건 |
+| 옷/사람 | 10 / 10 | **100%** | person 100% 탐지. 의류 스타일 구분 불가 (tie/suitcase/handbag만) |
+| 가구/가전 | 6 / 10 | **60%** | chair, tv, bed, laptop, refrigerator 등 홈쇼핑 연동에 가장 유리 |
+
+### 음식 라벨 상세
+```
+bowl 207 / bottle 124 / cup 89 / banana 8 / hot dog 6 / carrot 4 / apple 4 / pizza 3 / sandwich 3 / donut 2
+→ 한식(김치찌개, 비빔밥 등) 탐지 0건 — COCO 구조적 한계
+```
+
+### 옷/사람 라벨 상세
+```
+person 2,404 / tie 17 / suitcase 2 / backpack 2 / handbag 1
+→ 의류 스타일·색상 구분 불가, person 탐지만으로는 광고 연동 어려움
+```
+
+### 가구/가전 라벨 상세
+```
+chair 128 / tv 91 / dining table 54 / bed 42 / laptop 37
+refrigerator 29 / couch 26 / clock 16 / vase 10 / cell phone 5
+→ Shopping_Ad 연동 가장 적합한 카테고리
+```
+
+---
+
+## 4. 분석 및 평가
 
 ### 3.1 긍정적 지표
 
@@ -113,7 +142,19 @@
 
 ---
 
-## 4. Shopping_Ad 연동 가능성 평가
+## 5. PLAN_01 완료 판정
+
+| 완료 기준 | 결과 |
+|---------|------|
+| frame_extractor.py 구현 + 테스트 PASS | ✅ |
+| detector.py 구현 + 테스트 PASS | ✅ |
+| batch_detect.py 파일럿 10건 성공 | ✅ |
+| 카테고리별 인식률 수치 출력 | ✅ |
+| **다음 방향** | **가구/가전 60% → Shopping_Ad 연동(PLAN_02) 진행** |
+
+---
+
+## 5. Shopping_Ad 연동 가능성 평가
 
 파일럿 결과 기준 홈쇼핑 광고 트리거 가능 객체:
 
