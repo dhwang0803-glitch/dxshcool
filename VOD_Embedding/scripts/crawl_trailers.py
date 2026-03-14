@@ -31,9 +31,10 @@ STATUS_FILE  = DATA_DIR / "crawl_status.json"
 BATCH_SAVE_INTERVAL = 20       # 체크포인트 저장 주기 (파일럿: 20, 전체: 100)
 REQUEST_DELAY_MIN   = 1.5      # 요청 간 최소 대기 (초)
 REQUEST_DELAY_MAX   = 3.0      # 요청 간 최대 대기 (초)
-DURATION_MIN_SEC    = 30
-DURATION_MAX_SEC    = 300
-MAX_FILESIZE_BYTES  = 50 * 1024 * 1024   # 50MB
+DURATION_MIN_SEC      = 30
+DURATION_MAX_SEC      = 300               # fast path 기준 (기존 유지)
+DURATION_MAX_SEC_SLOW = 600               # slow path fallback 기준 (5→10분)
+MAX_FILESIZE_BYTES    = 50 * 1024 * 1024  # 50MB
 
 # 실제 vod 테이블 ct_cl 값 기준 제외 목록
 EXCLUDE_CT_CL = {'우리동네', '미분류'}
@@ -177,9 +178,26 @@ def duration_filter(info, incomplete):
     return None
 
 
-def try_download(vod_id: str, queries: list, output_dir: Path, dry_run: bool) -> dict:
+def duration_filter_slow(info, incomplete):
+    """slow path용 match_filter: 30초~10분 허용."""
+    if incomplete:
+        return None
+    duration = info.get('duration') or 0
+    if duration < DURATION_MIN_SEC:
+        return f"너무 짧음 ({duration}초)"
+    if duration > DURATION_MAX_SEC_SLOW:
+        return f"너무 김 ({duration}초)"
+    return None
+
+
+def try_download(vod_id: str, queries: list, output_dir: Path, dry_run: bool,
+                 slow: bool = False) -> dict:
     """
     쿼리 목록을 순서대로 시도하여 첫 번째 성공 시 반환.
+
+    slow=False (기본 fast path): ytsearch1, DURATION_MAX 300s — 기존 동작 유지
+    slow=True  (slow path):      ytsearch3, DURATION_MAX 600s — fast 실패 시 fallback
+
     반환: {"status": "success"|"failed", ...}
     """
     try:
@@ -190,6 +208,10 @@ def try_download(vod_id: str, queries: list, output_dir: Path, dry_run: bool) ->
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    n_results   = 3 if slow else 1
+    dur_filter  = duration_filter_slow if slow else duration_filter
+    dur_max     = DURATION_MAX_SEC_SLOW if slow else DURATION_MAX_SEC
+
     for query in queries:
         time.sleep(random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX))
 
@@ -198,16 +220,15 @@ def try_download(vod_id: str, queries: list, output_dir: Path, dry_run: bool) ->
             'outtmpl': str(output_dir / '%(id)s.%(ext)s'),
             'quiet': True,
             'no_warnings': True,
-            'match_filter': duration_filter,
+            'match_filter': dur_filter,
             'max_filesize': MAX_FILESIZE_BYTES,
             'retries': 2,
             'socket_timeout': 30,
-            'default_search': 'ytsearch1',   # 첫 번째 검색 결과만
             'noplaylist': True,
         }
 
         if dry_run:
-            log.info(f"[DRY-RUN] {vod_id}: 검색 쿼리 = '{query}'")
+            log.info(f"[DRY-RUN] {vod_id}: 검색 쿼리 = '{query}' (slow={slow})")
             return {
                 "status": "success",
                 "filename": "dry_run.webm",
@@ -218,17 +239,22 @@ def try_download(vod_id: str, queries: list, output_dir: Path, dry_run: bool) ->
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(f"ytsearch1:{query}", download=True)
+                info = ydl.extract_info(f"ytsearch{n_results}:{query}", download=True)
                 if info and info.get('entries'):
-                    entry = info['entries'][0]
-                    filename = f"{entry['id']}.{entry.get('ext', 'webm')}"
-                    return {
-                        "status": "success",
-                        "filename": filename,
-                        "query_used": query,
-                        "duration_sec": entry.get('duration', 0),
-                        "downloaded_at": datetime.now().isoformat(),
-                    }
+                    # slow path: 여러 결과 중 duration 조건 통과한 첫 번째 채택
+                    for entry in info['entries']:
+                        if entry is None:
+                            continue
+                        duration = entry.get('duration', 0) or 0
+                        if DURATION_MIN_SEC <= duration <= dur_max:
+                            filename = f"{entry['id']}.{entry.get('ext', 'webm')}"
+                            return {
+                                "status": "success",
+                                "filename": filename,
+                                "query_used": query,
+                                "duration_sec": duration,
+                                "downloaded_at": datetime.now().isoformat(),
+                            }
         except Exception as e:
             err_str = str(e)
             if '429' in err_str or 'Too Many Requests' in err_str:
@@ -395,6 +421,10 @@ def main():
                         help='ct_cl 층화 100개 파일럿 실행 (시간/성공률 검증용)')
     parser.add_argument('--trailers-dir', type=str, default=str(DEFAULT_TRAILERS_DIR),
                         help=f'트레일러 저장 경로 (기본: {DEFAULT_TRAILERS_DIR})')
+    parser.add_argument('--task-file', type=str, default='',
+                        help='팀원별 작업 파일 (split_tasks.py 출력). 지정 시 --ct-cl/--pilot 무시')
+    parser.add_argument('--retry-failed', action='store_true',
+                        help='crawl_status.json의 failed 건을 slow path(ytsearch3+600s)로 재시도')
     args = parser.parse_args()
     TRAILERS_DIR = Path(args.trailers_dir)
 
@@ -405,37 +435,88 @@ def main():
         print_status(status)
         return
 
+    # --retry-failed: crawl_status.json의 failed 건만 slow path로 재시도
+    if args.retry_failed:
+        failed_vods = {
+            vod_id: info
+            for vod_id, info in status["vods"].items()
+            if info.get("status") == "failed"
+        }
+        log.info(f"--retry-failed: {len(failed_vods)}건 slow path 재시도 (ytsearch3+600s)")
+        TRAILERS_DIR = Path(args.trailers_dir)
+        retry_done = 0
+        for vod_id, info in failed_vods.items():
+            queries = build_search_queries(
+                info.get("asset_nm", ""),
+                info.get("ct_cl", ""),
+                "",                         # genre은 status에 미저장, 쿼리 빌드에 미사용
+                info.get("series_nm"),
+            )
+            result = try_download(vod_id, queries, TRAILERS_DIR, args.dry_run, slow=True)
+            result["ct_cl"]            = info.get("ct_cl")
+            result["series_nm"]        = info.get("series_nm")
+            result["series_key"]       = info.get("series_key")
+            result["series_nm_is_bad"] = info.get("series_nm_is_bad")
+            result["asset_nm"]         = info.get("asset_nm")
+            result["slow_path"]        = True
+            status["vods"][vod_id] = result
+            if result["status"] == "success":
+                status["success"] = status.get("success", 0) + 1
+                status["failed"]  = max(0, status.get("failed", 0) - 1)
+                log.info(f"OK  {vod_id} ({info.get('asset_nm')}) → {result['filename']}")
+            else:
+                log.warning(f"FAIL {vod_id} ({info.get('asset_nm')}): {result.get('reason')}")
+            retry_done += 1
+            if retry_done % BATCH_SAVE_INTERVAL == 0:
+                save_status(status)
+        save_status(status)
+        print_status(status)
+        log.info("retry-failed 완료")
+        return
+
     # VOD 목록 로드
-    log.info("vod 테이블에서 대상 목록 조회 중...")
-    try:
-        vod_list = fetch_vod_list(ct_cl_filter=args.ct_cl)
-    except Exception as e:
-        log.error(f"DB 연결 실패: {e}")
-        log.info("테스트용 샘플 데이터로 대체합니다.")
-        vod_list = [
-            {"vod_id": "TEST001", "asset_nm": "어바웃 타임", "ct_cl": "영화", "genre": "로맨스"},
-            {"vod_id": "TEST002", "asset_nm": "기생충", "ct_cl": "영화", "genre": "드라마"},
-        ]
-
-    # --pilot: ct_cl 층화 100개 샘플
-    if args.pilot:
-        log.info("=== 파일럿 모드: ct_cl 층화 100개 샘플 ===")
-        vod_list = stratified_sample(vod_list, total=100)
-        status["mode"] = "pilot"
+    if args.task_file:
+        # 팀원 분할 파일 사용 (dedup·필터 이미 적용된 상태)
+        task_path = Path(args.task_file)
+        with open(task_path, encoding='utf-8') as f:
+            task_data = json.load(f)
+        vod_list = task_data["vods"]
+        log.info(
+            f"작업 파일 로드: {task_path.name} — "
+            f"팀원 {task_data.get('team', '?')} / {task_data.get('description', '')} "
+            f"/ {len(vod_list):,}건"
+        )
     else:
-        # 전체 실행: 임베딩 전략에 따라 시리즈 중복 제거
-        series_pool  = [v for v in vod_list if v["ct_cl"] in SERIES_EMBED_CT_CL]
-        episode_pool = [v for v in vod_list if v["ct_cl"] in EPISODE_EMBED_CT_CL]
-        other_pool   = [v for v in vod_list if v["ct_cl"] not in SERIES_EMBED_CT_CL
-                                             and v["ct_cl"] not in EPISODE_EMBED_CT_CL]
+        log.info("vod 테이블에서 대상 목록 조회 중...")
+        try:
+            vod_list = fetch_vod_list(ct_cl_filter=args.ct_cl)
+        except Exception as e:
+            log.error(f"DB 연결 실패: {e}")
+            log.info("테스트용 샘플 데이터로 대체합니다.")
+            vod_list = [
+                {"vod_id": "TEST001", "asset_nm": "어바웃 타임", "ct_cl": "영화", "genre": "로맨스"},
+                {"vod_id": "TEST002", "asset_nm": "기생충", "ct_cl": "영화", "genre": "드라마"},
+            ]
 
-        deduped_series = dedup_by_series_nm(series_pool)
-        before = len(series_pool)
-        after  = len(deduped_series)
-        log.info(f"시리즈 dedup: {before:,}건 → {after:,}건 (제거 {before-after:,}건)")
-        log.info(f"에피소드 단위(TV 연예/오락): {len(episode_pool):,}건")
+        # --pilot: ct_cl 층화 100개 샘플
+        if args.pilot:
+            log.info("=== 파일럿 모드: ct_cl 층화 100개 샘플 ===")
+            vod_list = stratified_sample(vod_list, total=100)
+            status["mode"] = "pilot"
+        else:
+            # 전체 실행: 임베딩 전략에 따라 시리즈 중복 제거
+            series_pool  = [v for v in vod_list if v["ct_cl"] in SERIES_EMBED_CT_CL]
+            episode_pool = [v for v in vod_list if v["ct_cl"] in EPISODE_EMBED_CT_CL]
+            other_pool   = [v for v in vod_list if v["ct_cl"] not in SERIES_EMBED_CT_CL
+                                                 and v["ct_cl"] not in EPISODE_EMBED_CT_CL]
 
-        vod_list = deduped_series + episode_pool + other_pool
+            deduped_series = dedup_by_series_nm(series_pool)
+            before = len(series_pool)
+            after  = len(deduped_series)
+            log.info(f"시리즈 dedup: {before:,}건 → {after:,}건 (제거 {before-after:,}건)")
+            log.info(f"에피소드 단위(TV 연예/오락): {len(episode_pool):,}건")
+
+            vod_list = deduped_series + episode_pool + other_pool
 
     if args.limit > 0:
         vod_list = vod_list[:args.limit]
@@ -454,6 +535,13 @@ def main():
 
         queries = build_search_queries(vod["asset_nm"], vod["ct_cl"], vod["genre"], vod.get("series_nm"))
         result  = try_download(vod_id, queries, TRAILERS_DIR, args.dry_run)
+
+        # fast path 실패 시 slow path fallback (ytsearch3 + 600s)
+        if result["status"] == "failed":
+            log.info(f"  [slow] {vod_id} ({vod['asset_nm']}) — slow path 재시도")
+            result = try_download(vod_id, queries, TRAILERS_DIR, args.dry_run, slow=True)
+            if result["status"] == "success":
+                result["slow_path"] = True
 
         # 전파 메타 저장 → ingest_to_db.py --propagate 시 시리즈 전파에 사용
         series_key, is_bad = effective_series_nm(vod.get("series_nm"), vod["asset_nm"])

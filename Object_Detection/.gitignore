@@ -1,0 +1,23 @@
+# 모델 가중치 (대용량, 자동 다운로드)
+*.pt
+*.onnx
+*.engine
+*.torchscript
+
+# 산출물 데이터 (대용량)
+data/
+*.parquet
+*.mp4
+*.avi
+*.mkv
+*.webm
+
+# 환경
+.env
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# 로그
+*.log

@@ -52,7 +52,8 @@ DB_PASSWORD=<password>
 #### 로컬 Python 환경 세팅
 
 ```bash
-pip install psycopg2-binary sqlalchemy pandas python-dotenv
+conda activate myenv
+pip install -r requirements.txt
 ```
 
 #### CSV 파일 VPC 업로드 (각자 담당 파일)

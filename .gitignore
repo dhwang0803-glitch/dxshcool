@@ -142,12 +142,24 @@ celerybeat.pid
 # SageMath parsed files
 *.sage.py
 
+# Data files (CSV, large datasets - do not commit)
+data/
+
 # Environments
 .env
 .env.*
 !.env.example
 .envrc
+
+# Claude Code local settings (may contain credentials)
+.claude/settings.local.json
 .venv
+
+# RAG Pipeline secrets & generated data
+RAG/config/api_keys.env
+RAG/config/chroma_db/
+RAG/config/embeddings_cache/
+RAG/config/checkpoint.json
 env/
 venv/
 ENV/
@@ -232,6 +244,10 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# RAG bulk pipeline 대용량 데이터
+RAG/data/bulk/final_results.jsonl
+RAG/data/bulk/series_cache.json
 
 # 개인 작업 메모
 work.md

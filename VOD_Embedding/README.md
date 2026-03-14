@@ -7,13 +7,17 @@ CLIP 임베딩 파이프라인 분산 작업을 위한 안내 문서입니다.
 ## 파이프라인 개요
 
 ```
-[PLAN_01] crawl_trailers.py   → trailers/*.webm   (트레일러 다운로드)
-[PLAN_02] batch_embed.py      → embeddings_*.parquet  (CLIP 임베딩)  ← 팀원 담당
-[PLAN_03] ingest_to_db.py     → vod_embedding 테이블  (오너가 적재)
+[준비]    split_tasks.py        → data/tasks_A~D.json  (오너가 1회 실행)
+            ↓
+[PLAN_01] crawl_trailers.py   → trailers/*.webm        (트레일러 다운로드)
+            ↓
+[PLAN_02] batch_embed.py      → embeddings_*.parquet   (CLIP 임베딩)
+            ↓
+[PLAN_03] ingest_to_db.py     → vod_embedding 테이블   (오너가 적재)
 ```
 
-팀원은 **PLAN_02만** 수행하고 결과 parquet 파일을 제출합니다.
-DB 쓰기 권한 없이도 작업 가능합니다.
+팀원은 **PLAN_01 + PLAN_02**를 수행하고 parquet 파일을 제출합니다.
+각자 할당된 `tasks_X.json`을 기반으로 작업하므로 DB 쓰기 권한은 불필요합니다.
 
 ---
 
@@ -21,7 +25,7 @@ DB 쓰기 권한 없이도 작업 가능합니다.
 
 ```bash
 conda activate myenv
-pip install sentence-transformers opencv-python pillow pandas pyarrow
+pip install -r requirements.txt
 ```
 
 CLIP 모델은 처음 실행 시 HuggingFace에서 자동 다운로드됩니다 (~340MB).
@@ -31,32 +35,58 @@ CLIP 모델은 처음 실행 시 HuggingFace에서 자동 다운로드됩니다 
 
 ## 실행 방법
 
-### 1. 트레일러 다운로드 (PLAN_01)
+### 0. 작업 분할 파일 생성 (오너만 1회 실행)
 
-담당 vod_id 범위의 트레일러를 먼저 수집합니다.
+전체 VOD를 4명 분량으로 나눈 JSON 파일을 생성합니다.
 
 ```bash
-python pipeline/crawl_trailers.py --trailers-dir ./trailers
+python scripts/split_tasks.py
+# 출력: data/tasks_A.json ~ data/tasks_D.json
+```
+
+| 파일 | 내용 | 건수 |
+|------|------|-----:|
+| `tasks_A.json` | TV 연예/오락 (full_asset_id 정렬 앞 절반) | ~9,570 |
+| `tasks_B.json` | TV 연예/오락 (full_asset_id 정렬 뒤 절반) | ~9,571 |
+| `tasks_C.json` | 영화 + TV드라마 + 키즈 (시리즈 dedup) | ~11,508 |
+| `tasks_D.json` | TV애니메이션 + TV 시사/교양 + 기타 + 교육 + 다큐 등 | ~11,102 |
+
+생성된 `tasks_X.json`을 각 팀원에게 전달합니다.
+
+---
+
+### 1. 트레일러 다운로드 (PLAN_01)
+
+받은 task 파일을 지정해 실행합니다. `X`는 본인 담당 팀(A/B/C/D).
+
+```bash
+python scripts/crawl_trailers.py --task-file data/tasks_X.json
+```
+
+중단 후 재시작 시 자동으로 이어서 처리됩니다 (`data/crawl_status.json` 체크포인트).
+
+진행 상황 확인:
+
+```bash
+python scripts/crawl_trailers.py --status
 ```
 
 ### 2. 임베딩 실행 — parquet 출력 (PLAN_02)
 
-```bash
-# 기본 (data/embeddings_output.parquet 저장)
-python pipeline/batch_embed.py --output parquet --trailers-dir ./trailers
+트레일러 다운로드 완료 후 실행합니다. `이름`에 본인 이름을 넣어주세요.
 
-# 파일명에 본인 이름 포함 (권장)
-python pipeline/batch_embed.py --output parquet \
-    --out-file embeddings_홍길동.parquet \
-    --trailers-dir ./trailers
+```bash
+python scripts/batch_embed.py --output parquet \
+    --out-file data/embeddings_이름.parquet \
+    --delete-after-embed
 ```
 
-> **주의**: `--output pkl` (기본값)은 DB 직접 적재용이므로 팀원은 반드시 `--output parquet`을 사용하세요.
+> `--delete-after-embed`: 임베딩 완료된 영상 파일을 즉시 삭제해 디스크를 절약합니다.
 
-### 3. 진행 상황 확인
+진행 상황 확인:
 
 ```bash
-python pipeline/batch_embed.py --status
+python scripts/batch_embed.py --status
 ```
 
 ---
