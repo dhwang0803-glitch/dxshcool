@@ -60,22 +60,32 @@ class ClipScorer:
         timestamps: list[float],
         results: list[dict[str, float]],
         threshold: float = 0.22,
+        query_category_map: dict[str, str] | None = None,
     ) -> list[dict]:
         """
         score_frames 결과 → parquet 행 리스트.
-        threshold 미만 제거.
+        threshold 미만 제거. negative 카테고리 제거.
+
+        Args:
+            query_category_map: {"쿼리": "카테고리"} — ad_category 컬럼 부여용.
+                                 "negative" 카테고리는 records에서 제외.
 
         Returns:
-            list of {"vod_id", "frame_ts", "concept", "clip_score"}
+            list of {"vod_id", "frame_ts", "concept", "clip_score", "ad_category"}
         """
         records = []
         for ts, scores in zip(timestamps, results):
             for concept, score in scores.items():
-                if score >= threshold:
-                    records.append({
-                        "vod_id":     vod_id,
-                        "frame_ts":   ts,
-                        "concept":    concept,
-                        "clip_score": round(score, 4),
-                    })
+                if score < threshold:
+                    continue
+                ad_category = query_category_map.get(concept, "") if query_category_map else ""
+                if ad_category == "negative":
+                    continue
+                records.append({
+                    "vod_id":      vod_id,
+                    "frame_ts":    ts,
+                    "concept":     concept,
+                    "clip_score":  round(score, 4),
+                    "ad_category": ad_category,
+                })
         return records

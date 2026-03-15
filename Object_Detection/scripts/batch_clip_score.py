@@ -29,6 +29,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from frame_extractor import extract_frames, list_video_files
 from clip_scorer import ClipScorer
 from location_tagger import LocationTagger
+from context_filter import ContextFilter
 
 DATA_DIR    = PROJECT_ROOT / "data"
 CONFIG_PATH = PROJECT_ROOT / "config" / "clip_queries.yaml"
@@ -63,6 +64,15 @@ def flatten_queries(config: dict) -> list[str]:
     for category_queries in config.get("queries", {}).values():
         queries.extend(category_queries)
     return queries
+
+
+def build_query_category_map(config: dict) -> dict[str, str]:
+    """yaml 카테고리별 쿼리 → {쿼리: 카테고리} 매핑"""
+    mapping = {}
+    for category, category_queries in config.get("queries", {}).items():
+        for q in category_queries:
+            mapping[q] = category
+    return mapping
 
 
 # ─────────────────────────────────────────
@@ -135,9 +145,10 @@ def main():
         print_status(status)
         return
 
-    config    = load_config()
-    queries   = flatten_queries(config)
-    threshold = args.threshold if args.threshold is not None else config.get("threshold", 0.22)
+    config              = load_config()
+    queries             = flatten_queries(config)
+    query_category_map  = build_query_category_map(config)
+    threshold           = args.threshold if args.threshold is not None else config.get("threshold", 0.22)
 
     log.info(f"쿼리 수: {len(queries)}개 | threshold: {threshold}")
 
@@ -159,8 +170,9 @@ def main():
             log.info(f"[DRY-RUN] {f.name}")
         return
 
-    scorer = ClipScorer()
+    scorer          = ClipScorer()
     location_tagger = LocationTagger()
+    ctx_filter      = ContextFilter()
 
     run_success = run_failed = 0
     buffer = []
@@ -175,7 +187,21 @@ def main():
         try:
             frames, timestamps = extract_frames(str(video_path), fps=args.fps)
             results = scorer.score_frames(frames, queries)
-            records = scorer.to_records(vod_id, timestamps, results, threshold=threshold)
+            records = scorer.to_records(
+                vod_id, timestamps, results,
+                threshold=threshold,
+                query_category_map=query_category_map,
+            )
+
+            # context_valid 판단
+            for r in records:
+                ctx = ctx_filter.validate(
+                    yolo_labels=set(),   # CLIP 단독 실행 시 YOLO 라벨 없음
+                    clip_scores=results[timestamps.index(r["frame_ts"])] if r["frame_ts"] in timestamps else {},
+                    ad_category=r.get("ad_category", ""),
+                )
+                r["context_valid"]  = ctx["context_valid"]
+                r["context_reason"] = ctx["context_reason"]
 
             # 랜덤 위치 시뮬레이션 → 지역 태그 추가
             if args.random_location:
