@@ -53,9 +53,27 @@ log = logging.getLogger(__name__)
 # 설정 로드
 # ─────────────────────────────────────────
 
-def load_config() -> dict:
-    with open(CONFIG_PATH, encoding="utf-8") as f:
+def load_config(config_path: str = None) -> dict:
+    path = config_path if config_path else CONFIG_PATH
+    with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
+
+
+def load_yolo_index(yolo_path: Path) -> dict:
+    """
+    vod_detected_object.parquet → {vod_id: {frame_ts: set(labels)}}
+    context_filter.validate()에 실제 YOLO 라벨 전달용.
+    파일 없으면 빈 dict 반환 (CLIP 단독 실행 유지).
+    """
+    if not yolo_path.exists():
+        return {}
+    df = pd.read_parquet(str(yolo_path))
+    index: dict = {}
+    for row in df.itertuples(index=False):
+        ts = round(float(row.frame_ts), 3)
+        index.setdefault(row.vod_id, {}).setdefault(ts, set()).add(row.label)
+    log.info(f"YOLO 인덱스 로드: {len(index):,}개 VOD, {len(df):,}개 탐지 레코드")
+    return index
 
 
 def flatten_queries(config: dict) -> list[str]:
@@ -129,6 +147,8 @@ def main():
     parser = argparse.ArgumentParser(description="VOD CLIP Zero-shot 배치 스코어링")
     parser.add_argument("--input-dir", type=str, default=str(PROJECT_ROOT / "data" / "trailers_아름"))
     parser.add_argument("--output",    type=str, default=str(DATA_DIR / "vod_clip_concept.parquet"))
+    parser.add_argument("--config",    type=str, default=str(CONFIG_PATH), help="쿼리 yaml 경로 (기본값: clip_queries.yaml)")
+    parser.add_argument("--model",     type=str, default=None, help="CLIP 모델명 (미지정시 config 값 사용)")
     parser.add_argument("--fps",       type=float, default=1.0)
     parser.add_argument("--threshold", type=float, default=None, help="clip_score 임계값 (미지정시 config 값 사용)")
     parser.add_argument("--limit",     type=int, default=0)
@@ -136,8 +156,11 @@ def main():
     parser.add_argument("--dry-run",   action="store_true")
     parser.add_argument("--status",    action="store_true")
     parser.add_argument("--batch-save-interval", type=int, default=10)
-    parser.add_argument("--random-location", action="store_true", default=True,
-                        help="랜덤 사용자 위치 시뮬레이션 (기본값: True)")
+    parser.add_argument("--random-location", action=argparse.BooleanOptionalAction, default=True,
+                        help="랜덤 사용자 위치 시뮬레이션 (기본값: True, 끄려면 --no-random-location)")
+    parser.add_argument("--yolo-parquet", type=str,
+                        default=str(DATA_DIR / "vod_detected_object.parquet"),
+                        help="YOLO 탐지 결과 parquet 경로 (context_filter 식기류 체크용)")
     args = parser.parse_args()
 
     status = load_status()
@@ -145,12 +168,13 @@ def main():
         print_status(status)
         return
 
-    config              = load_config()
+    config              = load_config(args.config)
     queries             = flatten_queries(config)
     query_category_map  = build_query_category_map(config)
     threshold           = args.threshold if args.threshold is not None else config.get("threshold", 0.22)
+    model_name          = args.model if args.model else config.get("model", "clip-ViT-B-32")
 
-    log.info(f"쿼리 수: {len(queries)}개 | threshold: {threshold}")
+    log.info(f"쿼리 수: {len(queries)}개 | threshold: {threshold} | 모델: {model_name}")
 
     video_files = list_video_files(args.input_dir)
     if not video_files:
@@ -170,9 +194,10 @@ def main():
             log.info(f"[DRY-RUN] {f.name}")
         return
 
-    scorer          = ClipScorer()
+    scorer          = ClipScorer(model_name=model_name)
     location_tagger = LocationTagger()
     ctx_filter      = ContextFilter()
+    yolo_index      = load_yolo_index(Path(args.yolo_parquet))
 
     run_success = run_failed = 0
     buffer = []
@@ -193,11 +218,16 @@ def main():
                 query_category_map=query_category_map,
             )
 
-            # context_valid 판단
+            # O(1) 조회를 위해 frame_ts → scores 맵 사전 구축
+            ts_to_scores = {round(ts, 3): sc for ts, sc in zip(timestamps, results)}
+
+            # context_valid 판단 (YOLO 인덱스 있으면 실제 라벨 전달)
             for r in records:
+                frame_ts_key = round(r["frame_ts"], 3)
+                yolo_labels  = yolo_index.get(vod_id, {}).get(frame_ts_key, set())
                 ctx = ctx_filter.validate(
-                    yolo_labels=set(),   # CLIP 단독 실행 시 YOLO 라벨 없음
-                    clip_scores=results[timestamps.index(r["frame_ts"])] if r["frame_ts"] in timestamps else {},
+                    yolo_labels=yolo_labels,
+                    clip_scores=ts_to_scores.get(frame_ts_key, {}),
                     ad_category=r.get("ad_category", ""),
                 )
                 r["context_valid"]  = ctx["context_valid"]
