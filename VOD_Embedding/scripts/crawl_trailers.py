@@ -358,11 +358,13 @@ def try_download(vod_id: str, queries: list, output_dir: Path, dry_run: bool,
             }
 
         # ── Step 1: 메타데이터만 수집 (MAX_RESULTS개) ──────────────────────
+        # extract_flat=True: 검색 결과 목록만 빠르게 수집 (duration 포함)
+        # extract_flat=False는 개별 영상 풀 메타 fetch → unavailable 영상에서 예외 발생
         meta_opts = {
             'quiet': True,
             'no_warnings': True,
             'skip_download': True,
-            'extract_flat': False,
+            'extract_flat': True,
             'default_search': f'ytsearch{MAX_RESULTS}',
             'noplaylist': True,
             'socket_timeout': 30,
