@@ -44,6 +44,7 @@ REQUEST_DELAY_MAX     = 3.0       # 요청 간 최대 대기 (초)
 DURATION_MIN_SEC      = 30
 DURATION_MAX_SEC      = 300               # fast path 기준 (기존 유지)
 DURATION_MAX_SEC_SLOW = 600               # slow path fallback 기준 (5→10분)
+DURATION_MAX_SEC_KIDS = 1200              # 키즈 path 기준 (에피소드 전체 허용, 20분)
 MAX_RESULTS           = 3                 # 기존 1 → 3 (최적 트레일러 선별)
 MAX_FILESIZE_BYTES    = 100 * 1024 * 1024  # 100MB (600초 기준 상향)
 
@@ -196,6 +197,14 @@ def build_search_queries(asset_nm: str, ct_cl: str, genre: str,
         queries.append(f"{series} PV")
         queries.append(f"{series} 공식 예고편")
 
+    elif ct_cl == '키즈':
+        # 키즈는 예고편 없음 — 에피소드/클립 직접 검색 (duration 1200s까지 허용)
+        queries.append(f"{series} 1화")
+        queries.append(f"{series} 클립")
+        queries.append(f"{series} 공식")
+        queries.append(f"{series}")
+        queries.append(f"{series} episode 1")
+
     else:
         # 검색용 시리즈명: ' Classic' 접미사 제거 (YouTube 검색 정확도 향상)
         search_series = (series_nm or norm).replace(' Classic', '').strip()
@@ -252,13 +261,14 @@ def score_entry(entry: dict) -> int:
     return score
 
 
-def pick_best_entry(entries: list) -> dict | None:
+def pick_best_entry(entries: list, max_dur: int = DURATION_MAX_SEC) -> dict | None:
     """
     duration 범위 내 후보 중 score 최고 → score 동점 시 duration 짧은 것 우선.
+    max_dur: path별 상한 (fast=300s, slow=600s, kids=1200s)
     """
     valid = [
         e for e in entries
-        if e and DURATION_MIN_SEC <= (e.get('duration') or 0) <= DURATION_MAX_SEC
+        if e and DURATION_MIN_SEC <= (e.get('duration') or 0) <= max_dur
     ]
     if not valid:
         return None
@@ -289,14 +299,27 @@ def duration_filter_slow(info, incomplete):
     return None
 
 
+def duration_filter_kids(info, incomplete):
+    """kids path용 match_filter: 30초~20분 허용."""
+    if incomplete:
+        return None
+    duration = info.get('duration') or 0
+    if duration < DURATION_MIN_SEC:
+        return f"너무 짧음 ({duration}초)"
+    if duration > DURATION_MAX_SEC_KIDS:
+        return f"너무 김 ({duration}초)"
+    return None
+
+
 def try_download(vod_id: str, queries: list, output_dir: Path, dry_run: bool,
-                 slow: bool = False) -> dict:
+                 slow: bool = False, kids: bool = False) -> dict:
     """
     쿼리 목록을 순서대로 시도.
     각 쿼리에서 상위 MAX_RESULTS개 후보를 가져와 최적 트레일러 선별 후 다운로드.
 
-    slow=False (기본 fast path): ytsearch1, DURATION_MAX 300s — 기존 동작 유지
-    slow=True  (slow path):      ytsearch3, DURATION_MAX 600s — fast 실패 시 fallback
+    slow=False, kids=False (fast path): ytsearch1, DURATION_MAX 300s
+    slow=True              (slow path): ytsearch3, DURATION_MAX 600s — fast 실패 시 fallback
+    kids=True              (kids path): ytsearch3, DURATION_MAX 1200s — 키즈 에피소드 전체 허용
 
     반환: {"status": "success"|"failed", ...}
     """
@@ -308,9 +331,18 @@ def try_download(vod_id: str, queries: list, output_dir: Path, dry_run: bool,
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    n_results   = 3 if slow else 1
-    dur_filter  = duration_filter_slow if slow else duration_filter
-    dur_max     = DURATION_MAX_SEC_SLOW if slow else DURATION_MAX_SEC
+    if kids:
+        n_results  = 3
+        dur_filter = duration_filter_kids
+        dur_max    = DURATION_MAX_SEC_KIDS
+    elif slow:
+        n_results  = 3
+        dur_filter = duration_filter_slow
+        dur_max    = DURATION_MAX_SEC_SLOW
+    else:
+        n_results  = 1
+        dur_filter = duration_filter
+        dur_max    = DURATION_MAX_SEC
 
     for query in queries:
         time.sleep(random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX))
@@ -348,7 +380,7 @@ def try_download(vod_id: str, queries: list, output_dir: Path, dry_run: bool,
             continue
 
         # ── Step 2: 최적 후보 선별 ──────────────────────────────────────────
-        best = pick_best_entry(entries)
+        best = pick_best_entry(entries, max_dur=dur_max)
         if best is None:
             log.debug(f"{vod_id} 유효 후보 없음 '{query}' "
                       f"(후보 {len(entries)}개, duration={[e.get('duration') for e in entries]})")
@@ -640,10 +672,11 @@ def main():
             vod.get("series_nm"), vod.get("provider"),
             release_date=vod.get("release_date")
         )
-        result = try_download(vod_id, queries, TRAILERS_DIR, args.dry_run)
+        is_kids = vod["ct_cl"] == '키즈'
+        result = try_download(vod_id, queries, TRAILERS_DIR, args.dry_run, kids=is_kids)
 
-        # fast path 실패 시 slow path fallback (ytsearch3 + 600s)
-        if result["status"] == "failed":
+        # fast path 실패 시 slow path fallback (ytsearch3 + 600s) — 키즈는 이미 kids path 사용
+        if result["status"] == "failed" and not is_kids:
             log.info(f"  [slow] {vod_id} ({vod['asset_nm']}) — slow path 재시도")
             result = try_download(vod_id, queries, TRAILERS_DIR, args.dry_run, slow=True)
             if result["status"] == "success":
