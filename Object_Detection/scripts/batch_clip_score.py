@@ -59,6 +59,23 @@ def load_config(config_path: str = None) -> dict:
         return yaml.safe_load(f)
 
 
+def load_yolo_index(yolo_path: Path) -> dict:
+    """
+    vod_detected_object.parquet → {vod_id: {frame_ts: set(labels)}}
+    context_filter.validate()에 실제 YOLO 라벨 전달용.
+    파일 없으면 빈 dict 반환 (CLIP 단독 실행 유지).
+    """
+    if not yolo_path.exists():
+        return {}
+    df = pd.read_parquet(str(yolo_path))
+    index: dict = {}
+    for row in df.itertuples(index=False):
+        ts = round(float(row.frame_ts), 3)
+        index.setdefault(row.vod_id, {}).setdefault(ts, set()).add(row.label)
+    log.info(f"YOLO 인덱스 로드: {len(index):,}개 VOD, {len(df):,}개 탐지 레코드")
+    return index
+
+
 def flatten_queries(config: dict) -> list[str]:
     """yaml의 카테고리별 쿼리 → 단일 리스트"""
     queries = []
@@ -141,6 +158,9 @@ def main():
     parser.add_argument("--batch-save-interval", type=int, default=10)
     parser.add_argument("--random-location", action="store_true", default=True,
                         help="랜덤 사용자 위치 시뮬레이션 (기본값: True)")
+    parser.add_argument("--yolo-parquet", type=str,
+                        default=str(DATA_DIR / "vod_detected_object.parquet"),
+                        help="YOLO 탐지 결과 parquet 경로 (context_filter 식기류 체크용)")
     args = parser.parse_args()
 
     status = load_status()
@@ -177,6 +197,7 @@ def main():
     scorer          = ClipScorer(model_name=model_name)
     location_tagger = LocationTagger()
     ctx_filter      = ContextFilter()
+    yolo_index      = load_yolo_index(Path(args.yolo_parquet))
 
     run_success = run_failed = 0
     buffer = []
@@ -197,10 +218,12 @@ def main():
                 query_category_map=query_category_map,
             )
 
-            # context_valid 판단
+            # context_valid 판단 (YOLO 인덱스 있으면 실제 라벨 전달)
             for r in records:
+                frame_ts_key = round(r["frame_ts"], 3)
+                yolo_labels  = yolo_index.get(vod_id, {}).get(frame_ts_key, set())
                 ctx = ctx_filter.validate(
-                    yolo_labels=set(),   # CLIP 단독 실행 시 YOLO 라벨 없음
+                    yolo_labels=yolo_labels,
                     clip_scores=results[timestamps.index(r["frame_ts"])] if r["frame_ts"] in timestamps else {},
                     ad_category=r.get("ad_category", ""),
                 )
