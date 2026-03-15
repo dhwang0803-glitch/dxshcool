@@ -13,6 +13,7 @@ OCI CLI 설정 파일(~/.oci/config)이 사전 구성되어 있어야 함.
 """
 import logging
 import os
+import urllib.parse
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -27,10 +28,11 @@ def _get_client():
 
 
 def build_public_url(region: str, namespace: str, bucket: str, object_name: str) -> str:
-    """퍼블릭 버킷 기준 직접 접근 URL 생성."""
+    """퍼블릭 버킷 기준 직접 접근 URL 생성. object_name은 URL 인코딩 적용."""
+    encoded = urllib.parse.quote(object_name, safe="")
     return (
         f"https://objectstorage.{region}.oraclecloud.com"
-        f"/n/{namespace}/b/{bucket}/o/{object_name}"
+        f"/n/{namespace}/b/{bucket}/o/{encoded}"
     )
 
 
