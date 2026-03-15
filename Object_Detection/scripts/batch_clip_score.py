@@ -156,8 +156,8 @@ def main():
     parser.add_argument("--dry-run",   action="store_true")
     parser.add_argument("--status",    action="store_true")
     parser.add_argument("--batch-save-interval", type=int, default=10)
-    parser.add_argument("--random-location", action="store_true", default=True,
-                        help="랜덤 사용자 위치 시뮬레이션 (기본값: True)")
+    parser.add_argument("--random-location", action=argparse.BooleanOptionalAction, default=True,
+                        help="랜덤 사용자 위치 시뮬레이션 (기본값: True, 끄려면 --no-random-location)")
     parser.add_argument("--yolo-parquet", type=str,
                         default=str(DATA_DIR / "vod_detected_object.parquet"),
                         help="YOLO 탐지 결과 parquet 경로 (context_filter 식기류 체크용)")
@@ -218,13 +218,16 @@ def main():
                 query_category_map=query_category_map,
             )
 
+            # O(1) 조회를 위해 frame_ts → scores 맵 사전 구축
+            ts_to_scores = {round(ts, 3): sc for ts, sc in zip(timestamps, results)}
+
             # context_valid 판단 (YOLO 인덱스 있으면 실제 라벨 전달)
             for r in records:
                 frame_ts_key = round(r["frame_ts"], 3)
                 yolo_labels  = yolo_index.get(vod_id, {}).get(frame_ts_key, set())
                 ctx = ctx_filter.validate(
                     yolo_labels=yolo_labels,
-                    clip_scores=results[timestamps.index(r["frame_ts"])] if r["frame_ts"] in timestamps else {},
+                    clip_scores=ts_to_scores.get(frame_ts_key, {}),
                     ad_category=r.get("ad_category", ""),
                 )
                 r["context_valid"]  = ctx["context_valid"]
