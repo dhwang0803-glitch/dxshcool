@@ -199,11 +199,13 @@ def build_search_queries(asset_nm: str, ct_cl: str, genre: str,
 
     elif ct_cl == '키즈':
         # 키즈는 예고편 없음 — 에피소드/클립 직접 검색 (duration 1200s까지 허용)
-        queries.append(f"{series} 1화")
-        queries.append(f"{series} 클립")
-        queries.append(f"{series} 공식")
-        queries.append(f"{series}")
-        queries.append(f"{series} episode 1")
+        # series_nm이 있으면 더 깨끗한 시리즈명 사용 (asset_nm 시즌 정보 제거)
+        kids_nm = normalize_title(series_nm.strip()) if series_nm else series
+        queries.append(f"{kids_nm} 1화")
+        queries.append(f"{kids_nm} 클립")
+        queries.append(f"{kids_nm} 공식")
+        queries.append(f"{kids_nm}")
+        queries.append(f"{kids_nm} episode 1")
 
     else:
         # 검색용 시리즈명: ' Classic' 접미사 제거 (YouTube 검색 정확도 향상)
@@ -273,6 +275,15 @@ def pick_best_entry(entries: list, max_dur: int = DURATION_MAX_SEC) -> dict | No
     if not valid:
         return None
     return sorted(valid, key=lambda e: (-score_entry(e), e.get('duration') or 9999))[0]
+
+
+def pick_sorted_entries(entries: list, max_dur: int = DURATION_MAX_SEC) -> list:
+    """duration 범위 내 후보를 score 내림차순으로 반환 (다운로드 실패 시 순차 시도용)."""
+    valid = [
+        e for e in entries
+        if e and DURATION_MIN_SEC <= (e.get('duration') or 0) <= max_dur
+    ]
+    return sorted(valid, key=lambda e: (-score_entry(e), e.get('duration') or 9999))
 
 
 def duration_filter(info, incomplete):
@@ -358,11 +369,13 @@ def try_download(vod_id: str, queries: list, output_dir: Path, dry_run: bool,
             }
 
         # ── Step 1: 메타데이터만 수집 (MAX_RESULTS개) ──────────────────────
+        # extract_flat=True: 검색 결과 목록만 빠르게 수집 (duration 포함)
+        # extract_flat=False는 개별 영상 풀 메타 fetch → unavailable 영상에서 예외 발생
         meta_opts = {
             'quiet': True,
             'no_warnings': True,
             'skip_download': True,
-            'extract_flat': False,
+            'extract_flat': True,
             'default_search': f'ytsearch{MAX_RESULTS}',
             'noplaylist': True,
             'socket_timeout': 30,
@@ -379,14 +392,14 @@ def try_download(vod_id: str, queries: list, output_dir: Path, dry_run: bool,
             log.debug(f"{vod_id} 메타 수집 실패 '{query}': {e}")
             continue
 
-        # ── Step 2: 최적 후보 선별 ──────────────────────────────────────────
-        best = pick_best_entry(entries, max_dur=dur_max)
-        if best is None:
+        # ── Step 2: 후보 목록 선별 (score 내림차순) ─────────────────────────
+        candidates = pick_sorted_entries(entries, max_dur=dur_max)
+        if not candidates:
             log.debug(f"{vod_id} 유효 후보 없음 '{query}' "
                       f"(후보 {len(entries)}개, duration={[e.get('duration') for e in entries]})")
             continue
 
-        # ── Step 3: 선별된 영상만 다운로드 ─────────────────────────────────
+        # ── Step 3: 후보 순차 다운로드 시도 (unavailable 건너뜀) ────────────
         dl_opts = {
             'format': 'worst[ext=webm]/worst',
             'outtmpl': str(output_dir / '%(id)s.%(ext)s'),
@@ -397,26 +410,27 @@ def try_download(vod_id: str, queries: list, output_dir: Path, dry_run: bool,
             'socket_timeout': 30,
             'noplaylist': True,
         }
-        try:
-            with yt_dlp.YoutubeDL(dl_opts) as ydl:
-                ydl.download([f"https://www.youtube.com/watch?v={best['id']}"])
-            filename = f"{best['id']}.{best.get('ext', 'webm')}"
-            return {
-                "status": "success",
-                "filename": filename,
-                "query_used": query,
-                "youtube_title": best.get('title', ''),
-                "duration_sec": best.get('duration', 0),
-                "score": score_entry(best),
-                "downloaded_at": datetime.now().isoformat(),
-            }
-        except Exception as e:
-            err = str(e)
-            if '429' in err or 'Too Many Requests' in err:
-                log.warning("YouTube 429 — 60초 대기")
-                time.sleep(60)
-            log.debug(f"{vod_id} 다운로드 실패 '{best.get('id')}': {e}")
-            continue
+        for best in candidates:
+            try:
+                with yt_dlp.YoutubeDL(dl_opts) as ydl:
+                    ydl.download([f"https://www.youtube.com/watch?v={best['id']}"])
+                filename = f"{best['id']}.{best.get('ext', 'webm')}"
+                return {
+                    "status": "success",
+                    "filename": filename,
+                    "query_used": query,
+                    "youtube_title": best.get('title', ''),
+                    "duration_sec": best.get('duration', 0),
+                    "score": score_entry(best),
+                    "downloaded_at": datetime.now().isoformat(),
+                }
+            except Exception as e:
+                err = str(e)
+                if '429' in err or 'Too Many Requests' in err:
+                    log.warning("YouTube 429 — 60초 대기")
+                    time.sleep(60)
+                log.debug(f"{vod_id} 다운로드 실패 '{best.get('id')}': {e}")
+                continue
 
     return {
         "status": "failed",

@@ -146,6 +146,15 @@ def build_work_list(crawl_vods: dict, done_vod_ids: set, trailers_dir: Path) -> 
             continue
         filename = info.get("filename", "")
         filepath = trailers_dir / filename
+        # yt-dlp이 worst[ext=webm]/worst 폴백으로 mp4 등 다른 확장자로 저장할 수 있음
+        if not filepath.exists():
+            stem = Path(filename).stem
+            for alt_ext in ('mp4', 'webm', 'mkv', 'm4v', 'mov'):
+                alt = trailers_dir / f"{stem}.{alt_ext}"
+                if alt.exists():
+                    filepath = alt
+                    filename  = alt.name
+                    break
         if filepath.exists():
             work.append({
                 "vod_id":    vod_id,
