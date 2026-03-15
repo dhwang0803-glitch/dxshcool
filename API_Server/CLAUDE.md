@@ -1,0 +1,134 @@
+# API_Server — Claude Code 브랜치 지침
+
+> 루트 `CLAUDE.md` 보안 규칙과 함께 적용된다.
+
+## 모듈 역할
+
+**FastAPI 백엔드** — CF_Engine, Vector_Search, Shopping_Ad의 결과를
+단일 REST API로 통합하여 Frontend에 제공한다.
+
+## 파일 위치 규칙 (MANDATORY)
+
+```
+API_Server/
+├── app/
+│   ├── routers/    ← 엔드포인트별 라우터 (직접 실행 X)
+│   ├── services/   ← 비즈니스 로직 (직접 실행 X)
+│   ├── models/     ← Pydantic 요청/응답 스키마 (직접 실행 X)
+│   └── main.py     ← FastAPI 앱 진입점
+├── tests/          ← pytest (httpx TestClient)
+└── config/         ← 환경별 설정 yaml
+```
+
+| 파일 종류 | 저장 위치 |
+|-----------|-----------|
+| 라우터 (`recommend.py`, `search.py` 등) | `app/routers/` |
+| 비즈니스 로직 (DB 쿼리, 결과 조합) | `app/services/` |
+| Pydantic 스키마 (`RecommendResponse` 등) | `app/models/` |
+| FastAPI 앱 (`app = FastAPI()`) | `app/main.py` |
+| pytest | `tests/` |
+| 환경 설정 | `config/` |
+
+**`API_Server/` 루트 또는 프로젝트 루트에 `.py` 파일 직접 생성 금지.**
+
+## 기술 스택
+
+```python
+from fastapi import FastAPI, Depends
+from fastapi.middleware.cors import CORSMiddleware
+import psycopg2           # DB 연결
+from jose import jwt      # JWT 인증
+import uvicorn
+```
+
+## 엔드포인트 설계
+
+| 메서드 | 경로 | 설명 | 소스 |
+|--------|------|------|------|
+| GET | `/recommend/{user_id}` | 개인화 추천 | CF_Engine |
+| GET | `/similar/{asset_id}` | 유사 콘텐츠 | Vector_Search |
+| WS/SSE | `/ad/popup` | 실시간 광고 트리거 | Shopping_Ad |
+| GET | `/vod/{asset_id}` | VOD 상세 메타데이터 | DB |
+| POST | `/auth/token` | JWT 발급 | 자체 |
+
+## 실행
+
+```bash
+# 개발 서버
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+## 인터페이스
+
+### 업스트림 (읽기)
+
+| 테이블 | 컬럼 | 타입 | 용도 |
+|--------|------|------|------|
+| `public.vod` | `full_asset_id` | VARCHAR(64) | `/vod/{asset_id}` PK 조회 |
+| `public.vod` | `asset_nm`, `genre`, `ct_cl` | VARCHAR | VOD 상세 응답 |
+| `public.vod` | `director`, `cast_lead`, `cast_guest` | VARCHAR/TEXT | VOD 상세 응답 |
+| `public.vod` | `smry`, `rating`, `release_date`, `poster_url` | TEXT/VARCHAR/DATE/TEXT | VOD 상세 응답 |
+| `public."user"` | `sha2_hash` | VARCHAR | 사용자 존재 여부 확인 (PK) |
+| `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | VARCHAR/REAL/INT/VARCHAR | `/recommend/{user_id}` |
+| `serving.mv_vod_watch_stats` | `vod_id_fk`, `total_watch_count` | VARCHAR/INT | /recommend fallback (인기순) |
+
+### 다운스트림 (쓰기)
+
+| 대상 | 방식 |
+|------|------|
+| `Frontend` | REST JSON 응답 / WebSocket |
+
+> API 서버는 Gold 레이어(serving.*)에서 최종 결과만 읽어 JSON으로 전달한다.
+> 벡터 연산·집계는 수행하지 않는다.
+
+---
+
+## ⚠️ DB 연결 설정 — 담당자 필독
+
+> 확인 일시: 2026-03-12 / 확인자: 조장(dhwang0803)
+
+### 현재 VPC PostgreSQL 설정값
+
+| 파라미터 | 현재값 | 환산 |
+|----------|--------|------|
+| `shared_buffers` | 131072 × 8kB | **1 GB** |
+| `work_mem` | 32768 kB | **32 MB** |
+| `max_connections` | 100 | **100개** |
+| `max_parallel_workers_per_gather` | 0 | **병렬 쿼리 비활성화** |
+
+### 설정 변경 필요 여부
+
+| 파라미터 | 변경 필요 | 판단 근거 |
+|----------|----------|----------|
+| `shared_buffers` | ❌ 불필요 | Gold MV 캐싱에 충분 |
+| `work_mem` | ❌ 불필요 | PK 단순 조회 — 4MB도 충분 |
+| `max_parallel_workers_per_gather` | ❌ 불필요 | Gold MV는 index scan, 병렬 불필요 |
+| `max_connections` | ❌ DB 변경 불필요 | **API 서버 커넥션 풀로 해결** (아래 참고) |
+
+### 🔶 max_connections 주의사항
+
+현재 100개 제한 중 팀원 백그라운드 작업(크롤러·임베딩)이 약 20~25개를 점유하고 있다.
+API 서버가 요청마다 새 연결을 열면 트래픽 spike 시 `FATAL: too many connections` 에러 발생.
+
+**필수 조치 — API 서버에서 커넥션 풀 명시적 제한:**
+
+```python
+# app/main.py 또는 app/services/db.py
+import asyncpg, os
+
+async def get_pool():
+    return await asyncpg.create_pool(
+        os.getenv("DATABASE_URL"),
+        min_size=2,
+        max_size=10,   # 100 - (팀원 연결 ~25) 여유분에서 보수적 설정
+    )
+```
+
+> `max_size=10` 기준: 동시 연결 25개(팀원) + 풀 10개 + 예약 5개 = 40개 → 여유 60개 확보.
+> API 서버를 수평 확장(인스턴스 추가)할 경우 PgBouncer 도입 검토 필요.
+
+### 🔶 MV 갱신 시 주의사항
+
+`max_parallel_workers_per_gather = 0` 이므로 `REFRESH CONCURRENTLY` 속도가 느리다.
+API 서버 운영과는 직접 무관하나, **MV 갱신 배치 주기 설계 시 반영 필요.**
+갱신 지연 → Gold 데이터 stale → 추천 결과 최신성 저하로 이어진다.
