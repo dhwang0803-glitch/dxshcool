@@ -29,7 +29,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 DATA_DIR     = PROJECT_ROOT / "data"
 SCRIPTS_DIR  = Path(__file__).parent
 PYTHON       = sys.executable
-PARTITIONS   = ["K1", "K2"]
+PARTITIONS   = ["K1", "K2", "K3"]
 
 # 원본 crawl_status (키즈 파이프라인이 쓴 파일)
 SOURCE_STATUS = DATA_DIR / "crawl_status.json"
@@ -106,9 +106,9 @@ def split_failed_tasks(log: logging.Logger):
         and v.get("ct_cl") == "키즈"
     ]
 
-    n    = len(tasks)
-    half = n // 2
-    splits = [tasks[:half], tasks[half:]]
+    n     = len(tasks)
+    size  = n // 3
+    splits = [tasks[:size], tasks[size:size*2], tasks[size*2:]]
 
     for p, chunk in zip(PARTITIONS, splits):
         out = partition_paths(p)["task_file"]
@@ -187,7 +187,7 @@ def run_partition(p: str, args, log: logging.Logger):
 def main():
     parser = argparse.ArgumentParser(description="키즈 재시도 파이프라인 (2분할)")
     parser.add_argument('--partition',  type=str, default='',
-                        choices=['', 'K1', 'K2'])
+                        choices=['', 'K1', 'K2', 'K3'])
     parser.add_argument('--start-from', type=str, default='crawl',
                         choices=['crawl', 'embed', 'ingest'])
     parser.add_argument('--dry-run',    action='store_true')
@@ -214,7 +214,7 @@ def main():
                                  name=f"partition_{p}", daemon=True)
             threads.append(t)
 
-        main_log.info("2분할 병렬 실행 (K1/K2)")
+        main_log.info("3분할 병렬 실행 (K1/K2/K3)")
         for t in threads:
             t.start()
         for t in threads:
