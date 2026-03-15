@@ -1,10 +1,6 @@
-# CLIP Zero-shot 쿼리 목록
-# 카테고리별로 분류 — threshold 이상 score시 해당 태그 부착
-# ad_category는 카테고리 키로 자동 부여됨
-#
-# [2026-03-15] 한국어 쿼리 + multilingual 모델로 전환
-# A/B 실험 결과: std 동등(EN 0.013 ≈ KO 0.012), KO concept 커버리지 우위(23 vs 20)
-# threshold 0.26 최적 (EN th=0.25 대비 건수 유사, concept 더 다양)
+# CLIP Zero-shot 쿼리 목록 — 한국어 버전 (multilingual 모델용)
+# 모델: clip-ViT-B-32-multilingual-v1
+# A/B 비교 대상: clip_queries.yaml (영어 + ViT-B-32)
 
 queries:
   장소:
@@ -64,11 +60,8 @@ queries:
     - "장식용 과일 그릇 인테리어"
     - "물고기 그림 삽화 작품"
 
-# 탐지 임계값 — A/B 실험으로 최적화된 값
-# EN th=0.25(1,385건) vs KO th=0.26(1,925건, concept 23개) 비교 후 채택
+# 탐지 임계값
 threshold: 0.26
 
-# 사용 모델
-# 이미지: clip-ViT-B-32 / 텍스트: clip-ViT-B-32-multilingual-v1 (듀얼 모델)
+# 사용 모델 (multilingual)
 model: "clip-ViT-B-32-multilingual-v1"
-model_fallback: "clip-ViT-B-32"

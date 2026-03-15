@@ -53,8 +53,9 @@ log = logging.getLogger(__name__)
 # 설정 로드
 # ─────────────────────────────────────────
 
-def load_config() -> dict:
-    with open(CONFIG_PATH, encoding="utf-8") as f:
+def load_config(config_path: str = None) -> dict:
+    path = config_path if config_path else CONFIG_PATH
+    with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
@@ -129,6 +130,8 @@ def main():
     parser = argparse.ArgumentParser(description="VOD CLIP Zero-shot 배치 스코어링")
     parser.add_argument("--input-dir", type=str, default=str(PROJECT_ROOT / "data" / "trailers_아름"))
     parser.add_argument("--output",    type=str, default=str(DATA_DIR / "vod_clip_concept.parquet"))
+    parser.add_argument("--config",    type=str, default=str(CONFIG_PATH), help="쿼리 yaml 경로 (기본값: clip_queries.yaml)")
+    parser.add_argument("--model",     type=str, default=None, help="CLIP 모델명 (미지정시 config 값 사용)")
     parser.add_argument("--fps",       type=float, default=1.0)
     parser.add_argument("--threshold", type=float, default=None, help="clip_score 임계값 (미지정시 config 값 사용)")
     parser.add_argument("--limit",     type=int, default=0)
@@ -145,12 +148,13 @@ def main():
         print_status(status)
         return
 
-    config              = load_config()
+    config              = load_config(args.config)
     queries             = flatten_queries(config)
     query_category_map  = build_query_category_map(config)
     threshold           = args.threshold if args.threshold is not None else config.get("threshold", 0.22)
+    model_name          = args.model if args.model else config.get("model", "clip-ViT-B-32")
 
-    log.info(f"쿼리 수: {len(queries)}개 | threshold: {threshold}")
+    log.info(f"쿼리 수: {len(queries)}개 | threshold: {threshold} | 모델: {model_name}")
 
     video_files = list_video_files(args.input_dir)
     if not video_files:
@@ -170,7 +174,7 @@ def main():
             log.info(f"[DRY-RUN] {f.name}")
         return
 
-    scorer          = ClipScorer()
+    scorer          = ClipScorer(model_name=model_name)
     location_tagger = LocationTagger()
     ctx_filter      = ContextFilter()
 
