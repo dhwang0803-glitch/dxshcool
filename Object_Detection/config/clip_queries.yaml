@@ -1,36 +1,67 @@
 # CLIP Zero-shot 쿼리 목록
 # 카테고리별로 분류 — threshold 이상 score시 해당 태그 부착
+# ad_category는 카테고리 키로 자동 부여됨
 
 queries:
   장소:
-    - "바닷가"
-    - "전통시장"
-    - "주방 요리"
-    - "야외 캠핑"
-    - "산 등산"
-    - "농촌 시골"
-    - "도심 거리"
-    - "어시장 수산물"
-    - "음식점 식당"
+    - "beach seaside ocean"
+    - "traditional market street food stall"
+    - "kitchen cooking indoors"
+    - "outdoor camping bonfire"
+    - "mountain hiking trail"
+    - "rural countryside farm"
+    - "city street urban crowd"
+    - "fish market seafood display"
+    - "restaurant dining table food"
 
   한식:
-    - "한식 식탁"
-    - "해산물 요리"
-    - "전골 찌개"
-    - "고기구이 바베큐"
-    - "생선 요리"
-    - "수산물 해산물"
-    - "한국 전통 음식"
+    - "Korean food dining table"
+    - "seafood Korean cuisine"
+    - "Korean stew hot pot bubbling"
+    - "Korean BBQ grilled meat"
+    - "grilled fish Korean style"
+    - "fresh raw seafood shellfish"
+    - "Korean traditional food banchan"
 
   홈쇼핑:
-    - "가전제품"
-    - "가구 소파"
-    - "침구 이불"
-    - "주방용품"
-    - "여행 패키지"
+    - "home appliance electronics TV"
+    - "furniture sofa living room"
+    - "bedding blanket pillow bedroom"
+    - "kitchen utensils cookware"
+    - "travel vacation package resort"
+
+  지방특산물:
+    - "person eating dried salted fish meal"
+    - "snow crab seafood Korean dish"
+    - "abalone shellfish Korean seafood"
+    - "Korean beef bulgogi marbled meat"
+    - "salted fermented fish side dish"
+    - "fresh oyster shellfish seafood"
+    - "grilled eel freshwater fish Korean"
+
+  과일채소:
+    - "pineapple tropical fruit"
+    - "mango tropical yellow fruit"
+    - "strawberry fresh red fruit"
+    - "fresh vegetables produce market"
+    - "watermelon summer fruit"
+    - "grape bunch fruit"
+
+  여행지:
+    - "European city street architecture"
+    - "tropical beach resort Southeast Asia"
+    - "Mediterranean coast scenic blue sea"
+    - "Japanese street travel tourism"
+    - "Jeju island Korea scenic nature"
+    - "domestic Korean countryside travel"
+
+  negative:
+    - "goldfish aquarium pet tank"
+    - "decorative fruit bowl centerpiece"
+    - "painting artwork fish illustration"
 
 # 탐지 임계값 (이 값 이상만 태그로 저장)
-threshold: 0.22
+threshold: 0.25
 
 # 사용 모델
 model: "clip-ViT-B-32"
