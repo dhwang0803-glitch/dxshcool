@@ -30,7 +30,8 @@ sys.stdout.reconfigure(encoding='utf-8')
 PROJECT_ROOT         = Path(__file__).parent.parent
 DATA_DIR             = PROJECT_ROOT / "data"
 DEFAULT_TRAILERS_DIR = Path("C:/Users/daewo/DX_prod_2nd/trailers")
-STATUS_FILE          = DATA_DIR / "embed_status.json"
+STATUS_FILE          = DATA_DIR / "embed_status.json"   # --embed-status-file 인자로 덮어씀
+CRAWL_STATUS_FILE    = DATA_DIR / "crawl_status.json"   # --crawl-status-file 인자로 덮어씀
 
 BATCH_SIZE    = 100
 N_FRAMES      = 10
@@ -100,9 +101,9 @@ def check_vector_quality(vec: np.ndarray) -> bool:
     return 0.01 <= mag <= 100.0
 
 
-def load_status() -> dict:
-    if STATUS_FILE.exists():
-        with open(STATUS_FILE, encoding='utf-8') as f:
+def load_status(status_file: Path) -> dict:
+    if status_file.exists():
+        with open(status_file, encoding='utf-8') as f:
             return json.load(f)
     return {
         "last_updated": None,
@@ -115,18 +116,17 @@ def load_status() -> dict:
     }
 
 
-def save_status(status: dict):
+def save_status(status: dict, status_file: Path):
     status["last_updated"] = datetime.now().isoformat()
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with open(STATUS_FILE, 'w', encoding='utf-8') as f:
+    with open(status_file, 'w', encoding='utf-8') as f:
         json.dump(status, f, ensure_ascii=False, indent=2)
 
 
-def load_crawl_status() -> dict:
+def load_crawl_status(crawl_status_file: Path) -> dict:
     """PLAN_01 결과 읽기 (vod_id → filename 매핑)"""
-    crawl_file = DATA_DIR / "crawl_status.json"
-    if crawl_file.exists():
-        with open(crawl_file, encoding='utf-8') as f:
+    if crawl_status_file.exists():
+        with open(crawl_status_file, encoding='utf-8') as f:
             data = json.load(f)
         return data.get("vods", {})
     return {}
@@ -146,6 +146,15 @@ def build_work_list(crawl_vods: dict, done_vod_ids: set, trailers_dir: Path) -> 
             continue
         filename = info.get("filename", "")
         filepath = trailers_dir / filename
+        # yt-dlp이 worst[ext=webm]/worst 폴백으로 mp4 등 다른 확장자로 저장할 수 있음
+        if not filepath.exists():
+            stem = Path(filename).stem
+            for alt_ext in ('mp4', 'webm', 'mkv', 'm4v', 'mov'):
+                alt = trailers_dir / f"{stem}.{alt_ext}"
+                if alt.exists():
+                    filepath = alt
+                    filename  = alt.name
+                    break
         if filepath.exists():
             work.append({
                 "vod_id":    vod_id,
@@ -240,11 +249,17 @@ def main():
                         help='출력 포맷: pkl(기본, DB 적재용) / parquet(팀원 제출용)')
     parser.add_argument('--out-file', type=str, default='',
                         help='parquet 출력 파일명 (기본: data/embeddings_output.parquet)')
+    parser.add_argument('--crawl-status-file', type=str, default='',
+                        help='크롤 상태 파일 경로 (기본: data/crawl_status.json). 병렬 실행 시 파티션별 지정')
+    parser.add_argument('--embed-status-file', type=str, default='',
+                        help='임베딩 상태 파일 경로 (기본: data/embed_status.json). 병렬 실행 시 파티션별 지정')
     args = parser.parse_args()
+    CRAWL_STATUS_FILE = Path(args.crawl_status_file) if args.crawl_status_file else DATA_DIR / "crawl_status.json"
+    STATUS_FILE       = Path(args.embed_status_file)  if args.embed_status_file  else DATA_DIR / "embed_status.json"
     TRAILERS_DIR = Path(args.trailers_dir)
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    status = load_status()
+    status = load_status(STATUS_FILE)
 
     if args.status:
         print_status(status)
@@ -254,12 +269,12 @@ def main():
     done_ids = already_embedded_vod_ids(status)
 
     # PLAN_01 결과 로드
-    crawl_vods = load_crawl_status()
+    crawl_vods = load_crawl_status(CRAWL_STATUS_FILE)
     if not crawl_vods:
         # PLAN_01 미완료 시 trailers/ 폴더에서 직접 스캔
         log.warning("crawl_status.json 없음 — trailers/ 폴더 직접 스캔")
         crawl_vods = {}
-        for f in TRAILERS_DIR.glob("*.webm"):
+        for f in TRAILERS_DIR.glob("*.*"):
             vod_id = f.stem   # filename without extension
             crawl_vods[vod_id] = {
                 "status": "success",
@@ -348,7 +363,7 @@ def main():
         if not use_parquet and len(batch_data) >= BATCH_SIZE:
             fname = save_batch(batch_data, batch_num)
             status.setdefault("batches_completed", []).append(fname)
-            save_status(status)
+            save_status(status, STATUS_FILE)
             batch_data = []
             batch_num  += 1
 
@@ -362,7 +377,7 @@ def main():
         out_file = args.out_file or str(DATA_DIR / "embeddings_output.parquet")
         save_parquet(parquet_results, out_file)
 
-    save_status(status)
+    save_status(status, STATUS_FILE)
     print_status(status)
     log.info("배치 임베딩 완료")
 
