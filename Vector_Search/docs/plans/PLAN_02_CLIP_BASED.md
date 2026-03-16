@@ -50,8 +50,8 @@ def get_similar_by_clip(vod_id: str, conn, top_n: int = 20) -> list[dict]:
 
     query_vec = row[0]
 
-    # pgvector 코사인 검색 (probes=10 설정)
-    cur.execute("SET ivfflat.probes = 10")
+    # probes는 config/search_config.yaml에서 단일 관리
+    cur.execute("SET ivfflat.probes = %(probes)s", {"probes": 10})
     cur.execute(
         """
         SELECT vod_id_fk,
@@ -73,7 +73,7 @@ def get_similar_by_clip(vod_id: str, conn, top_n: int = 20) -> list[dict]:
 
 - `vod_embedding` 커버리지: vod 전체의 약 70% 예상 (나머지는 clip_score=0 처리)
 - `model_name = 'clip-ViT-B-32'` 필터 필수 (fallback 텍스트 임베딩과 구분)
-- `ivfflat.probes = 10` → 정확도 ~95%, 필요 시 조정
+- `ivfflat.probes` → `config/search_config.yaml`에서 단일 관리 (기본값 10, 필요 시 조정)
 
 ---
 

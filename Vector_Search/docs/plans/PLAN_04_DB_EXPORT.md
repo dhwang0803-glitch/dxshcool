@@ -2,33 +2,31 @@
 
 **파일**: `scripts/export_to_db.py`
 **입력**: 앙상블 TOP-N 결과
-**출력**: DB `vod_similarity` 테이블 적재
+**출력**: `serving.vod_recommendation` 테이블 적재
 
 ---
 
 ## 목표
 
-앙상블 검색 결과를 DB에 적재하여 `API_Server`가 직접 조회할 수 있도록 한다.
+앙상블 검색 결과를 `serving.vod_recommendation`에 적재하여 `API_Server`가 직접 조회할 수 있도록 한다.
 
 ---
 
-## 테이블 설계 (Database_Design 브랜치와 협의 필요)
+## 테이블 (Database_Design 브랜치 확정 스키마)
 
-```sql
-CREATE TABLE IF NOT EXISTS vod_similarity (
-    id              BIGSERIAL PRIMARY KEY,
-    source_vod_id   VARCHAR(64) NOT NULL REFERENCES vod(full_asset_id),
-    similar_vod_id  VARCHAR(64) NOT NULL REFERENCES vod(full_asset_id),
-    final_score     REAL        NOT NULL,
-    clip_score      REAL,
-    content_score   REAL,
-    alpha           REAL        NOT NULL DEFAULT 0.4,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_vod_similarity UNIQUE (source_vod_id, similar_vod_id)
-);
+`serving.vod_recommendation` — Gold/Serving 계층 테이블 (신규 생성 불필요, 이미 존재)
 
-CREATE INDEX idx_vod_sim_source ON vod_similarity (source_vod_id);
 ```
+user_id_fk          VARCHAR(64)   사용자 ID
+vod_id_fk           VARCHAR(64)   추천 VOD ID
+rank                SMALLINT      추천 순위
+score               REAL          코사인 유사도 (0~1)
+recommendation_type VARCHAR(32)   'VISUAL_SIMILARITY' 고정
+expires_at          TIMESTAMPTZ   TTL 7일 자동 설정
+```
+
+- UNIQUE 제약: `(user_id_fk, vod_id_fk)`
+- TTL: 7일 후 db_maintenance.py가 자동 삭제
 
 ---
 
@@ -49,13 +47,15 @@ python scripts/export_to_db.py --dry-run --limit 10
 
 ## API_Server 연동
 
-다운스트림 `API_Server`의 `/similar/{asset_id}` 엔드포인트가 이 테이블을 조회한다.
+`API_Server`의 `/similar/{asset_id}` 엔드포인트가 이 테이블을 조회한다.
 
 ```sql
-SELECT similar_vod_id, final_score
-FROM vod_similarity
-WHERE source_vod_id = $1
-ORDER BY final_score DESC
+SELECT vod_id_fk, score
+FROM serving.vod_recommendation
+WHERE user_id_fk = $1
+  AND recommendation_type = 'VISUAL_SIMILARITY'
+  AND expires_at > NOW()
+ORDER BY rank
 LIMIT 10;
 ```
 

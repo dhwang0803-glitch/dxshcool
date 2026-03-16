@@ -29,7 +29,7 @@ Vector_Search/
 | 메타데이터 기반 유사도 | `src/content_based.py` |
 | CLIP 임베딩 기반 유사도 | `src/clip_based.py` |
 | 앙상블 로직 | `src/ensemble.py` |
-| SBERT 인덱스 빌드 스크립트 | `scripts/build_index.py` |
+| ~~SBERT 인덱스 빌드~~ | 불필요 — DB `vod_meta_embedding` 직접 검색 |
 | 유사 콘텐츠 검색 스크립트 | `scripts/search.py` |
 | 결과 DB 적재 | `scripts/export_to_db.py` |
 | pytest | `tests/` |
@@ -46,8 +46,9 @@ import psycopg2
 import numpy as np
 ```
 
-- pgvector IVFFlat/HNSW 인덱스 (`<=>` 코사인 거리)
-- SBERT 모델: `jhgan/ko-sroberta-multitask` (한국어)
+- pgvector IVFFlat 인덱스 (`<=>` 코사인 거리)
+- 메타 SBERT 모델: `paraphrase-multilingual-MiniLM-L12-v2` (384차원, VOD_Embedding 적재)
+- CLIP 모델: `clip-ViT-B-32` (512차원, VOD_Embedding 적재)
 
 ## 앙상블 공식
 
@@ -58,6 +59,16 @@ final_score = α * clip_score + (1 - α) * content_score
 
 ## 인터페이스
 
-- **업스트림**: `VOD_Embedding` — vod_embedding 테이블 (512차원 벡터)
-- **업스트림**: `Database_Design` — vod 테이블 메타데이터 (장르, 감독, 배우)
-- **다운스트림**: `API_Server` — `/similar/{asset_id}` 엔드포인트
+### 업스트림 (읽기)
+
+| 테이블 | 컬럼 | 타입 | 용도 |
+|--------|------|------|------|
+| `public.vod_embedding` | `vod_id_fk`, `embedding` | VARCHAR(64), VECTOR(512) | CLIP 유사도 검색 |
+| `public.vod_meta_embedding` | `vod_id_fk`, `embedding` | VARCHAR(64), VECTOR(384) | 메타 유사도 검색 |
+| `public.user_embedding` | `user_id_fk`, `embedding` | VARCHAR(64), VECTOR(896) | 개인화 검색 (추후) |
+
+### 다운스트림 (쓰기)
+
+| 테이블 | 컬럼 | 타입 | 비고 |
+|--------|------|------|------|
+| `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | - | `'VISUAL_SIMILARITY'` 고정, TTL 7일 |

@@ -1,63 +1,76 @@
 # PLAN_01: 메타데이터 기반 콘텐츠 유사도
 
-**파일**: `src/content_based.py`, `scripts/build_index.py`
-**입력**: vod 테이블 (장르, 감독, 배우, 줄거리)
-**출력**: SBERT 코사인 유사도 스코어
+**파일**: `src/content_based.py`
+**입력**: `public.vod_meta_embedding` 테이블 (384차원, VOD_Embedding 브랜치 적재)
+**출력**: pgvector 코사인 유사도 스코어
 
 ---
 
 ## 목표
 
-vod 메타데이터를 SBERT로 임베딩하여 텍스트 기반 유사 콘텐츠를 검색한다.
+`VOD_Embedding` 브랜치가 적재한 `vod_meta_embedding` 테이블의 384차원 벡터를 pgvector로 검색한다.
+로컬 인덱스 빌드 없이 DB에서 직접 검색한다.
 
 ---
 
-## 모델
+## 모델 (참고)
 
-- **SBERT**: `jhgan/ko-sroberta-multitask` (한국어 특화)
-- 입력 텍스트: `장르 + 감독 + 배우 + 줄거리` 결합 문자열
-- 출력: 768차원 float32 벡터
+- **SBERT**: `paraphrase-multilingual-MiniLM-L12-v2`
+- 차원: **384차원** float32
+- 입력: `asset_nm + genre + director + cast_lead + smry` 결합 텍스트
+- ※ 임베딩 생성은 VOD_Embedding 브랜치 담당. Vector_Search는 읽기만 한다.
+
+---
+
+## 사전 조건
+
+- `vod_meta_embedding` 테이블 존재 및 데이터 적재 완료 (VOD_Embedding 브랜치 작업)
+- IVFFlat 인덱스 생성 완료 (lists=400, Database_Design 스키마 기준):
+  ```sql
+  CREATE INDEX idx_vod_meta_emb_ivfflat ON vod_meta_embedding
+      USING ivfflat (embedding vector_cosine_ops) WITH (lists = 400);
+  ```
 
 ---
 
 ## 구현 (`src/content_based.py`)
 
 ```python
-from sentence_transformers import SentenceTransformer
-import numpy as np
+import psycopg2
+from pgvector.psycopg2 import register_vector
 
-MODEL_NAME = "jhgan/ko-sroberta-multitask"
+def get_similar_by_meta(vod_id: str, conn, top_n: int = 20) -> list[dict]:
+    """
+    메타데이터 벡터 기반 유사 VOD TOP-N 반환.
+    반환: [{"vod_id": str, "content_score": float}, ...]
+    """
+    register_vector(conn)
+    cur = conn.cursor()
 
-def build_meta_text(vod: dict) -> str:
-    """메타데이터 → 단일 텍스트 결합"""
-    parts = [
-        vod.get("genre", ""),
-        vod.get("director", ""),
-        vod.get("cast_lead", ""),
-        vod.get("smry", ""),
-    ]
-    return " ".join(p for p in parts if p)
+    cur.execute(
+        "SELECT embedding FROM vod_meta_embedding WHERE vod_id_fk = %s",
+        (vod_id,)
+    )
+    row = cur.fetchone()
+    if row is None:
+        return []
 
-def encode_metadata(vod_list: list, model: SentenceTransformer) -> np.ndarray:
-    """VOD 목록 → SBERT 임베딩 행렬 (N x 768)"""
-    texts = [build_meta_text(v) for v in vod_list]
-    return model.encode(texts, convert_to_numpy=True, normalize_embeddings=True)
+    query_vec = row[0]
 
-def cosine_similarity(query_vec: np.ndarray, index_vecs: np.ndarray) -> np.ndarray:
-    """정규화된 벡터 간 코사인 유사도 (내적 = 코사인)"""
-    return index_vecs @ query_vec
-```
-
----
-
-## 인덱스 빌드 (`scripts/build_index.py`)
-
-1. vod 테이블 전체 조회 (메타데이터 컬럼)
-2. SBERT 임베딩 → `data/content_index.pkl` 저장
-3. vod_id 매핑 테이블 함께 저장
-
-```bash
-python scripts/build_index.py
+    # probes는 config/search_config.yaml에서 단일 관리
+    cur.execute("SET ivfflat.probes = %(probes)s", {"probes": 20})
+    cur.execute(
+        """
+        SELECT vod_id_fk,
+               1 - (embedding <=> %s::vector) AS content_score
+        FROM vod_meta_embedding
+        WHERE vod_id_fk != %s
+        ORDER BY embedding <=> %s::vector
+        LIMIT %s
+        """,
+        (query_vec, vod_id, query_vec, top_n)
+    )
+    return [{"vod_id": r[0], "content_score": float(r[1])} for r in cur.fetchall()]
 ```
 
 ---
@@ -65,17 +78,17 @@ python scripts/build_index.py
 ## 검색 흐름
 
 ```
-쿼리 vod_id → 해당 메타텍스트 → SBERT 인코딩 → 인덱스와 코사인 유사도 → TOP-N 반환
+쿼리 vod_id → vod_meta_embedding에서 벡터 조회 → pgvector <=> 코사인 검색 → TOP-N 반환
 ```
 
 ---
 
 ## 주의사항
 
-- `smry`(줄거리) NULL 비율 약 0% (DB 현황 기준 거의 채워짐)
-- `cast_lead` NULL 28% → NULL 시 빈 문자열로 처리
-- `director` NULL 7.5% → NULL 시 빈 문자열로 처리
-- 인덱스는 vod 테이블 갱신 시 재빌드 필요
+- `vod_meta_embedding` 커버리지: VOD_Embedding 브랜치 실행 결과에 따라 다름
+- `ivfflat.probes = 20` → `config/search_config.yaml`에서 단일 관리
+- 로컬 `content_index.pkl` 빌드 불필요 — DB 인덱스 사용
+- `scripts/build_index.py` 불필요
 
 ---
 
