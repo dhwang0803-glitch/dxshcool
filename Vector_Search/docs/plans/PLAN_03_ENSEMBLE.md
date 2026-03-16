@@ -24,7 +24,7 @@ ensemble:
 
 search:
   ivfflat_probes: 10  # pgvector 검색 정확도
-  sbert_model: "jhgan/ko-sroberta-multitask"
+  sbert_model: "paraphrase-multilingual-MiniLM-L12-v2"
   clip_model: "clip-ViT-B-32"
 ```
 
@@ -50,7 +50,8 @@ def ensemble_scores(
 ) -> list[dict]:
     """
     두 결과를 vod_id 기준으로 합산 후 내림차순 정렬.
-    clip_score / content_score 없는 경우 0으로 처리.
+    clip_score 없는 경우(vod_embedding 미적재 ~30%): alpha=0으로 처리 → content_score 100% 반영.
+    content_score 없는 경우: 0으로 처리.
     """
     scores = {}
 
