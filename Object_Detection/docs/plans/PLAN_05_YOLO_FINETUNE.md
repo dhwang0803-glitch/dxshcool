@@ -6,6 +6,7 @@
 - **작성자**: 박아름
 - **선행 조건**: Phase 4 완료 (51/51 PASS), PR #31 MERGED ✅, Shopping_Ad 연동 완료
 - **참조**: 조장(황대원) 제안 (YoLov11_파인튜닝.txt), `docs/reports/phase5_yolo_finetune_plan.md`
+- **업데이트**: 2026-03-16 — 조장 Ollama 제안 반영, 4가지 접근 방식 비교 및 구현 우선순위 재정의
 
 ---
 
@@ -279,23 +280,75 @@ print("파인튜닝:", df_ft[df_ft.label.isin(korean_labels)].shape[0])
 
 ---
 
+## 전체 데이터 준비 플로우 (TS 분할 반복)
+
+> AI Hub aihubshell은 Colab(해외 IP) 차단 → **로컬 INNORIX 다운로드 후 Drive 업로드** 방식 확정.
+> TS 분할 1개씩 처리하여 Drive 용량·디스크 공간 절약.
+
+```
+[사전 준비]
+INNORIX로 TL.zip(142MB) + VL.zip(18MB) 다운로드
+→ C:\Users\user\Documents\AI HUB\ 저장 완료 ✅
+
+[TS 분할 반복 — TS.z01 → TS.z02 → ... → TS.zip (총 8회)]
+
+Step A. INNORIX로 TS.zXX(100GB) 다운로드
+Step B. 7-Zip 압축 해제 → C:\Users\user\Documents\AI HUB\TS\
+Step C. 전처리 스크립트 실행 (중복 자동 스킵)
+         conda activate myenv
+         cd Object_Detection
+         python scripts/prepare_local_dataset.py
+         → 640×640 리사이즈 + YOLO 변환 → finetune_dataset\ 누적
+Step D. finetune_dataset\ → Drive 동기화
+         Drive > LGHellovision > Project 02 > Object Detection > finetune_dataset
+Step E. 로컬 TS\ 폴더 삭제 (디스크 확보)
+Step F. 다음 분할로 A~E 반복
+
+[학습]
+충분한 이미지 확보 후 → Colab Step 3~4 실행
+→ best.pt → Drive 저장
+
+[통합]
+best.pt → Object_Detection/models/korean_food_v1_best.pt
+→ config/detection_config.yaml 모델 경로 교체 (한 줄)
+→ pytest tests/test_phase1_setup.py → 13/13 PASS 확인
+```
+
+### 경로 정리
+
+| 항목 | 경로 |
+|------|------|
+| AI Hub 다운로드 폴더 | `C:\Users\user\Documents\AI HUB\` |
+| TL.zip / VL.zip | `C:\Users\user\Documents\AI HUB\TL.zip` / `VL.zip` |
+| TS 압축 해제 (임시) | `C:\Users\user\Documents\AI HUB\TS\` |
+| 전처리 출력 (Drive 업로드 대상) | `C:\Users\user\Documents\AI HUB\finetune_dataset\` |
+| Drive 업로드 경로 | `LGHellovision/Project 02/Object Detection/finetune_dataset` |
+| Colab FINETUNE_DIR | `/content/drive/MyDrive/LGHellovision/Project 02/Object Detection/finetune_dataset` |
+| 로컬 최종 모델 | `Object_Detection/models/korean_food_v1_best.pt` |
+
+### TS 분할 처리 진행표
+
+| 파일 | 크기 | 키 | 상태 |
+|------|------|----|------|
+| TS.z01 | 100GB | 502331 | 🔲 다운로드 중 |
+| TS.z02 | 100GB | 502332 | 🔲 |
+| TS.z03 | 100GB | 502333 | 🔲 |
+| TS.z04 | 100GB | 502334 | 🔲 |
+| TS.z05 | 100GB | 502335 | 🔲 |
+| TS.z06 | 100GB | 502336 | 🔲 |
+| TS.z07 | 100GB | 502337 | 🔲 |
+| TS.zip |  40GB | 502338 | 🔲 |
+
+> TS.z01 1개(약 29,000장)만으로도 파인튜닝 시작 가능.
+
+---
+
 ## 완료 기준
 
 ### 데이터 준비
-- [ ] AI Hub 음식 데이터 다운로드 (클래스별 500장 이상)
-- [ ] trailers_아름 VOD 프레임 추출 및 혼합
-- [ ] 라벨링 완료 (Roboflow 또는 CVAT)
-- [ ] `data/finetune_dataset/data.yaml` 작성
-
-### 학습
-- [ ] Google Colab Pro 환경 설정 (Drive 마운트)
-- [ ] `model.train()` 완료 (mAP@0.5 ≥ 0.6)
-- [ ] `best.pt` 다운로드 → `models/korean_food_v1_best.pt` 저장
-
-### 통합
-- [ ] `config/detection_config.yaml` 모델 경로 교체
-- [ ] `tests/test_phase1_setup.py` 13/13 PASS 유지
-- [ ] A/B 비교 결과 확인 (한식 탐지 건수 향상)
+- [ ] TS.z01 압축 해제 + 전처리 스크립트 실행
+- [ ] finetune_dataset/ Drive 업로드
+- [ ] data.yaml 확인 (nc=800종)
 
 ### 문서
 - [ ] `docs/reports/phase5_ab_report.md` 작성 (A/B 비교 수치 포함)
@@ -321,3 +374,81 @@ print("파인튜닝:", df_ft[df_ft.label.isin(korean_labels)].shape[0])
 | 라벨링 공수 과다 | Roboflow 팀 협업 기능 활용 |
 | 코랩 세션 끊김 | Drive 저장 주기적 체크포인트, Pro 요금제 사용 |
 | best.pt 용량 (수십 MB) | .gitignore 등록 확인, Drive 공유 |
+| **AI Hub aihubshell 해외 IP 차단** | **로컬 INNORIX 다운로드 후 Drive 수동 업로드** |
+
+---
+
+## 📌 구현 접근 방식 비교 (2026-03-16 업데이트)
+
+> 조장(황대원) Ollama 제안 반영. 4가지 접근 방식을 비교하여 현실적 구현 우선순위를 재정의한다.
+
+### 배경
+
+조장 제안: *"OpenAPI/Gemini API는 과금이 비싸니 Ollama 로컬 설치해서 YOLO 보조로 활용하면 어떨까?"*
+
+### 방식 비교
+
+| 항목 | A. 현재 CLIP | B. Ollama→쿼리 생성 | C. Ollama→직접 분석 | D. YOLO 파인튜닝 |
+|------|------------|-------------------|-------------------|----------------|
+| 속도 | ⚡ 빠름 | ⚡ 빠름 (동일) | 🐢 느림 | ⚡ 빠름 |
+| 구현 난이도 | ✅ 완료 | 쉬움 (yaml만 교체) | 중간 | 높음 |
+| 한식 커버리지 | 낮음 (수십 개) | **높음 (800종+)** | 높음 | **높음 (직접 탐지)** |
+| 런타임 비용 | 무료 | 무료 | GPU/CPU 부하 | 무료 |
+| 코드 변경 | 없음 | yaml만 교체 | src 수정 필요 | config 경로만 교체 |
+| bbox 좌표 | ❌ 없음 | ❌ 없음 | ❌ 없음 | ✅ 정밀 bbox |
+| 학습 데이터 | 불필요 | 불필요 | 불필요 | 840GB + 라벨링 |
+| 학습 시간 | 없음 | 없음 | 없음 | ~2시간 (A100) |
+
+### 방식별 파이프라인
+
+**방식 B — Ollama로 CLIP 쿼리 자동 생성 (권장 1순위)**
+
+```
+Ollama (사전 1회 실행):
+  "한식 800종 CLIP 쿼리를 yaml 형식으로 생성해줘"
+  → clip_queries.yaml 자동 생성 (800종 × 다양한 표현)
+
+런타임 파이프라인 (기존과 동일):
+  프레임 → YOLO → CLIP(확장된 yaml) → STT → Shopping_Ad
+```
+
+**방식 C — Ollama 직접 프레임 분석**
+
+```
+프레임 이미지
+  → Ollama LLaVA (멀티모달): "이 이미지에 뭐가 보여?"
+  → "비빔밥과 된장찌개가 보입니다"
+  → 광고 카테고리 추출
+```
+
+> ⚠️ 프레임마다 LLM 호출 → 처리 속도 저하. VOD 배치 처리에 부적합.
+
+**방식 D — YOLO 파인튜닝 (본 PLAN 원안)**
+
+```
+AI Hub 840GB 학습 → best.pt → config 경로 교체
+  → 한식 800종 bbox 직접 탐지
+```
+
+### 구현 우선순위 재정의
+
+```
+1순위 (즉시): B — Ollama로 clip_queries.yaml 800종 확장
+              → 코드 변경 없음, 하루 안에 완성 가능
+
+2순위 (추후): D — YOLO 파인튜닝
+              → 이미지 데이터 확보 후 B 위에 추가
+              → B + D 조합 시 시너지 최대
+
+보류:         C — Ollama 직접 분석
+              → 속도 문제로 VOD 배치 처리 부적합
+```
+
+### B + D 조합 효과
+
+```
+YOLO(D): 비빔밥 bbox → 정밀 좌표
+CLIP(B): 전통시장, 바닷가 등 맥락·장소 탐지
+STT:     "영광 굴비" 등 발화 키워드 보완
+→ 3중 시그널로 Shopping_Ad 광고 정확도 극대화
+```
