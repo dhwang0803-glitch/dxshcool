@@ -17,15 +17,17 @@
 `serving.vod_recommendation` — Gold/Serving 계층 테이블 (신규 생성 불필요, 이미 존재)
 
 ```
-user_id_fk          VARCHAR(64)   사용자 ID
+source_vod_id       VARCHAR(64)   기준 VOD ID (콘텐츠 기반, user_id_fk=NULL)
+user_id_fk          VARCHAR(64)   사용자 ID (유저 기반 추천 시, 현재는 NULL)
 vod_id_fk           VARCHAR(64)   추천 VOD ID
 rank                SMALLINT      추천 순위
 score               REAL          코사인 유사도 (0~1)
-recommendation_type VARCHAR(32)   'VISUAL_SIMILARITY' 고정
+recommendation_type VARCHAR(32)   'CONTENT_BASED' 고정
 expires_at          TIMESTAMPTZ   TTL 7일 자동 설정
 ```
 
-- UNIQUE 제약: `(user_id_fk, vod_id_fk)`
+- CHECK 제약: `user_id_fk` 또는 `source_vod_id` 중 하나는 필수
+- UNIQUE 인덱스: `(source_vod_id, vod_id_fk) WHERE source_vod_id IS NOT NULL`
 - TTL: 7일 후 db_maintenance.py가 자동 삭제
 
 ---
@@ -52,8 +54,8 @@ python scripts/export_to_db.py --dry-run --limit 10
 ```sql
 SELECT vod_id_fk, score
 FROM serving.vod_recommendation
-WHERE user_id_fk = $1
-  AND recommendation_type = 'VISUAL_SIMILARITY'
+WHERE source_vod_id = $1
+  AND recommendation_type = 'CONTENT_BASED'
   AND expires_at > NOW()
 ORDER BY rank
 LIMIT 10;
