@@ -149,14 +149,15 @@ def convert_one(json_path: str, image_index: dict, class_to_id: dict,
         img_resized = cv2.resize(img, (TARGET_SIZE, TARGET_SIZE),
                                  interpolation=cv2.INTER_AREA)
 
-        # 저장
+        # 저장 (이미 존재하면 스킵 — TS.z02~ 반복 실행 시 중복 방지)
         stem = Path(fname).stem
-        cv2.imwrite(
-            str(Path(out_img_dir) / f"{stem}.jpg"),
-            img_resized,
-            [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY]
-        )
-        Path(out_lbl_dir, f"{stem}.txt").write_text(
+        dst_img = Path(out_img_dir) / f"{stem}.jpg"
+        dst_lbl = Path(out_lbl_dir) / f"{stem}.txt"
+        if dst_img.exists():
+            return False  # 중복 스킵
+
+        cv2.imwrite(str(dst_img), img_resized, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
+        dst_lbl.write_text(
             f"{class_to_id[fc]} {cx:.6f} {cy:.6f} {nw:.6f} {nh:.6f}\n",
             encoding='utf-8'
         )

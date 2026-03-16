@@ -280,23 +280,75 @@ print("파인튜닝:", df_ft[df_ft.label.isin(korean_labels)].shape[0])
 
 ---
 
+## 전체 데이터 준비 플로우 (TS 분할 반복)
+
+> AI Hub aihubshell은 Colab(해외 IP) 차단 → **로컬 INNORIX 다운로드 후 Drive 업로드** 방식 확정.
+> TS 분할 1개씩 처리하여 Drive 용량·디스크 공간 절약.
+
+```
+[사전 준비]
+INNORIX로 TL.zip(142MB) + VL.zip(18MB) 다운로드
+→ C:\Users\user\Documents\AI HUB\ 저장 완료 ✅
+
+[TS 분할 반복 — TS.z01 → TS.z02 → ... → TS.zip (총 8회)]
+
+Step A. INNORIX로 TS.zXX(100GB) 다운로드
+Step B. 7-Zip 압축 해제 → C:\Users\user\Documents\AI HUB\TS\
+Step C. 전처리 스크립트 실행 (중복 자동 스킵)
+         conda activate myenv
+         cd Object_Detection
+         python scripts/prepare_local_dataset.py
+         → 640×640 리사이즈 + YOLO 변환 → finetune_dataset\ 누적
+Step D. finetune_dataset\ → Drive 동기화
+         Drive > LGHellovision > Project 02 > Object Detection > finetune_dataset
+Step E. 로컬 TS\ 폴더 삭제 (디스크 확보)
+Step F. 다음 분할로 A~E 반복
+
+[학습]
+충분한 이미지 확보 후 → Colab Step 3~4 실행
+→ best.pt → Drive 저장
+
+[통합]
+best.pt → Object_Detection/models/korean_food_v1_best.pt
+→ config/detection_config.yaml 모델 경로 교체 (한 줄)
+→ pytest tests/test_phase1_setup.py → 13/13 PASS 확인
+```
+
+### 경로 정리
+
+| 항목 | 경로 |
+|------|------|
+| AI Hub 다운로드 폴더 | `C:\Users\user\Documents\AI HUB\` |
+| TL.zip / VL.zip | `C:\Users\user\Documents\AI HUB\TL.zip` / `VL.zip` |
+| TS 압축 해제 (임시) | `C:\Users\user\Documents\AI HUB\TS\` |
+| 전처리 출력 (Drive 업로드 대상) | `C:\Users\user\Documents\AI HUB\finetune_dataset\` |
+| Drive 업로드 경로 | `LGHellovision/Project 02/Object Detection/finetune_dataset` |
+| Colab FINETUNE_DIR | `/content/drive/MyDrive/LGHellovision/Project 02/Object Detection/finetune_dataset` |
+| 로컬 최종 모델 | `Object_Detection/models/korean_food_v1_best.pt` |
+
+### TS 분할 처리 진행표
+
+| 파일 | 크기 | 키 | 상태 |
+|------|------|----|------|
+| TS.z01 | 100GB | 502331 | 🔲 다운로드 중 |
+| TS.z02 | 100GB | 502332 | 🔲 |
+| TS.z03 | 100GB | 502333 | 🔲 |
+| TS.z04 | 100GB | 502334 | 🔲 |
+| TS.z05 | 100GB | 502335 | 🔲 |
+| TS.z06 | 100GB | 502336 | 🔲 |
+| TS.z07 | 100GB | 502337 | 🔲 |
+| TS.zip |  40GB | 502338 | 🔲 |
+
+> TS.z01 1개(약 29,000장)만으로도 파인튜닝 시작 가능.
+
+---
+
 ## 완료 기준
 
 ### 데이터 준비
-- [ ] AI Hub 음식 데이터 다운로드 (클래스별 500장 이상)
-- [ ] trailers_아름 VOD 프레임 추출 및 혼합
-- [ ] 라벨링 완료 (Roboflow 또는 CVAT)
-- [ ] `data/finetune_dataset/data.yaml` 작성
-
-### 학습
-- [ ] Google Colab Pro 환경 설정 (Drive 마운트)
-- [ ] `model.train()` 완료 (mAP@0.5 ≥ 0.6)
-- [ ] `best.pt` 다운로드 → `models/korean_food_v1_best.pt` 저장
-
-### 통합
-- [ ] `config/detection_config.yaml` 모델 경로 교체
-- [ ] `tests/test_phase1_setup.py` 13/13 PASS 유지
-- [ ] A/B 비교 결과 확인 (한식 탐지 건수 향상)
+- [ ] TS.z01 압축 해제 + 전처리 스크립트 실행
+- [ ] finetune_dataset/ Drive 업로드
+- [ ] data.yaml 확인 (nc=800종)
 
 ### 문서
 - [ ] `docs/reports/phase5_ab_report.md` 작성 (A/B 비교 수치 포함)
