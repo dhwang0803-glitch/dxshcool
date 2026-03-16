@@ -18,10 +18,10 @@ AI Hub 음식이미지 데이터 → YOLO 파인튜닝용 로컬 전처리 스�
   pip install opencv-python-headless pyyaml
 
   python scripts/prepare_local_dataset.py \
-    --images-dir "C:/Users/user/Downloads/aihub/TS" \
-    --train-labels "C:/Users/user/Downloads/aihub/TL.zip" \
-    --val-labels "C:/Users/user/Downloads/aihub/VL.zip" \
-    --output-dir "C:/Users/user/Downloads/aihub/finetune_dataset"
+    --images-dir "C:/Users/user/Documents/AI HUB/TS" \
+    --train-labels "C:/Users/user/Documents/AI HUB/TL.zip" \
+    --val-labels "C:/Users/user/Documents/AI HUB/VL.zip" \
+    --output-dir "C:/Users/user/Documents/AI HUB/finetune_dataset"
 
 [출력]
   finetune_dataset/
@@ -198,14 +198,19 @@ def main():
     parser = argparse.ArgumentParser(
         description='AI Hub 음식이미지 → YOLO 로컬 전처리 (Drive 업로드 용량 최소화)'
     )
-    parser.add_argument('--images-dir',    required=True,
-                        help='TS.z01 압축 해제 폴더 (이미지 파일 루트)')
-    parser.add_argument('--train-labels',  required=True,
-                        help='TL.zip 경로')
-    parser.add_argument('--val-labels',    default='',
-                        help='VL.zip 경로 (없으면 val 스킵)')
-    parser.add_argument('--output-dir',    required=True,
-                        help='출력 폴더 → Drive 업로드 대상')
+    BASE = r'C:\Users\user\Documents\AI HUB'
+    parser.add_argument('--images-dir',
+                        default=rf'{BASE}\TS',
+                        help='TS.z01 압축 해제 폴더 (기본: AI HUB\\TS)')
+    parser.add_argument('--train-labels',
+                        default=rf'{BASE}\TL.zip',
+                        help='TL.zip 경로 (기본: AI HUB\\TL.zip)')
+    parser.add_argument('--val-labels',
+                        default=rf'{BASE}\VL.zip',
+                        help='VL.zip 경로 (기본: AI HUB\\VL.zip)')
+    parser.add_argument('--output-dir',
+                        default=rf'{BASE}\finetune_dataset',
+                        help='출력 폴더 (기본: AI HUB\\finetune_dataset)')
     parser.add_argument('--skip-extract',  action='store_true',
                         help='라벨 압축 해제 이미 완료 시 스킵')
     args = parser.parse_args()
@@ -278,7 +283,8 @@ val        : {val_n:,}장
 
 다음 단계:
   1. {out} 폴더를 Drive에 업로드
-       Drive > LGHellovision > Project 02 > Object Detection > finetune_dataset
+       C:\\Users\\user\\Documents\\AI HUB\\finetune_dataset
+       → Drive > LGHellovision > Project 02 > Object Detection > finetune_dataset
   2. Colab Step 3 (data.yaml 확인) → Step 4 (학습 시작)
      → Step 1~2 (클래스 스캔 + 변환)는 이 스크립트가 대신 처리했으므로 스킵
 {'=' * 50}
