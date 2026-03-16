@@ -6,19 +6,27 @@
 
 **Naver에서 시리즈별 포스터 이미지를 수집하여 DB의 `poster_url` 컬럼을 채운다.**
 
-전체 워크플로우는 개발자(크롤링·로컬 저장)와 DB 관리자(VPC 업로드·DB 적재)로 역할이 나뉜다.
+전체 워크플로우는 개발자(크롤링·로컬 저장)와 DB 관리자(OCI 업로드·DB 적재)로 역할이 나뉜다.
+
+**이미지 서빙 아키텍처**: API 서버는 `poster_url`(문자열)만 반환. 이미지 자체는 브라우저가 OCI Object Storage에서 직접 다운로드.
+이로써 VPC 컴퓨트 인스턴스에 이미지 트래픽이 전혀 없음 (페이지당 200포스터 × 80KB = 16MB를 Object Storage가 담당).
 
 ```
 [개발자]
   1. Naver 검색 → 시리즈별 포스터 URL 수집
   2. 이미지 다운로드 → 로컬 저장
-  3. 매니페스트 CSV 생성 (series_id, local_path, naver_url)
+  3. 매니페스트 CSV 생성 (series_id, series_nm, local_path, naver_url, downloaded_at)
   4. Google Drive로 관리자에게 전달
 
 [DB 관리자]
-  5. Google Drive → VPC 서버에 이미지 업로드
-  6. VPC 경로 확정 후 update_poster_url.py 실행
-  7. vod 테이블 poster_url 컬럼 업데이트
+  5. Google Drive → 로컬에 manifest.csv 수신
+  6. upload_to_oci.py 실행 → OCI Object Storage 업로드 + oci_map.csv 생성
+     (--update-db 옵션으로 7번 자동 수행 가능)
+  7. (선택) update_poster_url.py 실행 → vod.poster_url DB 업데이트
+
+[프론트엔드]
+  8. API 서버 → { poster_url: "https://objectstorage.{region}.oraclecloud.com/..." } JSON 반환
+  9. 브라우저 → OCI Object Storage에서 이미지 직접 다운로드 (VPC 컴퓨트 무관)
 ```
 
 ## 파일 위치 규칙 (MANDATORY)
@@ -38,8 +46,10 @@ Poster_Collection/
 | Naver 포스터 URL 수집 라이브러리 | `src/naver_poster.py` |
 | 이미지 다운로드·로컬 저장 라이브러리 | `src/image_downloader.py` |
 | DB poster_url 업데이트 라이브러리 | `src/db_updater.py` |
+| OCI Object Storage 업로드 라이브러리 | `src/oci_uploader.py` |
 | 포스터 크롤링 실행 스크립트 | `scripts/crawl_posters.py` |
 | Google Drive 전달용 매니페스트 생성 | `scripts/export_manifest.py` |
+| OCI 업로드 + oci_map.csv 생성 (관리자용) | `scripts/upload_to_oci.py` |
 | DB poster_url 업데이트 (관리자용) | `scripts/update_poster_url.py` |
 | pytest | `tests/` |
 | 크롤링 설정 | `config/poster_config.yaml` |
@@ -100,6 +110,12 @@ DB_PORT=5432
 DB_NAME=...
 DB_USER=...
 DB_PASSWORD=...
+
+# OCI Object Storage (관리자 전용 — upload_to_oci.py 실행 시 필요)
+OCI_NAMESPACE=...      # OCI 콘솔 → Object Storage → Namespace
+OCI_BUCKET_NAME=vod-posters
+OCI_REGION=...         # 예: ap-chuncheon-1
+OCI_CONFIG_PROFILE=DEFAULT  # ~/.oci/config 프로파일명
 ```
 
 ## 주의사항 (MANDATORY)

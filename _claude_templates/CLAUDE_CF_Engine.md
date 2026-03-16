@@ -32,6 +32,15 @@ CF_Engine/
 
 **`CF_Engine/` 루트 또는 프로젝트 루트에 `.py` 파일 직접 생성 금지.**
 
+## 실행 환경
+
+```bash
+conda activate myenv          # 전 브랜치 공통 환경
+pip install -r requirements.txt  # 루트 requirements.txt
+```
+
+> 개별 패키지 별도 설치 금지. 루트 `requirements.txt`에 `implicit`, `scipy`가 포함되어 있음.
+
 ## 기술 스택
 
 ```python

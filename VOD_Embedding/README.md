@@ -25,7 +25,7 @@ CLIP 임베딩 파이프라인 분산 작업을 위한 안내 문서입니다.
 
 ```bash
 conda activate myenv
-pip install sentence-transformers opencv-python pillow pandas pyarrow
+pip install -r requirements.txt
 ```
 
 CLIP 모델은 처음 실행 시 HuggingFace에서 자동 다운로드됩니다 (~340MB).

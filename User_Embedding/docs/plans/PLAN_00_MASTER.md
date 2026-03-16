@@ -17,7 +17,8 @@
 
 [PLAN_02] VOD 결합 임베딩 조회
           vod_embedding (CLIP 512) + vod_meta_embedding (METADATA 384)
-          → L2 정규화 → concat → VOD 결합 벡터 [896차원]
+          → concat → VOD 결합 벡터 [896차원]
+          (각 벡터는 VOD_Embedding 브랜치에서 DB 저장 시 정규화 완료된 상태로 가정)
 
 [PLAN_03] 유저 임베딩 생성
           각 유저별 시청 VOD 결합벡터를 completion_rate로 가중 평균

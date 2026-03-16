@@ -135,7 +135,7 @@ Database_Design/
 ```
 PLAN_01: crawl_trailers.py
   yt-dlp로 YouTube 트레일러 수집 (asset_nm → 검색 → 다운로드)
-  저장 경로: C:/Users/daewo/DX_prod_2nd/trailers/
+  저장 경로: <DATA_DIR>/trailers/
 
 PLAN_02: batch_embed.py
   CLIP ViT-B/32 모델로 512차원 임베딩 추출
@@ -169,7 +169,7 @@ PLAN_03: ingest_to_db.py
 
 - 현재 파일럿 100건 처리 완료, Full 166,159건은 미실행
 - GPU 가속 (현재 CPU only) 적용 시 임베딩 속도 대폭 개선 가능
-- `dedup_by_series()` 파일럿 전용 로직 제거 필요
+- `dedup_by_series()` 파이럿 전용 로직 제거 필요
 
 #### 주요 파일
 
@@ -244,7 +244,7 @@ VOD_Embedding/
 
 **Approach A — 검색엔진 방식** (baseline)
 - Wikipedia/IMDB 텍스트 파싱
-- 파일럿 결과: 비교 기준값 (result_A.json 참조)
+- 파일럿 결과: 비교 기준값 (별도 run_a.log 참조)
 
 **Approach B v3 — TMDB 직접 파싱**
 
@@ -403,7 +403,7 @@ RAG/
 
 **선결 사항**:
 - GPU 서버 또는 클라우드 배치 환경 확보 (CPU only 시 예상 수십 시간)
-- `dedup_by_series()` 파일럿 전용 로직 제거
+- `dedup_by_series()` 파이럿 전용 로직 제거
 - Full 운영용 배치 크기 및 에러 처리 강화
 
 ---

@@ -2,10 +2,10 @@
 MEMORY.md는 system-reminder에 자동 로드됨 — 재읽기 불필요.
 
 ```bash
-cd "C:/Users/daewo/OneDrive/문서/GitHub/vod_recommendation"
+cd "$(git rev-parse --show-toplevel)"
 git log --oneline -3
-curl -s http://localhost:11434/api/tags 2>/dev/null | "C:/Users/daewo/anaconda3/envs/myenv/python.exe" -c "import sys,json; d=json.load(sys.stdin); print('Ollama RUNNING:', [m['name'] for m in d.get('models',[])])" 2>/dev/null || echo "Ollama: NOT RUNNING"
-"C:/Users/daewo/anaconda3/envs/myenv/python.exe" -c "
+curl -s http://localhost:11434/api/tags 2>/dev/null | conda run -n myenv python -c "import sys,json; d=json.load(sys.stdin); print('Ollama RUNNING:', [m['name'] for m in d.get('models',[])])" 2>/dev/null || echo "Ollama: NOT RUNNING"
+conda run -n myenv python -c "
 import sys; sys.stdout.reconfigure(encoding='utf-8')
 import os; from dotenv import load_dotenv; load_dotenv('.env')
 import psycopg2

@@ -1,0 +1,16 @@
+app:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 2
+
+cors:
+  allow_origins:
+    - "http://localhost:3000"
+
+jwt:
+  algorithm: "HS256"
+  expire_minutes: 60
+
+db:
+  pool_min: 2
+  pool_max: 10

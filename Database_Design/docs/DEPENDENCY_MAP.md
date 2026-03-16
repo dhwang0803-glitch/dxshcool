@@ -106,11 +106,18 @@
 | 쓰기 | `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | - | 유저 기반: `'VISUAL_SIMILARITY'` |
 | 쓰기 | `serving.vod_recommendation` | `source_vod_id`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | VARCHAR(64)/VARCHAR(64)/SMALLINT/REAL/VARCHAR(32) | 콘텐츠 기반: `'CONTENT_BASED'` |
 
-### Object_Detection *(미구현)*
+### Object_Detection
 
-| 방향 | 테이블 | 컬럼 | 타입 | 비고 |
-|------|--------|------|------|------|
-| 쓰기 | `public.detected_objects` | *(스키마 미확정)* | - | Database_Design과 협의 후 확정 |
+| 방향 | 테이블/파일 | 컬럼 | 타입 | 비고 |
+|------|------------|------|------|------|
+| 읽기 | 로컬 VOD 영상 파일 | `file_path`, `vod_id` | str | 추론 입력 |
+| 읽기 | `public.vod` | `full_asset_id` | VARCHAR(64) | VOD 식별자 매핑 (선택) |
+| 쓰기 | `data/vod_detected_object.parquet` (로컬) | `vod_id` | str | Shopping_Ad 소비 |
+| 쓰기 | `data/vod_detected_object.parquet` (로컬) | `frame_ts` | float | 프레임 타임스탬프(초) |
+| 쓰기 | `data/vod_detected_object.parquet` (로컬) | `label` | str | YOLO COCO 클래스명 |
+| 쓰기 | `data/vod_detected_object.parquet` (로컬) | `confidence` | float | 0.5 이상만 저장 |
+| 쓰기 | `data/vod_detected_object.parquet` (로컬) | `bbox` | list[float] | [x1,y1,x2,y2] 픽셀 좌표 |
+| 쓰기 | `public.detected_objects` (VPC — 예정) | *(스키마 미확정)* | - | Database_Design과 협의 후 확정 |
 
 ### Shopping_Ad *(미구현)*
 
@@ -119,16 +126,16 @@
 | 읽기 | `public.detected_objects` | *(스키마 미확정)* | - | |
 | 읽기 | `public.tv_schedule` | *(스키마 미확정)* | - | |
 
-### API_Server *(미구현)*
+### API_Server
 
-| 방향 | 테이블/MV | 스키마 | 비고 |
-|------|-----------|--------|------|
-| 읽기 | `vod_recommendation` | serving | 추천 결과 |
-| 읽기 | `mv_vod_watch_stats` | serving | 인기 콘텐츠 배너 |
-| 읽기 | `mv_age_grp_vod_stats` | serving | 연령대별 추천 |
-| 읽기 | `mv_daily_watch_stats` | serving | 통계 대시보드 |
-| 읽기 | `vod` | public | 콘텐츠 상세 정보 |
-| 읽기 | `"user"` | public | 사용자 정보 |
+| 방향 | 테이블 | 컬럼 | 타입 | 비고 |
+|------|--------|------|------|------|
+| 읽기 | `public.vod` | `full_asset_id`, `asset_nm`, `genre`, `director`, `cast_lead`, `smry`, `poster_url`, `release_date`, `rating` | 각종 VARCHAR/TEXT | `/vod/{asset_id}` 상세 응답 |
+| 읽기 | `public."user"` | `sha2_hash` | VARCHAR | 사용자 존재 여부 확인 (PK) |
+| 읽기 | `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | VARCHAR/REAL | `/recommend/{user_id}` |
+| 읽기 | `serving.mv_vod_watch_stats` | *(스키마 확인 필요)* | - | 인기 콘텐츠 배너 |
+| 읽기 | `serving.mv_age_grp_vod_stats` | *(스키마 확인 필요)* | - | 연령대별 추천 |
+| 읽기 | `serving.mv_daily_watch_stats` | *(스키마 확인 필요)* | - | 통계 대시보드 |
 
 ---
 
