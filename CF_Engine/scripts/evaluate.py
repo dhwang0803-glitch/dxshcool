@@ -122,7 +122,7 @@ def main():
         f.write(f"# CF_Engine 평가 리포트 — {date_str}\n\n")
         f.write(f"| 지표 | 값 |\n|------|----|\n")
         for key, val in metrics.items():
-            f.write(f"| {key} | {val:.4f if isinstance(val, float) else val} |\n")
+            f.write(f"| {key} | {f'{val:.4f}' if isinstance(val, float) else val} |\n")
         f.write(f"\n- 모델: ALS factors={m['factors']}, iterations={m['iterations']}\n")
         f.write(f"- k={args.k}\n")
     log.info("리포트 저장: %s", report_path)
