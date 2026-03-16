@@ -23,7 +23,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import psycopg2
-from Poster_Collection.src import tving_poster, image_downloader
+from Poster_Collection.src import tmdb_poster, image_downloader
+from Poster_Collection.src.tving_poster import parse_season_from_asset_nm
 
 logging.basicConfig(
     level=logging.INFO,
@@ -125,12 +126,12 @@ def run_crawl(series_list: list[dict], local_dir: str, api_sleep: float = API_SL
         sid = item["series_id"]
         snm = item["series_nm"]
 
-        # Tving 포스터 — asset_nm에서 시즌 파싱
+        # TMDB 포스터 — asset_nm에서 시즌 파싱
         ct_cl = item.get("ct_cl")
         asset_nm = item.get("asset_nm") or ""
-        _, season = tving_poster.parse_season_from_asset_nm(asset_nm) if asset_nm else (snm, 1)
+        _, season = parse_season_from_asset_nm(asset_nm) if asset_nm else (snm, 1)
         try:
-            result = tving_poster.search(snm, season=season, ct_cl=ct_cl, sleep=api_sleep)
+            result = tmdb_poster.search(snm, season=season, ct_cl=ct_cl, sleep=api_sleep)
         except Exception as e:
             logger.error("[%d/%d] API 오류 sid=%s: %s", idx, total, sid, e)
             stats["api_fail"] += 1
@@ -139,18 +140,20 @@ def run_crawl(series_list: list[dict], local_dir: str, api_sleep: float = API_SL
             continue
 
         if not result:
-            logger.info("[%d/%d] sid=%-12s ✗ API (URL 없음) %s", idx, total, sid, snm)
+            logger.info("[%d/%d] sid=%-12s ✗ TMDB 미매칭 %s", idx, total, sid, snm)
             stats["api_fail"] += 1
             stats["total"] += 1
             processed_ids.add(str(sid))
             continue
 
         stats["api_ok"] += 1
-        naver_url = result["image_url"]
-        logger.info("[%d/%d] sid=%-12s ✓ API  %s (시즌%d)", idx, total, sid, snm, season)
+        image_url = result["image_url"]
+        matched = result.get("matched_name", "")
+        marker = "S" if result.get("season_matched") else "FB"
+        logger.info("[%d/%d] sid=%-12s ✓ %s → %s (시즌%d/%s)", idx, total, sid, snm, matched, season, marker)
 
         # 이미지 다운로드
-        local_path = image_downloader.download(sid, naver_url, local_dir)
+        local_path = image_downloader.download(sid, image_url, local_dir)
         if local_path:
             stats["dl_ok"] += 1
             logger.info("         → 저장 %s", local_path)
@@ -163,7 +166,7 @@ def run_crawl(series_list: list[dict], local_dir: str, api_sleep: float = API_SL
                 "series_id": sid,
                 "series_nm": snm,
                 "local_path": local_path or "",
-                "poster_url": naver_url,
+                "poster_url": image_url,
                 "downloaded_at": datetime.now().strftime("%Y-%m-%d"),
             }
         )
