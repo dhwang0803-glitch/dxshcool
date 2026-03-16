@@ -1,0 +1,139 @@
+{
+  "summary": {
+    "total": 10,
+    "api_ok": 10,
+    "dl_ok": 10,
+    "portrait": 9,
+    "errors": 0,
+    "elapsed_sec": 7.32,
+    "sec_per_item": 0.732,
+    "items_per_min": 81.9,
+    "avg_api_sec": 0.483,
+    "avg_dl_sec": 0.248,
+    "api_success_rate": 1.0,
+    "dl_success_rate": 1.0,
+    "portrait_rate": 0.9
+  },
+  "items": [
+    {
+      "series_id": "cjc|M4796983LSGG49982501",
+      "series_nm": "갱",
+      "api_ok": true,
+      "dl_ok": true,
+      "portrait": true,
+      "api_sec": 0.495,
+      "dl_sec": 0.383,
+      "image_url": "https://www.megabox.co.kr/SharedImg/editorImg/2021/08/27/jmTfWfiewU4n53PEl3IlgkVsFZpeDFg0.jpg",
+      "local_path": "C:/Users/user/AppData/Local/Temp/poster_pilot2\\cjc_M4796983LSGG49982501.jpg",
+      "error": null
+    },
+    {
+      "series_id": "cjc|M0235066LFOK84123701",
+      "series_nm": "곤",
+      "api_ok": true,
+      "dl_ok": true,
+      "portrait": true,
+      "api_sec": 0.469,
+      "dl_sec": 0.285,
+      "image_url": "https://i.namu.wiki/i/hcGwZhzqYzamYPeDvQYzBSgeVddWKPRO-8a2rl4k3sgRIdhoTYpMTWu7LVx1UK5hZ9gbJ4rAbh5__07spNdseA.webp",
+      "local_path": "C:/Users/user/AppData/Local/Temp/poster_pilot2\\cjc_M0235066LFOK84123701.jpg",
+      "error": null
+    },
+    {
+      "series_id": "cjc|M4092976LSVI64046801",
+      "series_nm": "곰",
+      "api_ok": true,
+      "dl_ok": true,
+      "portrait": false,
+      "api_sec": 0.505,
+      "dl_sec": 0.077,
+      "image_url": "http://shop1.phinf.naver.net/20231102_129/1698930535569GbzRQ_JPEG/13247807334783298_830194200.jpg",
+      "local_path": "C:/Users/user/AppData/Local/Temp/poster_pilot2\\cjc_M4092976LSVI64046801.jpg",
+      "error": null
+    },
+    {
+      "series_id": "cjc|M0208587LSGI99224601",
+      "series_nm": "궁",
+      "api_ok": true,
+      "dl_ok": true,
+      "portrait": true,
+      "api_sec": 0.441,
+      "dl_sec": 0.291,
+      "image_url": "https://i.namu.wiki/i/fpQIqpgNAvNZOeMh7Jxade8R45PLfKitLy455_A8lRxh7d79bwo96Lqg_TJjD6uTp3eTtQW2A7Bualr09ToJuQ.webp",
+      "local_path": "C:/Users/user/AppData/Local/Temp/poster_pilot2\\cjc_M0208587LSGI99224601.jpg",
+      "error": null
+    },
+    {
+      "series_id": "cjc|M4871782LSVF26670201",
+      "series_nm": "길",
+      "api_ok": true,
+      "dl_ok": true,
+      "portrait": true,
+      "api_sec": 0.516,
+      "dl_sec": 0.312,
+      "image_url": "https://i.pinimg.com/originals/2e/0e/49/2e0e49c8686fdd17a8e05aa487493850.jpg",
+      "local_path": "C:/Users/user/AppData/Local/Temp/poster_pilot2\\cjc_M4871782LSVF26670201.jpg",
+      "error": null
+    },
+    {
+      "series_id": "cjc|M4836758LSGE54141801",
+      "series_nm": "깃",
+      "api_ok": true,
+      "dl_ok": true,
+      "portrait": true,
+      "api_sec": 0.451,
+      "dl_sec": 0.097,
+      "image_url": "http://imgnews.naver.net/image/108/2025/01/23/0003298410_001_20250123112214961.jpg",
+      "local_path": "C:/Users/user/AppData/Local/Temp/poster_pilot2\\cjc_M4836758LSGE54141801.jpg",
+      "error": null
+    },
+    {
+      "series_id": "cjc|M4530293LSGL05755201",
+      "series_nm": "꾼",
+      "api_ok": true,
+      "dl_ok": true,
+      "portrait": true,
+      "api_sec": 0.453,
+      "dl_sec": 0.278,
+      "image_url": "https://i.namu.wiki/i/fESyK_LfqA97F2w1vYxISGqsr_9jySb_cvsCCICV0sQUiX1owzt_Qzi8nmVF6ZViEQsv4ZEVEnWoo7dOx630yg.webp",
+      "local_path": "C:/Users/user/AppData/Local/Temp/poster_pilot2\\cjc_M4530293LSGL05755201.jpg",
+      "error": null
+    },
+    {
+      "series_id": "cjc|M5071876LSGJ99435201",
+      "series_nm": "놉",
+      "api_ok": true,
+      "dl_ok": true,
+      "portrait": true,
+      "api_sec": 0.477,
+      "dl_sec": 0.352,
+      "image_url": "https://img.extmovie.com/files/attach/images/135/139/898/088/af4e809d006d1e5b411d7744127c2d58.jpg",
+      "local_path": "C:/Users/user/AppData/Local/Temp/poster_pilot2\\cjc_M5071876LSGJ99435201.jpg",
+      "error": null
+    },
+    {
+      "series_id": "cjc|M0394367LFO218749301",
+      "series_nm": "돈",
+      "api_ok": true,
+      "dl_ok": true,
+      "portrait": true,
+      "api_sec": 0.529,
+      "dl_sec": 0.05,
+      "image_url": "http://imgnews.naver.net/image/5129/2019/02/11/1549854507_1434475_20190211124239846.jpg",
+      "local_path": "C:/Users/user/AppData/Local/Temp/poster_pilot2\\cjc_M0394367LFO218749301.jpg",
+      "error": null
+    },
+    {
+      "series_id": "cjc|M4999277LSGI35941601",
+      "series_nm": "듄",
+      "api_ok": true,
+      "dl_ok": true,
+      "portrait": true,
+      "api_sec": 0.498,
+      "dl_sec": 0.358,
+      "image_url": "https://img.extmovie.com/files/attach/images/135/080/956/090/ad41395b8373655173c153c78e8f33b3.jpg",
+      "local_path": "C:/Users/user/AppData/Local/Temp/poster_pilot2\\cjc_M4999277LSGI35941601.jpg",
+      "error": null
+    }
+  ]
+}

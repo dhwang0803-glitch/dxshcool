@@ -1,8 +1,10 @@
 # PLAN_01 — Poster_Collection 구현 계획
 
 - **작성일**: 2026-03-11
+- **최종 수정**: 2026-03-12 (파일럿 결과 반영)
 - **브랜치**: `Poster_Collection`
 - **목표**: `vod` 테이블 `poster_url` 컬럼 100% 결측 → 시리즈 단위 포스터 수집·적재
+- **현재 상태**: Phase 0 완료 · Phase 1~2 구현 완료 · 파일럿 테스트 완료
 
 ---
 
@@ -37,11 +39,11 @@
 
 ### Phase 0. 선행 조건 확인
 
-| 항목 | 내용 | 담당 |
+| 항목 | 내용 | 상태 |
 |------|------|------|
-| `vod.poster_url` 컬럼 존재 여부 | `Database_Design` 브랜치 마이그레이션 필요 | DB 관리자 |
-| Naver API 키 발급 | `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET` | 개발자 |
-| `.env` 파일 세팅 | `config/.env.example` 참고 | 개발자 |
+| `vod.poster_url` 컬럼 존재 여부 | `Database_Design` 브랜치 `20260311_add_poster_url_to_vod.sql` 마이그레이션 완료 | ✅ 완료 |
+| Naver API 키 발급 | `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET` | ✅ 완료 |
+| `.env` 파일 세팅 | `config/.env.example` 참고 | ✅ 완료 |
 
 ```sql
 -- Database_Design 브랜치에서 선행 실행 필요
@@ -193,29 +195,46 @@ DB_PASSWORD=
 
 ---
 
-## 예상 규모 및 소요 시간
+## 파일럿 결과 (2026-03-12, 50건 기준)
+
+> `scripts/pilot_test.py --limit 50 --save-report` 실행 결과
+
+| 지표 | 수치 |
+|------|------|
+| Naver API 성공률 | **100.0%** |
+| 이미지 다운로드 성공률 | **94.0%** |
+| portrait 이미지 비율 | **96.0%** |
+| 처리 속도 | **53.9건/분** (1.112초/건) |
+| 전체 20,000건 예상 소요 시간 | **약 6.2시간** |
+
+- 리포트: `reports/pilot_01_20260312_150353.json`
+
+---
+
+## 예상 규모 및 소요 시간 (파일럿 실측 반영)
 
 | 항목 | 추정치 |
 |------|--------|
 | 처리 대상 시리즈 수 | ~20,000건 (series_nm DISTINCT 기준) |
 | Naver API 호출 | ~20,000회 (무료 한도 25,000/day 이내) |
-| 이미지 다운로드 | ~20,000건 |
-| 예상 소요 시간 | 약 1일 (API sleep 0.1초 기준) |
+| 이미지 다운로드 | ~18,800건 (다운로드 성공률 94% 기준) |
+| 예상 소요 시간 | **약 6.2시간** (파일럿 실측: 1.112초/건) |
 | 예상 로컬 저장 용량 | 약 2~5GB |
 
 ---
 
 ## 우선순위 및 구현 순서
 
-| 순서 | 작업 | 예상 난이도 |
+| 순서 | 작업 | 상태 |
 |:---:|------|:---:|
-| 1 | `config/.env.example` 작성 | 낮음 |
-| 2 | `src/naver_poster.py` 구현 + 테스트 | 중간 |
-| 3 | `src/image_downloader.py` 구현 | 낮음 |
-| 4 | `scripts/crawl_posters.py` 통합 | 중간 |
-| 5 | `scripts/export_manifest.py` | 낮음 |
-| 6 | `src/db_updater.py` + `scripts/update_poster_url.py` | 중간 |
-| 7 | pytest 작성 | 낮음 |
+| 1 | `config/.env.example` 작성 | ✅ 완료 |
+| 2 | `src/naver_poster.py` 구현 | ✅ 완료 |
+| 3 | `src/image_downloader.py` 구현 | ✅ 완료 |
+| 3.5 | `scripts/pilot_test.py` 파일럿 검증 | ✅ 완료 |
+| 4 | `scripts/crawl_posters.py` 통합 | 🔲 미구현 |
+| 5 | `scripts/export_manifest.py` | 🔲 미구현 |
+| 6 | `src/db_updater.py` + `scripts/update_poster_url.py` | 🔲 미구현 |
+| 7 | pytest 작성 | 🔲 미구현 |
 
 ---
 
