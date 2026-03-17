@@ -1,10 +1,11 @@
 """
-TMDB 시즌별 포스터 수집 모듈.
+TMDB 포스터 수집 모듈 (search/multi 통합).
 
 전략:
-  1. search/tv 로 series_nm → TMDB series_id 확보
-  2. /tv/{id} 로 시리즈 상세 조회 → seasons[].poster_path 에서 시즌 포스터 획득
-  3. 시즌 포스터 없으면 시리즈 메인 poster_path로 fallback
+  1. search/multi 로 series_nm 검색 → media_type(movie/tv) 자동 판별
+  2. movie → 바로 poster_path 사용
+  3. tv    → /tv/{id} 상세 조회 → seasons[].poster_path 에서 시즌 포스터 획득
+  4. 시즌 포스터 없으면 시리즈 메인 poster_path로 fallback
 
 사용 예:
     from Poster_Collection.src import tmdb_poster
@@ -73,12 +74,22 @@ def _title_similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, a, b).ratio()
 
 
-def _search_tv(series_nm: str) -> Optional[dict]:
-    """TMDB search/tv → 최고 유사도 TV 결과 반환."""
+def _item_names(item: dict) -> list[str]:
+    """media_type에 관계없이 제목 후보 반환."""
+    candidates = [
+        item.get("name") or "",
+        item.get("original_name") or "",
+        item.get("title") or "",
+        item.get("original_title") or "",
+    ]
+    return [n for n in candidates if n]
+
+
+def _search_multi(series_nm: str) -> Optional[dict]:
+    """TMDB search/multi → movie/tv 중 최고 유사도 결과 반환 (person 제외)."""
     if not _tmdb_available():
         return None
 
-    # 쿼리 변형: 원본 → 숫자 앞 공백 추가
     clean = series_nm.strip()
     spaced = re.sub(r'([가-힣A-Za-z])(\d)', r'\1 \2', clean)
     queries = list(dict.fromkeys([clean, spaced]))
@@ -87,7 +98,7 @@ def _search_tv(series_nm: str) -> Optional[dict]:
         for query in queries:
             try:
                 r = requests.get(
-                    f"{_TMDB_URL}/search/tv",
+                    f"{_TMDB_URL}/search/multi",
                     params=_tmdb_params({"query": query, "language": lang, "page": 1}),
                     headers=_tmdb_headers(),
                     timeout=REQUEST_TIMEOUT,
@@ -95,21 +106,20 @@ def _search_tv(series_nm: str) -> Optional[dict]:
                 if r.status_code != 200:
                     continue
                 results = r.json().get("results", [])
+                # person 결과 제외
+                results = [x for x in results if x.get("media_type") in ("movie", "tv")]
                 if not results:
                     continue
 
                 def _sim(item: dict, q: str = query) -> float:
-                    names = [
-                        item.get("name") or "",
-                        item.get("original_name") or "",
-                    ]
-                    return max((_title_similarity(q, n) for n in names if n), default=0.0)
+                    names = _item_names(item)
+                    return max((_title_similarity(q, n) for n in names), default=0.0)
 
                 best = max(results, key=_sim)
                 if _sim(best) > 0.3:
                     return best
             except Exception as e:
-                logger.debug("TMDB search 오류: %s", e)
+                logger.debug("TMDB multi search 오류: %s", e)
 
     return None
 
@@ -139,40 +149,32 @@ def search(
     sleep: float = 0.25,
 ) -> Optional[dict]:
     """
-    TMDB에서 시리즈 시즌별 포스터 URL 조회.
-
-    Args:
-        series_nm: DB series_nm (예: "신서유기")
-        season: 시즌 번호 (기본 1)
-        ct_cl: 콘텐츠 분류 (현재 미사용, 인터페이스 호환)
-        release_year: 방영 연도 (현재 미사용, 인터페이스 호환)
-        sleep: API 호출 간 딜레이
+    TMDB search/multi로 포스터 URL 조회 (movie/tv 자동 판별).
 
     Returns:
         {"image_url": str, "width": 500, "height": 750,
-         "tmdb_id": int, "matched_name": str, "season_matched": bool}
+         "tmdb_id": int, "matched_name": str,
+         "media_type": "movie"|"tv", "season_matched": bool}
         or None
     """
     if not _tmdb_available():
         logger.warning("TMDB API 키 없음 — TMDB_API_KEY 또는 TMDB_READ_ACCESS_TOKEN 설정 필요")
         return None
 
-    # 1) TMDB에서 TV 시리즈 검색
-    tv_result = _search_tv(series_nm)
-    if not tv_result:
+    result = _search_multi(series_nm)
+    if not result:
         return None
 
-    tmdb_id = tv_result["id"]
-    matched_name = tv_result.get("name") or tv_result.get("original_name") or ""
+    media_type = result["media_type"]
+    tmdb_id = result["id"]
+    matched_name = (
+        result.get("title") or result.get("name")
+        or result.get("original_title") or result.get("original_name") or ""
+    )
 
-    if sleep > 0:
-        time.sleep(sleep)
-
-    # 2) 시리즈 상세 조회 → seasons 배열에서 시즌 포스터 추출
-    detail = _get_tv_detail(tmdb_id)
-    if not detail:
-        # 상세 조회 실패 시 검색 결과의 poster_path 사용
-        poster_path = tv_result.get("poster_path")
+    # ── movie: 바로 poster_path 사용 ──
+    if media_type == "movie":
+        poster_path = result.get("poster_path")
         if not poster_path:
             return None
         return {
@@ -181,10 +183,29 @@ def search(
             "height": 750,
             "tmdb_id": tmdb_id,
             "matched_name": matched_name,
+            "media_type": "movie",
             "season_matched": False,
         }
 
-    # 시즌 포스터 찾기
+    # ── tv: 시즌 포스터 시도 → fallback 메인 포스터 ──
+    if sleep > 0:
+        time.sleep(sleep)
+
+    detail = _get_tv_detail(tmdb_id)
+    if not detail:
+        poster_path = result.get("poster_path")
+        if not poster_path:
+            return None
+        return {
+            "image_url": f"{_IMG_BASE}{poster_path}",
+            "width": 500,
+            "height": 750,
+            "tmdb_id": tmdb_id,
+            "matched_name": matched_name,
+            "media_type": "tv",
+            "season_matched": False,
+        }
+
     seasons = detail.get("seasons", [])
     season_poster = None
     for s in seasons:
@@ -192,7 +213,6 @@ def search(
             season_poster = s["poster_path"]
             break
 
-    # fallback: 시리즈 메인 포스터
     main_poster = detail.get("poster_path")
     poster_path = season_poster or main_poster
 
@@ -205,5 +225,6 @@ def search(
         "height": 750,
         "tmdb_id": tmdb_id,
         "matched_name": matched_name,
+        "media_type": "tv",
         "season_matched": season_poster is not None,
     }
