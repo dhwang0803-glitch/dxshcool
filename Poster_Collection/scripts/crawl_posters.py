@@ -35,8 +35,6 @@ logger = logging.getLogger(__name__)
 
 _MODULE_DIR = os.path.join(_root, "Poster_Collection")
 _DATA_DIR = os.path.join(_MODULE_DIR, "data")
-CHECKPOINT_PATH = os.path.join(_DATA_DIR, "crawl_status.json")
-MANIFEST_PATH = os.path.join(_DATA_DIR, "manifest.csv")
 MANIFEST_HEADER = ["series_id", "series_nm", "local_path", "poster_url", "downloaded_at"]
 CHECKPOINT_INTERVAL = 50
 API_SLEEP_BASE = 0.25  # 단일 프로세스 기준 sleep (TMDB: 40req/10s = 4req/s)
@@ -80,18 +78,18 @@ def fetch_all_series(conn) -> list[dict]:
     ]
 
 
-def load_processed_ids() -> set:
+def load_processed_ids(checkpoint_path: str) -> set:
     """체크포인트에서 이미 처리된 series_id 집합 로드."""
-    if not os.path.exists(CHECKPOINT_PATH):
+    if not os.path.exists(checkpoint_path):
         return set()
-    with open(CHECKPOINT_PATH, encoding="utf-8") as f:
+    with open(checkpoint_path, encoding="utf-8") as f:
         data = json.load(f)
     return set(str(x) for x in data.get("processed_ids", []))
 
 
-def save_checkpoint(processed_ids: set, stats: dict):
+def save_checkpoint(processed_ids: set, stats: dict, checkpoint_path: str):
     os.makedirs(_DATA_DIR, exist_ok=True)
-    with open(CHECKPOINT_PATH, "w", encoding="utf-8") as f:
+    with open(checkpoint_path, "w", encoding="utf-8") as f:
         json.dump(
             {
                 "processed_ids": list(processed_ids),
@@ -105,17 +103,23 @@ def save_checkpoint(processed_ids: set, stats: dict):
         )
 
 
-def append_manifest(rows: list[dict]):
+def append_manifest(rows: list[dict], manifest_path: str):
     os.makedirs(_DATA_DIR, exist_ok=True)
-    write_header = not os.path.exists(MANIFEST_PATH)
-    with open(MANIFEST_PATH, "a", newline="", encoding="utf-8") as f:
+    write_header = not os.path.exists(manifest_path)
+    with open(manifest_path, "a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=MANIFEST_HEADER, extrasaction="ignore")
         if write_header:
             writer.writeheader()
         writer.writerows(rows)
 
 
-def run_crawl(series_list: list[dict], local_dir: str, api_sleep: float = API_SLEEP_BASE) -> dict:
+def run_crawl(
+    series_list: list[dict],
+    local_dir: str,
+    manifest_path: str,
+    checkpoint_path: str,
+    api_sleep: float = API_SLEEP_BASE,
+) -> dict:
     """series_list 처리. 매 CHECKPOINT_INTERVAL건마다 체크포인트·매니페스트 저장."""
     processed_ids: set = set()
     pending_manifest: list[dict] = []
@@ -174,9 +178,9 @@ def run_crawl(series_list: list[dict], local_dir: str, api_sleep: float = API_SL
         stats["total"] += 1
 
         if idx % CHECKPOINT_INTERVAL == 0:
-            append_manifest(pending_manifest)
+            append_manifest(pending_manifest, manifest_path)
             pending_manifest.clear()
-            save_checkpoint(processed_ids, stats)
+            save_checkpoint(processed_ids, stats, checkpoint_path)
             logger.info(
                 "=== 체크포인트 저장 [%d/%d] API %.0f%% / DL %.0f%% ===",
                 idx,
@@ -187,8 +191,8 @@ def run_crawl(series_list: list[dict], local_dir: str, api_sleep: float = API_SL
 
     # 잔여 flush
     if pending_manifest:
-        append_manifest(pending_manifest)
-    save_checkpoint(processed_ids, stats)
+        append_manifest(pending_manifest, manifest_path)
+    save_checkpoint(processed_ids, stats, checkpoint_path)
     return stats
 
 
@@ -221,8 +225,18 @@ def main():
         all_series = [s for s in all_series if s.get("ct_cl") == args.ct_cl]
         logger.info("ct_cl 필터 '%s' 적용 → %d건", args.ct_cl, len(all_series))
 
+    # part별 분리 파일 경로 결정
+    if args.total_parts > 1:
+        manifest_path = os.path.join(_DATA_DIR, f"manifest_part{args.part}.csv")
+        checkpoint_path = os.path.join(_DATA_DIR, f"crawl_status_part{args.part}.json")
+    else:
+        manifest_path = os.path.join(_DATA_DIR, "manifest.csv")
+        checkpoint_path = os.path.join(_DATA_DIR, "crawl_status.json")
+    logger.info("manifest → %s", manifest_path)
+    logger.info("checkpoint → %s", checkpoint_path)
+
     if args.resume:
-        processed_ids = load_processed_ids()
+        processed_ids = load_processed_ids(checkpoint_path)
         all_series = [s for s in all_series if str(s["series_id"]) not in processed_ids]
         logger.info("재개 모드: 처리 완료 %d건 스킵, 남은 %d건", len(processed_ids), len(all_series))
 
@@ -248,7 +262,7 @@ def main():
 
     logger.info("크롤링 시작: %d건 (저장: %s, sleep=%.2fs)", len(series_list), local_dir, api_sleep)
     t_start = time.time()
-    stats = run_crawl(series_list, local_dir, api_sleep=api_sleep)
+    stats = run_crawl(series_list, local_dir, manifest_path, checkpoint_path, api_sleep=api_sleep)
     elapsed = time.time() - t_start
 
     total = stats["total"]
@@ -261,8 +275,8 @@ def main():
         stats["dl_ok"] / stats["api_ok"] * 100 if stats["api_ok"] else 0,
         elapsed / 60,
     )
-    logger.info("매니페스트: %s", MANIFEST_PATH)
-    logger.info("체크포인트: %s", CHECKPOINT_PATH)
+    logger.info("매니페스트: %s", manifest_path)
+    logger.info("체크포인트: %s", checkpoint_path)
 
 
 if __name__ == "__main__":
