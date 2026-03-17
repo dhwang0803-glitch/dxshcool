@@ -59,7 +59,7 @@ import sqlalchemy        # ORM (선택)
 
 | 테이블/MV | 설명 |
 |-----------|------|
-| `serving.vod_recommendation` | 사용자별 추천 결과 캐시 (TTL 7일) |
+| `serving.vod_recommendation` | 추천 결과 캐시 — 유저 기반(CF/Visual) + 콘텐츠 기반(VOD→VOD) (TTL 7일) |
 | `serving.mv_vod_watch_stats` | VOD별 시청 통계 MV |
 | `serving.mv_age_grp_vod_stats` | 연령대별 선호 VOD MV |
 | `serving.mv_daily_watch_stats` | 일별 시청 통계 MV |
