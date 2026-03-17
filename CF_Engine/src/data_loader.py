@@ -23,9 +23,12 @@ def get_conn():
     )
 
 
-def load_matrix(conn, alpha: float = 40):
+def load_matrix(conn, alpha: float = 40, filter_quality: bool = False):
     """
     watch_history 전체 로드 → csr_matrix 반환
+
+    Args:
+        filter_quality: True이면 poster_url AND vod_embedding 둘 다 있는 VOD만 포함
 
     Returns:
         mat: csr_matrix (n_users x n_items), confidence = 1 + alpha * completion_rate
@@ -34,13 +37,23 @@ def load_matrix(conn, alpha: float = 40):
         user_decoder: {row_idx: user_id_fk}
         item_decoder: {col_idx: vod_id_fk}
     """
-    log.info("watch_history 로드 중...")
+    log.info("watch_history 로드 중%s...", " (품질 필터 ON)" if filter_quality else "")
     cur = conn.cursor()
-    cur.execute("""
-        SELECT user_id_fk, vod_id_fk, completion_rate
-        FROM watch_history
-        WHERE completion_rate IS NOT NULL
-    """)
+    if filter_quality:
+        cur.execute("""
+            SELECT w.user_id_fk, w.vod_id_fk, w.completion_rate
+            FROM watch_history w
+            JOIN public.vod v ON w.vod_id_fk = v.full_asset_id
+            JOIN public.vod_embedding ve ON w.vod_id_fk = ve.vod_id_fk
+            WHERE w.completion_rate IS NOT NULL
+              AND v.poster_url IS NOT NULL
+        """)
+    else:
+        cur.execute("""
+            SELECT user_id_fk, vod_id_fk, completion_rate
+            FROM watch_history
+            WHERE completion_rate IS NOT NULL
+        """)
     rows = cur.fetchall()
     cur.close()
     log.info("로드 완료: %d행", len(rows))

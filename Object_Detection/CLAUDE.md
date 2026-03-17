@@ -4,7 +4,7 @@
 
 ## 모듈 역할
 
-**YOLOv8 기반 VOD 배치 사물인식** — VOD 영상 프레임을 로컬에서 일괄 추론하여
+**YOLOv11 기반 VOD 배치 사물인식** — VOD 영상 프레임을 로컬에서 일괄 추론하여
 `vod_detected_object.parquet`을 생성한다. Shopping_Ad가 이 파일을 소비한다.
 
 > ⚠️ **로컬 전용 파이프라인**: VPC 인프라 제약(1 core / 1GB RAM)으로 모든 연산은 로컬에서 수행.
@@ -13,12 +13,32 @@
 ### 데이터 플로우
 
 ```
-VOD 영상 파일
+VOD 영상 파일 (로컬 트레일러 5,726개)
     → 프레임 추출 (N fps 샘플링, frame_extractor.py)
-    → YOLOv8 배치 추론 (로컬 GPU/CPU, detector.py)
+    → YOLOv11 배치 추론 (로컬 GPU/CPU, detector.py)
+    → CLIP zero-shot 개념 태깅 (clip_scorer.py)
+    → context_filter 검증 (context_filter.py)
+    → Whisper STT 키워드 추출 (stt_scorer.py)
     → 신뢰도 필터링 (>= 0.5)
     → vod_detected_object.parquet 저장 (로컬)
+    → vod_clip_concept.parquet 저장 (로컬)
+    → vod_stt_concept.parquet 저장 (로컬)
     → Shopping_Ad가 parquet 소비 → serving.shopping_ad 적재
+    → [사전처리 완료 후 영상 파일 삭제 가능 — DB에는 타임스탬프+광고만 저장]
+```
+
+### UI 서빙 아키텍처
+
+```
+[사전 배치 처리 — 1회]
+트레일러 로컬 처리 → serving.shopping_ad DB 적재 → 영상 파일 삭제 가능
+
+[실시간 서빙]
+UI 영상 재생 (HTML5 video / YouTube iframe)
+  → currentTime 폴링 (0.5~1초)
+  → API_Server: SELECT * FROM serving.shopping_ad
+                WHERE vod_id=$1 AND ts_start <= $2 AND ts_end >= $2
+  → 팝업 표시
 ```
 
 ### 산출물 스키마 (parquet)
@@ -27,7 +47,7 @@ VOD 영상 파일
 |------|------|------|
 | `vod_id` | str | VOD 식별자 (`full_asset_id`) |
 | `frame_ts` | float | 프레임 타임스탬프 (초) |
-| `label` | str | YOLO 클래스명 (COCO 80종) |
+| `label` | str | YOLO 클래스명 (파인튜닝 후: 한식 71종+) |
 | `confidence` | float | 신뢰도 (0.0~1.0, 필터 기준 0.5) |
 | `bbox` | list[float] | [x1, y1, x2, y2] (픽셀 절대좌표) |
 
@@ -113,7 +133,14 @@ cd Object_Detection  # 또는 프로젝트 루트에서
 python scripts/batch_detect.py --input-dir /path/to/videos --output data/vod_detected_object.parquet
 python scripts/batch_detect.py --status   # 진행 상황 확인
 python scripts/batch_detect.py --dry-run --limit 5  # 테스트
+
+# ct_cl 필터 (기본값: TV 연예/오락)
+python scripts/batch_detect.py --ct-cl "TV 연예/오락"  # 예능만 처리 (기본값)
+python scripts/batch_detect.py --ct-cl ""              # 전체 처리
 ```
+
+> ⚠️ **처리 대상**: `public.vod.ct_cl = 'TV 연예/오락'` (19,141건) 만 처리.
+> 전체 처리 시 `--ct-cl ""`으로 필터 해제.
 
 ---
 
@@ -134,18 +161,39 @@ python scripts/batch_detect.py --dry-run --limit 5  # 테스트
 | 대상 | 컬럼 | 타입 | 비고 |
 |------|------|------|------|
 | `data/vod_detected_object.parquet` (로컬) | `vod_id`, `frame_ts`, `label`, `confidence`, `bbox` | str/float/str/float/list | Shopping_Ad 소비 |
-| `public.detected_objects` (VPC — 예정) | *(스키마 미확정)* | - | Database_Design과 협의 후 확정 |
+| `data/vod_clip_concept.parquet` (로컬) | `vod_id`, `frame_ts`, `concept`, `clip_score`, `ad_category`, `context_valid` | str/float/str/float/str/bool | Shopping_Ad 소비 |
+| `data/vod_stt_concept.parquet` (로컬) | `vod_id`, `start_ts`, `end_ts`, `transcript`, `keyword`, `ad_category`, `ad_hints` | str/float/float/str/str/str/list | Shopping_Ad 소비 |
+| `public.detected_objects` (VPC — 예정) | `vod_id` VARCHAR(64), `frame_ts` FLOAT, `label` VARCHAR, `confidence` FLOAT, `bbox` FLOAT[] | - | 황대원 스키마 확정 후 ingest_to_db.py 구현 |
 
 > `public.detected_objects` VPC 적재는 Database_Design 브랜치에서 스키마 확정 후 진행.
 > 현재 단계는 로컬 parquet 출력만 구현.
+
+### DB 신규 생성 필요 테이블 (황대원 협의)
+
+| 테이블 | 주요 컬럼 | 용도 |
+|--------|---------|------|
+| `serving.shopping_ad` | vod_id, ts_start, ts_end, product_id, ad_category, source, confidence | UI 실시간 팝업 |
+| `product_catalog` | product_id, product_name, category, price, image_url, purchase_url | 광고 상품 목록 |
+
+### public.vod 추가 필요 컬럼 (황대원 협의)
+
+| 컬럼 | 타입 | 용도 |
+|------|------|------|
+| `youtube_video_id` | VARCHAR(20) | YouTube iframe 재생 |
+| `duration_sec` | FLOAT | 영상 길이 |
+| `trailer_processed` | BOOLEAN | 사전 처리 완료 여부 |
 
 ---
 
 ## ⚠️ 알려진 이슈 / 현황
 
-- `public.detected_objects` 테이블 스키마 미확정 — Database_Design 담당자와 협의 필요
+- `public.detected_objects` 테이블 스키마 미확정 — Database_Design 담당자(황대원)와 협의 필요
+- `serving.shopping_ad`, `product_catalog` 테이블 미생성 — 황대원 협의 후 확정
+- `public.vod.youtube_video_id` 컬럼 미존재 — 황대원 협의 후 추가
 - DB 직접 적재 전 parquet → DB 적재 스크립트 (`scripts/ingest_to_db.py`) 별도 구현 예정
 - 모델 파일 (.pt) git 커밋 금지 → `.gitignore`에 등록됨
+- Phase 5 파인튜닝 진행 중 — TS.z01 완료 (train 20,872 / val 5,218), Drive 업로드 후 Colab 학습 예정
+- Colab 로컬 디스크 ~80GB 한계 — TS.z02(107GB) 해제 시 Drive 직접 압축 해제 방식 사용 (`phase5_ts_drive_preprocess.ipynb`)
 
 ---
 

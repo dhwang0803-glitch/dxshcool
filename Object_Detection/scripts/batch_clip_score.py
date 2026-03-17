@@ -28,6 +28,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from frame_extractor import extract_frames, list_video_files
 from clip_scorer import ClipScorer
+from vod_filter import filter_videos_by_ct_cl
 from location_tagger import LocationTagger
 from context_filter import ContextFilter
 
@@ -161,6 +162,8 @@ def main():
     parser.add_argument("--yolo-parquet", type=str,
                         default=str(DATA_DIR / "vod_detected_object.parquet"),
                         help="YOLO 탐지 결과 parquet 경로 (context_filter 식기류 체크용)")
+    parser.add_argument("--ct-cl", type=str, default="TV 연예/오락",
+                        help="처리 대상 콘텐츠 분류 (기본값: 'TV 연예/오락', 전체는 '')")
     args = parser.parse_args()
 
     status = load_status()
@@ -180,6 +183,13 @@ def main():
     if not video_files:
         log.error(f"영상 파일 없음: {args.input_dir}")
         return
+
+    # ct_cl 필터
+    if args.ct_cl:
+        video_files = filter_videos_by_ct_cl(video_files, args.ct_cl)
+        if not video_files:
+            log.error(f"ct_cl='{args.ct_cl}' 조건에 맞는 영상 없음")
+            return
 
     if args.random and args.limit > 0:
         video_files = random.sample(video_files, min(args.limit, len(video_files)))
