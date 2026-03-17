@@ -24,8 +24,9 @@ class KeywordMapper:
         self._keyword_map: dict[str, dict] = {}
         for category, keywords in config.items():
             for keyword, meta in keywords.items():
-                # 한국어 2글자 이하 키워드는 단어 경계 매칭 (오탐 방지)
-                if len(keyword) <= 2:
+                # 1글자 키워드만 단어 경계 매칭 (오탐 방지)
+                # 한국어 2글자+는 조사 결합("굴비가", "대게를")이 자연스러우므로 부분 매칭
+                if len(keyword) <= 1:
                     pattern = re.compile(rf"(?<!\w){re.escape(keyword)}(?!\w)")
                 else:
                     pattern = re.compile(re.escape(keyword))
