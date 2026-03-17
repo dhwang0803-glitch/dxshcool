@@ -266,40 +266,81 @@ Object_Detection/
 
 ---
 
-### `Shopping_Ad` — 홈쇼핑 광고 매칭 시스템
-- Object_Detection parquet 소비 → YOLO 클래스를 상품 카테고리로 해석 (비즈니스 로직)
-- TV 실시간 시간표 수집 (EPG 파싱) → 홈쇼핑 채널 방영 상품 매칭
-- 매칭 결과를 `serving.shopping_ad` 테이블에 적재 (VPC — API_Server가 직접 조회)
+### `Shopping_Ad` — 홈쇼핑 광고 팝업 시스템
+
+**핵심 아이디어**: VOD 재생 전 트리거 포인트(time_sec)를 미리 계산하고,
+매일 자정 수집한 홈쇼핑 tv_schedule과 매칭하여 `serving.shopping_ad`에 적재.
+시청자가 VOD를 재생하다 해당 time_sec에 도달하면 API_Server가 팝업을 발화한다.
+
+**처리 흐름 (3단계):**
+
+```
+━━━ ① 배치 처리 (사전 계산) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+VOD_Embedding 세부장르 분류 (예능 한정)
+  세부장르: 여행 / 먹방·음식 / 토크쇼
+
+Object_Detection 3종 parquet 소비:
+  vod_detected_object.parquet  ← YOLO bbox
+  vod_clip_concept.parquet     ← CLIP 개념 태깅
+  vod_stt_concept.parquet      ← Whisper STT 키워드
+
+세부장르별 트리거 조건 적용:
+  먹방·음식 → 음식 인서트 컷 / 식사 장면 (YOLO + CLIP)
+  여행      → 지역 음식·특산품 등장 (CLIP + STT)
+  토크쇼    → 상품·브랜드 언급 구간 (STT 우선)
+
+→ trigger_points.parquet (vod_id, time_sec, genre, ad_category)
+
+━━━ ② 매일 자정 (tv_schedule 갱신) ━━━━━━━━━━━━━━━━━━━━━━━━
+
+홈쇼핑 채널 편성 API 수집
+→ tv_schedule 갱신 (상품명, 카테고리, 판매 시작·종료 시간, 채널)
+→ ad_category 기준 serving.shopping_ad product 정보 업데이트
+
+━━━ ③ 실시간 팝업 발화 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+시청자 VOD 재생 시작
+→ API_Server: serving.shopping_ad WHERE vod_id=$1 조회
+→ 재생 중 time_sec 도달
+→ 매칭된 홈쇼핑 상품 팝업 발화 (채널이동 / 시청예약 액션)
+```
+
+**팝업 메시지 스펙:**
+```json
+{
+  "trigger_label": "음식",
+  "product_name": "영광 굴비 선물세트",
+  "channel": "GS샵",
+  "price": "59,000원",
+  "actions": ["채널이동", "시청예약"]
+}
+```
 
 **테이블 소유:**
 
 | 테이블 | 위치 | 설명 |
 |--------|------|------|
-| `tv_schedule` | 로컬 DB/parquet | EPG 기반 TV 시간표 (채널, 시간, 프로그램) |
-| `homeshopping_product` | 로컬 DB/parquet | 홈쇼핑 상품 카탈로그 (상품명, 카테고리, 가격) |
-| `product_object_mapping` | 로컬 DB/parquet | YOLO 클래스 → 상품 카테고리 매핑 (비즈니스 로직) |
-| `serving.shopping_ad` | **VPC** | 최종 광고 팝업 데이터 (API_Server 직접 조회) |
+| `tv_schedule` | 로컬 DB | 홈쇼핑 채널 상품 편성표 — **매일 자정 갱신** |
+| `homeshopping_product` | 로컬 DB/CSV | 홈쇼핑 상품 카탈로그 (이 브랜치가 수집·보유) |
+| `product_object_mapping` | 로컬 yaml/CSV | YOLO·CLIP 개념 → 광고 카테고리 매핑 (비즈니스 로직) |
+| `serving.shopping_ad` | **VPC** | 트리거 포인트 + 매칭 상품 (API_Server 직접 조회) |
 
-> `product_object_mapping`이 Shopping_Ad 소유인 이유: YOLO 클래스(`chair`, `couch`)를 상품 카테고리(`소파`)로 해석하는 것은 탐지가 아닌 **비즈니스 로직**
-
-**데이터 플로우:**
-```
-vod_detected_object.parquet (Object_Detection 산출물)
-    → product_object_mapping (YOLO label → 상품 카테고리)
-    → homeshopping_product (카테고리 매칭 → 후보 상품)
-    → tv_schedule (현재 홈쇼핑 채널 방영 확인)
-    → serving.shopping_ad (VPC 적재 — 팝업 데이터)
-    → API_Server /ad/popup → Frontend 팝업 오버레이
-```
+**의존 관계:**
+- `VOD_Embedding` — 세부장르 분류 (`public.vod.genre`) 완료 후 트리거 추출 가능
+- `Object_Detection` — 3종 parquet 생성 완료 후 트리거 추출 가능
+- `Database_Design` — `serving.shopping_ad` 스키마 확정 필요
+- `API_Server` — `/ad/popup` trigger_ts 기반 발화 엔드포인트 구현 (PLAN_06)
 
 **예정 폴더 구조:**
 ```
 Shopping_Ad/
-├── src/           ← epg_parser.py, product_mapper.py, popup_builder.py, serving_writer.py
-├── scripts/       ← run_epg_sync.py, run_ad_pipeline.py, export_to_serving.py
+├── src/           ← trigger_extractor.py, product_mapper.py, epg_parser.py
+│                     popup_builder.py, serving_writer.py
+├── scripts/       ← run_shopping_ad.py, run_epg_sync.py, ingest_to_db.py
 ├── tests/
-├── config/        ← ad_config.yaml (EPG 소스, 매핑 규칙)
-└── docs/
+├── config/        ← ad_config.yaml
+└── docs/          ← plans/, reports/
 ```
 
 ---
