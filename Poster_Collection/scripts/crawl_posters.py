@@ -35,11 +35,18 @@ logger = logging.getLogger(__name__)
 
 _MODULE_DIR = os.path.join(_root, "Poster_Collection")
 _DATA_DIR = os.path.join(_MODULE_DIR, "data")
-CHECKPOINT_PATH = os.path.join(_DATA_DIR, "crawl_status.json")
-MANIFEST_PATH = os.path.join(_DATA_DIR, "manifest.csv")
 MANIFEST_HEADER = ["series_id", "series_nm", "local_path", "poster_url", "downloaded_at"]
 CHECKPOINT_INTERVAL = 50
 API_SLEEP_BASE = 0.25  # 단일 프로세스 기준 sleep (TMDB: 40req/10s = 4req/s)
+
+# 파트별 파일 경로 (--total-parts > 1이면 _part{N} 접미사)
+_part_suffix = ""
+
+def _checkpoint_path():
+    return os.path.join(_DATA_DIR, f"crawl_status{_part_suffix}.json")
+
+def _manifest_path():
+    return os.path.join(_DATA_DIR, f"manifest{_part_suffix}.csv")
 
 
 def get_db_conn():
@@ -82,16 +89,17 @@ def fetch_all_series(conn) -> list[dict]:
 
 def load_processed_ids() -> set:
     """체크포인트에서 이미 처리된 series_id 집합 로드."""
-    if not os.path.exists(CHECKPOINT_PATH):
+    cp = _checkpoint_path()
+    if not os.path.exists(cp):
         return set()
-    with open(CHECKPOINT_PATH, encoding="utf-8") as f:
+    with open(cp, encoding="utf-8") as f:
         data = json.load(f)
     return set(str(x) for x in data.get("processed_ids", []))
 
 
 def save_checkpoint(processed_ids: set, stats: dict):
     os.makedirs(_DATA_DIR, exist_ok=True)
-    with open(CHECKPOINT_PATH, "w", encoding="utf-8") as f:
+    with open(_checkpoint_path(), "w", encoding="utf-8") as f:
         json.dump(
             {
                 "processed_ids": list(processed_ids),
@@ -107,8 +115,9 @@ def save_checkpoint(processed_ids: set, stats: dict):
 
 def append_manifest(rows: list[dict]):
     os.makedirs(_DATA_DIR, exist_ok=True)
-    write_header = not os.path.exists(MANIFEST_PATH)
-    with open(MANIFEST_PATH, "a", newline="", encoding="utf-8") as f:
+    mp = _manifest_path()
+    write_header = not os.path.exists(mp)
+    with open(mp, "a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=MANIFEST_HEADER, extrasaction="ignore")
         if write_header:
             writer.writeheader()
@@ -149,8 +158,9 @@ def run_crawl(series_list: list[dict], local_dir: str, api_sleep: float = API_SL
         stats["api_ok"] += 1
         image_url = result["image_url"]
         matched = result.get("matched_name", "")
+        mtype = result.get("media_type", "?")
         marker = "S" if result.get("season_matched") else "FB"
-        logger.info("[%d/%d] sid=%-12s ✓ %s → %s (시즌%d/%s)", idx, total, sid, snm, matched, season, marker)
+        logger.info("[%d/%d] sid=%-12s ✓ %s → %s (%s/시즌%d/%s)", idx, total, sid, snm, matched, mtype, season, marker)
 
         # 이미지 다운로드
         local_path = image_downloader.download(sid, image_url, local_dir)
@@ -204,6 +214,11 @@ def main():
     if args.part < 1 or args.part > args.total_parts:
         logger.error("--part는 1 이상 --total-parts 이하여야 합니다.")
         sys.exit(1)
+
+    # 분할 실행 시 파트별 manifest/checkpoint 파일 분리
+    global _part_suffix
+    if args.total_parts > 1:
+        _part_suffix = f"_part{args.part}"
 
     local_dir = os.getenv("LOCAL_POSTER_DIR")
     if not local_dir:
@@ -261,8 +276,8 @@ def main():
         stats["dl_ok"] / stats["api_ok"] * 100 if stats["api_ok"] else 0,
         elapsed / 60,
     )
-    logger.info("매니페스트: %s", MANIFEST_PATH)
-    logger.info("체크포인트: %s", CHECKPOINT_PATH)
+    logger.info("매니페스트: %s", _manifest_path())
+    logger.info("체크포인트: %s", _checkpoint_path())
 
 
 if __name__ == "__main__":
