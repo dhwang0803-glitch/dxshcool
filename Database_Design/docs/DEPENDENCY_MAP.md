@@ -21,6 +21,7 @@
 | `public.user_embedding` | `User_Embedding` | `CF_Engine`(읽기), `Vector_Search`(읽기) |
 | `public.detected_objects` | `Object_Detection` | `Shopping_Ad`(읽기) |
 | `public.tv_schedule` | *(외부 EPG 적재)* | `Shopping_Ad`(읽기) |
+| `public.homeshopping_product` | `Shopping_Ad` | `Shopping_Ad`(읽기), `API_Server`(읽기) |
 
 ### Gold 계층 (serving 스키마)
 
@@ -119,12 +120,21 @@
 | 쓰기 | `data/vod_detected_object.parquet` (로컬) | `bbox` | list[float] | [x1,y1,x2,y2] 픽셀 좌표 |
 | 쓰기 | `public.detected_objects` (VPC — 예정) | *(스키마 미확정)* | - | Database_Design과 협의 후 확정 |
 
-### Shopping_Ad *(미구현)*
+### Shopping_Ad
 
 | 방향 | 테이블 | 컬럼 | 타입 | 비고 |
 |------|--------|------|------|------|
-| 읽기 | `public.detected_objects` | *(스키마 미확정)* | - | |
-| 읽기 | `public.tv_schedule` | *(스키마 미확정)* | - | |
+| 읽기 | `public.detected_objects` | *(스키마 미확정)* | - | YOLO 탐지 결과 매칭용 |
+| 읽기 | `public.tv_schedule` | *(스키마 미확정)* | - | EPG 편성표 매칭용 |
+| 쓰기 | `public.homeshopping_product` | `channel` | VARCHAR(32) | 채널명 |
+| 쓰기 | `public.homeshopping_product` | `broadcast_date` | DATE | 방송일 |
+| 쓰기 | `public.homeshopping_product` | `start_time`, `end_time` | TIME | 방송 시작/종료 |
+| 쓰기 | `public.homeshopping_product` | `raw_name` | TEXT | 원본 상품명 |
+| 쓰기 | `public.homeshopping_product` | `normalized_name` | VARCHAR(200) | 정규화 상품명 |
+| 쓰기 | `public.homeshopping_product` | `price` | INTEGER | 판매가 |
+| 쓰기 | `public.homeshopping_product` | `product_url`, `image_url` | TEXT | 상품/이미지 링크 |
+| 쓰기 | `public.homeshopping_product` | `program_name` | VARCHAR(200) | 프로그램명 |
+| 쓰기 | `public.homeshopping_product` | `crawled_at` | TIMESTAMPTZ | 크롤링 시각 (DEFAULT NOW()) |
 
 ### API_Server
 

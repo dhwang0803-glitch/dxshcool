@@ -31,6 +31,7 @@ implicit               # ALS 행렬 분해 (CF_Engine)
 # --- 크롤링 / 수집 ---
 yt-dlp                 # YouTube 트레일러 수집 (VOD_Embedding)
 requests               # HTTP API 호출 (RAG, Poster_Collection, Shopping_Ad)
+playwright             # 홈쇼핑 편성표 크롤링 (Shopping_Ad)
 curl-cffi              # 비동기 스크래핑 (RAG)
 beautifulsoup4         # HTML 파싱 (RAG)
 
