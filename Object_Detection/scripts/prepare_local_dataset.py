@@ -46,6 +46,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import cv2
+import numpy as np
 import yaml
 
 TARGET_SIZE = 640
@@ -142,8 +143,8 @@ def convert_one(json_path: str, image_index: dict, class_to_id: dict,
         if not all(0.0 < v <= 1.0 for v in [cx, cy, nw, nh]):
             return False
 
-        # 이미지 로드 + 리사이즈
-        img = cv2.imread(src_path)
+        # 이미지 로드 + 리사이즈 (np.fromfile: Windows 한글 경로 지원)
+        img = cv2.imdecode(np.fromfile(src_path, dtype=np.uint8), cv2.IMREAD_COLOR)
         if img is None:
             return False
         img_resized = cv2.resize(img, (TARGET_SIZE, TARGET_SIZE),
@@ -156,7 +157,10 @@ def convert_one(json_path: str, image_index: dict, class_to_id: dict,
         if dst_img.exists():
             return False  # 중복 스킵
 
-        cv2.imwrite(str(dst_img), img_resized, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
+        ret, buf = cv2.imencode('.jpg', img_resized, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
+        if not ret:
+            return False
+        buf.tofile(str(dst_img))
         dst_lbl.write_text(
             f"{class_to_id[fc]} {cx:.6f} {cy:.6f} {nw:.6f} {nh:.6f}\n",
             encoding='utf-8'
@@ -169,8 +173,11 @@ def convert_one(json_path: str, image_index: dict, class_to_id: dict,
 
 def process_split(label_dir: str, image_index: dict, class_to_id: dict,
                   out_base: str, split: str) -> int:
-    json_files = list(Path(label_dir).rglob('*.json'))
-    print(f"\n[{split}] {len(json_files):,}개 변환 중...")
+    img_names = set(image_index.keys())  # "a_xxx.jpg" lowercase
+    all_json = list(Path(label_dir).rglob('*.json'))
+    json_files = [jf for jf in all_json
+                  if (jf.stem.lower() + '.jpg') in img_names]
+    print(f"\n[{split}] 전체 JSON: {len(all_json):,}개 → 이미지 매칭: {len(json_files):,}개 변환 중...")
 
     out_img = Path(out_base) / split / 'images'
     out_lbl = Path(out_base) / split / 'labels'
@@ -199,16 +206,17 @@ def main():
     parser = argparse.ArgumentParser(
         description='AI Hub 음식이미지 → YOLO 로컬 전처리 (Drive 업로드 용량 최소화)'
     )
-    BASE = r'C:\Users\user\Documents\AI HUB'
+    BASE      = r'C:\Users\user\Documents\AI HUB'
+    AIHUB_DL  = r'C:\Users\user\Downloads\aihub\296.비전영역, 음식이미지 및 정보소개 텍스트 데이터\01-1.정식개방데이터'
     parser.add_argument('--images-dir',
                         default=rf'{BASE}\TS',
-                        help='TS.z01 압축 해제 폴더 (기본: AI HUB\\TS)')
+                        help='TS.zXX 압축 해제 폴더 (기본: AI HUB\\TS)')
     parser.add_argument('--train-labels',
-                        default=rf'{BASE}\TL.zip',
-                        help='TL.zip 경로 (기본: AI HUB\\TL.zip)')
+                        default=rf'{AIHUB_DL}\Training\02.라벨링데이터\TL.zip',
+                        help='TL.zip 경로')
     parser.add_argument('--val-labels',
-                        default=rf'{BASE}\VL.zip',
-                        help='VL.zip 경로 (기본: AI HUB\\VL.zip)')
+                        default=rf'{AIHUB_DL}\Validation\02.라벨링데이터\VL.zip',
+                        help='VL.zip 경로')
     parser.add_argument('--output-dir',
                         default=rf'{BASE}\finetune_dataset',
                         help='출력 폴더 (기본: AI HUB\\finetune_dataset)')

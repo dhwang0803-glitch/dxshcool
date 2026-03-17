@@ -27,6 +27,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from frame_extractor import list_video_files
 from audio_extractor import AudioExtractor
+from vod_filter import filter_videos_by_ct_cl
 from stt_scorer import SttScorer
 from keyword_mapper import KeywordMapper
 from location_tagger import LocationTagger
@@ -111,6 +112,8 @@ def main():
     parser.add_argument("--status",    action="store_true")
     parser.add_argument("--batch-save-interval", type=int, default=10)
     parser.add_argument("--random-location", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--ct-cl", type=str, default="TV 연예/오락",
+                        help="처리 대상 콘텐츠 분류 (기본값: 'TV 연예/오락', 전체는 '')")
     args = parser.parse_args()
 
     status = load_status()
@@ -122,6 +125,13 @@ def main():
     if not video_files:
         log.error(f"영상 파일 없음: {args.input_dir}")
         return
+
+    # ct_cl 필터
+    if args.ct_cl:
+        video_files = filter_videos_by_ct_cl(video_files, args.ct_cl)
+        if not video_files:
+            log.error(f"ct_cl='{args.ct_cl}' 조건에 맞는 영상 없음")
+            return
 
     if args.random and args.limit > 0:
         video_files = random.sample(video_files, min(args.limit, len(video_files)))

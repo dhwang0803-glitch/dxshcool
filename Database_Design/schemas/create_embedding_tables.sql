@@ -13,8 +13,9 @@
 --   외부 벡터 DB 없음 → 단일 PostgreSQL로 운영
 --
 -- 인덱스 설계:
---   vod_embedding  IVF_FLAT lists=100  → sqrt(10,000 VOD)
---   user_embedding IVF_FLAT lists=500  → sqrt(242,702 user) ≈ 493 → 500
+--   vod_embedding       IVF_FLAT lists=400  → sqrt(146,390 VOD) ≈ 383 → 400
+--   vod_meta_embedding  IVF_FLAT lists=400  → sqrt(166,159 VOD) ≈ 408 → 400
+--   user_embedding      IVF_FLAT lists=500  → sqrt(225,259 user) ≈ 475 → 500
 --   probes=10  → 검색 정확도 ~95%
 --
 -- 실행 전제: create_tables.sql, create_indexes.sql 완료 후 실행
@@ -92,14 +93,14 @@ CREATE TABLE vod_embedding (
 
 -- =============================================================
 -- 벡터 유사도 검색 인덱스 (IVF_FLAT, 코사인 유사도)
--- lists = 100 : sqrt(10,000) — 최대 10K VOD 기준 최적값
--- 검색 시: SET ivfflat.probes = 10; (10% 탐색, 정확도~95%)
+-- lists = 400 : sqrt(146,390 VOD) ≈ 383 → 400
+-- 검색 시: SET ivfflat.probes = 10; (정확도~95%)
 -- 주의: 데이터 INSERT 완료 후 생성해야 인덱스 품질이 좋음
 -- =============================================================
 CREATE INDEX idx_vod_emb_ivfflat
     ON vod_embedding
     USING ivfflat (embedding vector_cosine_ops)
-    WITH (lists = 100);
+    WITH (lists = 400);
 
 -- 보조 인덱스
 CREATE INDEX idx_vod_emb_type    ON vod_embedding (embedding_type);
