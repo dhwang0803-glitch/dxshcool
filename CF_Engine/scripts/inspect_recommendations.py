@@ -5,11 +5,13 @@
 
 실행: python scripts/inspect_recommendations.py
       python scripts/inspect_recommendations.py --users 10 --top-k 10
+출력: docs/inspect_result_YYYYMMDD_HHMMSS.md
 """
 
 import sys
 import argparse
 import logging
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -117,29 +119,53 @@ def main():
     titles = load_vod_titles(conn, list(all_vod_ids))
     conn.close()
 
-    # 출력
-    print("\n" + "=" * 70)
+    # 출력 준비
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_path = Path("docs") / f"inspect_result_{timestamp}.md"
+    out_path.parent.mkdir(exist_ok=True)
+
+    lines = []
+    lines.append(f"# CF_Engine 추천 결과 육안 검증\n")
+    lines.append(f"- 일시: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+    lines.append(f"- 검증 유저: {len(sample_user_ids)}명 | Top-K: {args.top_k}\n\n")
+
+    sep = "=" * 70
+    print("\n" + sep)
     print("  CF_Engine 추천 결과 육안 검증")
-    print("=" * 70)
+    print(sep)
 
     for idx, user_id in enumerate(sample_user_ids):
-        print(f"\n[유저 {idx+1}] {user_id}")
+        header = f"[유저 {idx+1}] {user_id}"
+        print(f"\n{header}")
+        lines.append(f"---\n\n## 유저 {idx+1}\n\n")
 
         # 시청 이력
         user_history = history.get(user_id, [])
         print(f"\n  ▶ 시청 이력 (완료율 높은 순, 상위 10개)")
+        lines.append(f"### ▶ 시청 이력 (완료율 높은 순, 상위 10개)\n\n")
+        lines.append(f"| 순서 | 완료율 | VOD 제목 |\n|------|--------|----------|\n")
         for i, (vod_id, rate) in enumerate(user_history[:10], 1):
             title = titles.get(vod_id, "제목없음")
             print(f"     {i:2}. [{rate*100:5.1f}%] {title}")
+            lines.append(f"| {i} | {rate*100:5.1f}% | {title} |\n")
 
         # 추천 결과
         print(f"\n  ★ CF 추천 결과 (Top-{args.top_k})")
+        lines.append(f"\n### ★ CF 추천 결과 (Top-{args.top_k})\n\n")
+        lines.append(f"| 순위 | 점수 | VOD 제목 |\n|------|------|----------|\n")
         for rank, (iid, score) in enumerate(zip(item_indices[idx], scores[idx]), 1):
             vod_id = item_dec[iid]
             title = titles.get(vod_id, "제목없음")
             print(f"     {rank:2}. [score={score:.3f}] {title}")
+            lines.append(f"| {rank} | {score:.3f} | {title} |\n")
 
         print("\n" + "-" * 70)
+        lines.append("\n")
+
+    # 파일 저장
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.writelines(lines)
+    log.info("결과 저장: %s", out_path.resolve())
 
 
 if __name__ == "__main__":
