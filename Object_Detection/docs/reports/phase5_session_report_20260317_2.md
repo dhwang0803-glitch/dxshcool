@@ -183,6 +183,26 @@ UI에서 영상 재생 (YouTube iframe / HTML5 video)
 
 ---
 
+### 9. 탐지 결과 DB 저장 위치 확정
+
+로컬에서 모델 실행 후 탐지된 사물 리스트 저장 위치: `public.detected_objects`
+
+```sql
+public.detected_objects
+  vod_id      VARCHAR(64)  -- 영상 식별자
+  frame_ts    FLOAT        -- 타임스탬프 (초)
+  label       VARCHAR      -- 탐지 사물명
+  confidence  FLOAT        -- 신뢰도 (0~1)
+  bbox        FLOAT[]      -- [x1, y1, x2, y2]
+```
+
+- 현재는 로컬 `vod_detected_object.parquet`에 동일 구조로 저장 중
+- DB 스키마 확정 후 `scripts/ingest_to_db.py`로 적재 예정
+- Shopping_Ad만 소비하면 parquet으로 충분, UI 분석 필요 시 DB 적재
+- **황대원에게 테이블 생성 요청 필요**
+
+---
+
 ## 다음 액션
 
 1. `finetune_dataset/` → Drive 업로드
