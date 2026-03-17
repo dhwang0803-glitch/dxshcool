@@ -104,6 +104,13 @@ frames, timestamps = extract_frames(
 0 0.5 0.5 0.2 0.3
 ```
 
+### Colab 노트북
+
+| 파일 | 용도 |
+|------|------|
+| `notebooks/phase5_finetune_colab.ipynb` | 전체 학습 파이프라인 (Step 1~7) |
+| `notebooks/phase5_ts_drive_preprocess.ipynb` | TS 분할 Drive 전처리 전용 (로컬+Colab 병렬 처리) |
+
 ### 데이터셋 폴더 구조
 
 ```
@@ -319,7 +326,8 @@ best.pt → Object_Detection/models/korean_food_v1_best.pt
 | 항목 | 경로 |
 |------|------|
 | AI Hub 다운로드 폴더 | `C:\Users\user\Documents\AI HUB\` |
-| TL.zip / VL.zip | `C:\Users\user\Documents\AI HUB\TL.zip` / `VL.zip` |
+| TL.zip | `C:\Users\user\Downloads\aihub\296.비전영역, 음식이미지 및 정보소개 텍스트 데이터\01-1.정식개방데이터\Training\02.라벨링데이터\TL.zip` |
+| VL.zip | `C:\Users\user\Downloads\aihub\296.비전영역, 음식이미지 및 정보소개 텍스트 데이터\01-1.정식개방데이터\Validation\02.라벨링데이터\VL.zip` |
 | TS 압축 해제 (임시) | `C:\Users\user\Documents\AI HUB\TS\` |
 | 전처리 출력 (Drive 업로드 대상) | `C:\Users\user\Documents\AI HUB\finetune_dataset\` |
 | Drive 업로드 경로 | `LGHellovision/Project 02/Object Detection/finetune_dataset` |
@@ -330,7 +338,7 @@ best.pt → Object_Detection/models/korean_food_v1_best.pt
 
 | 파일 | 크기 | 키 | 상태 |
 |------|------|----|------|
-| TS.z01 | 100GB | 502331 | 🔲 다운로드 중 |
+| TS.z01 | 100GB | 502331 | 🔄 전처리 중 (prepare_local_dataset.py 실행 중, 2026-03-17) |
 | TS.z02 | 100GB | 502332 | 🔲 |
 | TS.z03 | 100GB | 502333 | 🔲 |
 | TS.z04 | 100GB | 502334 | 🔲 |
