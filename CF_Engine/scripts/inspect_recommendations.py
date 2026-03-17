@@ -71,6 +71,9 @@ def sample_users(mat, user_decoder: dict, n: int, min_history: int = 5) -> list:
         uid for uid in range(mat.shape[0])
         if mat.getrow(uid).nnz >= min_history
     ]
+    if not candidates:
+        log.error("min_history=%d 조건을 만족하는 유저가 없습니다.", min_history)
+        return []
     sampled = np.random.choice(candidates, size=min(n, len(candidates)), replace=False)
     return [user_decoder[uid] for uid in sampled]
 

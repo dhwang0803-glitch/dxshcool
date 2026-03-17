@@ -101,6 +101,9 @@ def main():
     rng = np.random.default_rng(42)
     candidates = [uid for uid in range(mat.shape[0])
                   if mat.getrow(uid).nnz >= args.min_history]
+    if not candidates:
+        log.error("min_history=%d 조건을 만족하는 유저가 없습니다.", args.min_history)
+        sys.exit(1)
     sampled = rng.choice(candidates, size=min(args.users, len(candidates)), replace=False)
     log.info("샘플 유저 %d명", len(sampled))
 

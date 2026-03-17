@@ -214,9 +214,13 @@ def main():
     lines.append("## 종합 해석\n\n")
     base = results[labels[0]]
     filt = results[labels[1]]
-    ndcg_imp = (filt[f'NDCG@{k}'] - base[f'NDCG@{k}']) / base[f'NDCG@{k}'] * 100
-    hit_imp  = (filt[f'HitRate@{k}'] - base[f'HitRate@{k}']) / base[f'HitRate@{k}'] * 100
-    mrr_imp  = (filt['MRR'] - base['MRR']) / base['MRR'] * 100
+
+    def safe_pct(a, b):
+        return (a - b) / b * 100 if b > 0 else 0.0
+
+    ndcg_imp = safe_pct(filt[f'NDCG@{k}'], base[f'NDCG@{k}'])
+    hit_imp  = safe_pct(filt[f'HitRate@{k}'], base[f'HitRate@{k}'])
+    mrr_imp  = safe_pct(filt['MRR'], base['MRR'])
 
     lines.append(f"- poster_url 또는 vod_embedding 없는 VOD 제거 시 NDCG {ndcg_imp:+.1f}%, HitRate {hit_imp:+.1f}%, MRR {mrr_imp:+.1f}% 향상\n")
 
