@@ -73,4 +73,5 @@ final_score = α * clip_score + (1 - α) * content_score
 
 | 테이블 | 컬럼 | 타입 | 비고 |
 |--------|------|------|------|
-| `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score` | VARCHAR/SMALLINT/REAL | recommendation_type = `'VISUAL_SIMILARITY'` |
+| `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score` | VARCHAR(64)/SMALLINT/REAL | 유저 기반: recommendation_type = `'VISUAL_SIMILARITY'` |
+| `serving.vod_recommendation` | `source_vod_id`, `vod_id_fk`, `rank`, `score` | VARCHAR(64)/SMALLINT/REAL | 콘텐츠 기반: recommendation_type = `'CONTENT_BASED'` |
