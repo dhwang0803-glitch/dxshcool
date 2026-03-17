@@ -28,9 +28,16 @@ CLIP_PARQUET = DATA_DIR / "clip_embeddings.parquet"
 
 
 def dump_meta_embeddings(conn):
-    print("[1/2] vod_meta_embedding 다운로드 중...")
+    print("[1/2] vod_meta_embedding 다운로드 중... (poster_url + clip 모두 있는 VOD만)")
     cur = conn.cursor()
-    cur.execute("SELECT vod_id_fk, embedding FROM vod_meta_embedding ORDER BY vod_id_fk")
+    cur.execute("""
+        SELECT vme.vod_id_fk, vme.embedding
+        FROM vod_meta_embedding vme
+        JOIN vod v ON vme.vod_id_fk = v.full_asset_id
+        JOIN vod_embedding ve ON vme.vod_id_fk = ve.vod_id_fk AND ve.model_name = 'clip-ViT-B-32'
+        WHERE v.poster_url IS NOT NULL AND v.poster_url != ''
+        ORDER BY vme.vod_id_fk
+    """)
     rows = cur.fetchall()
     df = pd.DataFrame(rows, columns=["vod_id_fk", "embedding"])
     df["embedding"] = df["embedding"].apply(list)
@@ -40,11 +47,16 @@ def dump_meta_embeddings(conn):
 
 
 def dump_clip_embeddings(conn):
-    print("[2/2] vod_embedding (CLIP) 다운로드 중...")
+    print("[2/2] vod_embedding (CLIP) 다운로드 중... (poster_url 있는 VOD만)")
     cur = conn.cursor()
-    cur.execute(
-        "SELECT vod_id_fk, embedding FROM vod_embedding WHERE model_name = 'clip-ViT-B-32' ORDER BY vod_id_fk"
-    )
+    cur.execute("""
+        SELECT ve.vod_id_fk, ve.embedding
+        FROM vod_embedding ve
+        JOIN vod v ON ve.vod_id_fk = v.full_asset_id
+        WHERE ve.model_name = 'clip-ViT-B-32'
+          AND v.poster_url IS NOT NULL AND v.poster_url != ''
+        ORDER BY ve.vod_id_fk
+    """)
     rows = cur.fetchall()
     df = pd.DataFrame(rows, columns=["vod_id_fk", "embedding"])
     df["embedding"] = df["embedding"].apply(list)

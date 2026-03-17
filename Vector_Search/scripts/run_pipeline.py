@@ -101,8 +101,9 @@ def process_batch(
         clip_score_by_meta[valid_meta_idx] = clip_sim[b_i, valid_clip_idx]
 
         # PLAN_03: 앙상블
+        # clip 없거나 clip_score=1.0(동일 트레일러 = 시리즈물)이면 alpha=0 → content_score만 반영
         has_clip = clip_score_by_meta > 0.0
-        eff_alpha = np.where(has_clip, alpha, 0.0)
+        eff_alpha = np.where(has_clip & (clip_score_by_meta < 1.0), alpha, 0.0)
         final_scores = eff_alpha * clip_score_by_meta + (1 - eff_alpha) * content_sim[b_i]
 
         # 자기 자신 제외
@@ -172,7 +173,7 @@ def main():
             indices = indices[: args.limit]
 
     total = len(indices)
-    print(f"\n[PLAN_01~03] 유사도 계산 시작 — 대상 {total:,}건")
+    print(f"\n[PLAN_01~03] 유사도 계산 시작 - 대상 {total:,}건")
 
     all_rows = []
     for start in range(0, total, args.batch_size):
