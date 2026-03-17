@@ -35,7 +35,7 @@ def load_vod_ids_by_ct_cl(ct_cl: str) -> set[str]:
         return set()
 
     host     = os.getenv("DB_HOST")
-    port     = os.getenv("DB_PORT", "5432")
+    port     = int(os.getenv("DB_PORT", "5432"))
     dbname   = os.getenv("DB_NAME")
     user     = os.getenv("DB_USER")
     password = os.getenv("DB_PASSWORD")
@@ -79,6 +79,15 @@ def filter_videos_by_ct_cl(video_files: list, ct_cl: str) -> list:
     if not vod_ids:
         return video_files
 
-    filtered = [f for f in video_files if f.stem in vod_ids]
+    def extract_asset_id(path) -> str:
+        """
+        cjc#M0130664LSGJ24872601__20kaO225J20 → cjc|M0130664LSGJ24872601
+        파일명의 # → DB의 | 로 변환, __ 이후 YouTube ID 제거
+        """
+        stem = path.stem
+        asset_id = stem.split("__")[0] if "__" in stem else stem
+        return asset_id.replace("#", "|")
+
+    filtered = [f for f in video_files if extract_asset_id(f) in vod_ids]
     log.info(f"ct_cl 필터 적용: {len(video_files):,} → {len(filtered):,}건")
     return filtered

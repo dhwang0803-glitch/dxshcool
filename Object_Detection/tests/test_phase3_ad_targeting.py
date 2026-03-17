@@ -5,7 +5,7 @@ TDD Red 단계: 구현 전 먼저 작성
 테스트 대상:
   - src/context_filter.py  (ContextFilter)
   - clip_scorer.to_records() 에 ad_category 컬럼 추가
-  - clip_queries.yaml 구조 검증
+  - clip_queries_ko.yaml 구조 검증
 """
 import pytest
 import sys
@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-CONFIG_PATH = Path(__file__).parent.parent / "config" / "clip_queries.yaml"
+CONFIG_PATH = Path(__file__).parent.parent / "config" / "clip_queries_ko.yaml"
 
 
 # ─────────────────────────────────────────

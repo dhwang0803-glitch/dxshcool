@@ -27,6 +27,43 @@ VOD 영상 파일 (로컬 트레일러 5,726개)
     → [사전처리 완료 후 영상 파일 삭제 가능 — DB에는 타임스탬프+광고만 저장]
 ```
 
+### Shopping_Ad 연동 — 임베딩 기반 의미 매칭
+
+Object_Detection 산출물(label/concept/keyword)을 텍스트 임베딩하여 pgvector에 저장하고,
+`product_catalog` 상품명 임베딩과 코사인 유사도로 광고 상품을 매칭한다.
+
+```
+[Object Detection 산출물]
+  YOLO label:    "비빔밥"
+  CLIP concept:  "해변 바다 리조트 수영장"
+  STT keyword:   "여행"
+        ↓ sentence-transformers 텍스트 임베딩 (384d)
+        ↓
+[pgvector: public.detected_objects.embedding]
+        ↓ cosine similarity
+[pgvector: product_catalog.embedding]
+  product_name: "제주 여행 패키지", "한식 밀키트" 등
+        ↓
+[serving.shopping_ad]
+  vod_id | ts_start | ts_end | product_id | confidence
+```
+
+**rule-based 대비 장점:**
+- 카테고리 룰 수동 관리 불필요
+- 신규 상품 추가 시 임베딩만 추가하면 자동 연결
+- "삼겹살" → "BBQ 그릴", "캠핑 의자" 등 의미 기반 확장 매칭 가능
+
+**DB 추가 필요 컬럼 (황대원 협의):**
+
+| 테이블 | 컬럼 | 타입 | 용도 |
+|--------|------|------|------|
+| `public.detected_objects` | `embedding` | `vector(384)` | label 임베딩 |
+| `product_catalog` | `embedding` | `vector(384)` | 상품명 임베딩 |
+
+**임베딩 모델:** `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` (384d, 한국어 지원)
+
+---
+
 ### UI 서빙 아키텍처
 
 ```
