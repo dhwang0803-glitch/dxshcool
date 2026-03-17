@@ -133,7 +133,14 @@ cd Object_Detection  # 또는 프로젝트 루트에서
 python scripts/batch_detect.py --input-dir /path/to/videos --output data/vod_detected_object.parquet
 python scripts/batch_detect.py --status   # 진행 상황 확인
 python scripts/batch_detect.py --dry-run --limit 5  # 테스트
+
+# ct_cl 필터 (기본값: TV 연예/오락)
+python scripts/batch_detect.py --ct-cl "TV 연예/오락"  # 예능만 처리 (기본값)
+python scripts/batch_detect.py --ct-cl ""              # 전체 처리
 ```
+
+> ⚠️ **처리 대상**: `public.vod.ct_cl = 'TV 연예/오락'` (19,141건) 만 처리.
+> 전체 처리 시 `--ct-cl ""`으로 필터 해제.
 
 ---
 

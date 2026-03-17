@@ -35,20 +35,26 @@ GLOBAL_NEGATIVE_KEYWORDS = {
     # 재난/사고
     "재난", "화재", "긴급 뉴스",
     "disaster", "accident", "funeral",
+    # 이미지/미디어 속 장면 (포스터, 인쇄물 등)
+    "포스터", "메뉴판", "요리책", "삽화", "그림",
+    "모형", "장난감", "샘플",
+    "poster", "illustration", "painting", "decorative",
 }
 
 # ── 음식/수산물 카테고리 전용 차단 ──────────────────────────────────────
 # 한국어 쿼리 기준 + 영어 호환(테스트용)
 FOOD_NEGATIVE_KEYWORDS = {
     # 관상어 (수족관)
-    "금붕어", "수조", "어항",
+    "금붕어", "수조", "어항", "수족관",
     "aquarium", "pet tank",
     # 낚시 / 자연 다큐
     "낚시", "낚싯대", "바닷속", "다이버",
     "fishing", "underwater", "diver", "marine life",
     # 장식 / 가짜 음식
-    "장식용", "삽화",
+    "장식용", "장식 소품", "플라스틱",
     "decorative", "illustration", "painting",
+    # 진열/시장 (먹는 맥락 아님)
+    "시장 진열", "벽화",
 }
 
 
@@ -87,8 +93,11 @@ class ContextFilter:
             if score >= NEGATIVE_SECONDARY_CUTOFF and any(kw in q.lower() for kw in GLOBAL_NEGATIVE_KEYWORDS):
                 return {"context_valid": False, "context_reason": f"brand_safety_secondary:{q}"}
 
-        # ── 2. 음식 외 카테고리 → 이하 필터 미적용 ───────────────────────
+        # ── 2. 음식 외 카테고리 → global negative secondary check만 추가 적용 ──
         if ad_category not in FOOD_AD_CATEGORIES:
+            for q, score in clip_scores.items():
+                if score >= NEGATIVE_SECONDARY_CUTOFF and any(kw in q.lower() for kw in GLOBAL_NEGATIVE_KEYWORDS):
+                    return {"context_valid": False, "context_reason": f"global_secondary:{q}"}
             return {"context_valid": True, "context_reason": "non_food_category"}
 
         # ── 3. 음식 카테고리 전용 negative 차단 ─────────────────────────
