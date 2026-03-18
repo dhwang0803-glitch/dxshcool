@@ -26,7 +26,7 @@ class Detector:
 
         # 파인튜닝 모델이면 한국어 라벨로 오버라이드
         food_names = _load_food_names()
-        if food_names and len(self.model.names) == len(food_names):
+        if food_names:
             self.model.names = food_names
 
     def infer(self, frames: list, timestamps: list) -> list:
