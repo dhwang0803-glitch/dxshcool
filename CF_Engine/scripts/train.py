@@ -96,10 +96,12 @@ def run_pipeline(cfg: dict) -> tuple:
     boost_enabled = c.get("enabled", True)
     min_count = c.get("min_count", 3)
 
+    # ── 1차 연결: watch_history 로드 → ALS 학습 → 추천 생성 ────────
     conn = get_conn()
     log.info("DB 접속 완료")
-
     mat, user_enc, item_enc, user_dec, item_dec = load_matrix(conn, alpha=m["alpha"])
+    conn.close()
+
     model = train(mat, factors=m["factors"], iterations=m["iterations"],
                   regularization=m["regularization"])
     user_ids, item_indices, scores = recommend_all(model, mat, top_k=r["top_k"])
@@ -107,19 +109,20 @@ def run_pipeline(cfg: dict) -> tuple:
                             user_dec, item_dec,
                             recommendation_type=r["recommendation_type"])
 
-    # ── 감독/배우 선호 후처리 ──────────────────────────────────────
+    # ── 2차 연결: 콘텐츠 후처리 (ALS 학습 중 연결 유휴 방지) ──────
     if boost_enabled:
         log.info("콘텐츠 후처리 로드 중...")
-        vod_content = load_vod_content(conn)
-        quality_vod_ids = load_quality_vod_ids(conn)
-        user_history_map = load_user_history_map(conn)
+        conn2 = get_conn()
+        vod_content = load_vod_content(conn2)
+        quality_vod_ids = load_quality_vod_ids(conn2)
+        user_history_map = load_user_history_map(conn2)
+        conn2.close()
         records = apply_content_boost(
             records, user_history_map, vod_content, quality_vod_ids,
             recommendation_type=r["recommendation_type"],
             min_count=min_count,
         )
 
-    conn.close()
     return records, mat.shape
 
 

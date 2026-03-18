@@ -104,18 +104,32 @@ def detect_preferences(user_history: list, vod_content: dict,
     }
 
 
-def _find_candidate(pref_key: str, pref_value: str,
-                    watched_set: set, already_recommended: set,
-                    quality_vod_ids: set, vod_content: dict):
-    """선호 감독 or 배우 기준으로 후보 VOD 1개 반환. 없으면 None."""
+def build_indexes(vod_content: dict, quality_vod_ids: set) -> tuple:
+    """
+    역인덱스 사전 빌드 (O(|vod_content|) 1회 → 이후 O(1) 조회).
+    Returns: (director_index, actor_index)
+      director_index: {director_name: [vod_id, ...]} — 품질 필터 통과 VOD만
+      actor_index:    {actor_name:    [vod_id, ...]} — 품질 필터 통과 VOD만
+    """
+    director_index = {}
+    actor_index = {}
     for vod_id, meta in vod_content.items():
-        if vod_id in watched_set or vod_id in already_recommended:
-            continue
         if vod_id not in quality_vod_ids:
             continue
-        if pref_key == "director" and meta["director"] == pref_value:
-            return vod_id
-        if pref_key == "actor" and pref_value in meta["cast"]:
+        if meta["director"]:
+            director_index.setdefault(meta["director"], []).append(vod_id)
+        for actor in meta["cast"]:
+            actor_index.setdefault(actor, []).append(vod_id)
+    log.info("역인덱스 빌드 완료 — 감독 %d명 / 배우 %d명",
+             len(director_index), len(actor_index))
+    return director_index, actor_index
+
+
+def _find_candidate_from_index(index: dict, pref_value: str,
+                                watched_set: set, already_recommended: set):
+    """역인덱스에서 미시청 + 미추천 VOD 1개 반환. 없으면 None."""
+    for vod_id in index.get(pref_value, []):
+        if vod_id not in watched_set and vod_id not in already_recommended:
             return vod_id
     return None
 
@@ -138,6 +152,9 @@ def apply_content_boost(records: list, user_history_map: dict,
     Returns:
         후처리 적용된 레코드 리스트 (기존 + 추가분)
     """
+    # 역인덱스 1회 빌드
+    director_index, actor_index = build_indexes(vod_content, quality_vod_ids)
+
     # user_id별로 그룹핑
     user_recs = {}
     for rec in records:
@@ -159,12 +176,13 @@ def apply_content_boost(records: list, user_history_map: dict,
         current_rank = max(r["rank"] for r in recs)
         extra = []
 
-        for pref_key in ("director", "actor"):
+        for pref_key, index in (("director", director_index), ("actor", actor_index)):
             pref_value = prefs[pref_key]
             if not pref_value:
                 continue
-            candidate = _find_candidate(pref_key, pref_value, watched_set,
-                                        already_recommended, quality_vod_ids, vod_content)
+            candidate = _find_candidate_from_index(
+                index, pref_value, watched_set, already_recommended
+            )
             if candidate:
                 current_rank += 1
                 extra.append({
