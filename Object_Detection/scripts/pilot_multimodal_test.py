@@ -32,6 +32,7 @@ from clip_scorer import ClipScorer
 from audio_extractor import AudioExtractor
 from stt_scorer import SttScorer
 from keyword_mapper import KeywordMapper
+from ocr_scorer import OcrScorer
 
 TRAILERS_DIR = PROJECT_ROOT.parent / "VOD_Embedding" / "data" / "trailers_아름"
 BEST_PT = PROJECT_ROOT / "models" / "best.pt"
@@ -80,7 +81,7 @@ def main():
     print("=" * 70)
 
     # ── 모델 로드 ──
-    print("\n[1/4] 모델 로드 중...")
+    print("\n[1/5] 모델 로드 중...")
 
     print("  YOLO v2 (COCO 필터 + 파인튜닝)...")
     yolo = DetectorV2(
@@ -101,6 +102,9 @@ def main():
     audio_ext = AudioExtractor()
     stt = SttScorer(args.whisper_model)
     kw_mapper = KeywordMapper(str(STT_KEYWORDS_PATH))
+
+    print("  EasyOCR (한국어+영어)...")
+    ocr = OcrScorer(["ko", "en"])
     print("  → 로드 완료")
 
     # ── 영상 처리 ──
@@ -189,6 +193,29 @@ def main():
                   f"\"{r['keyword']}\" → {r['ad_category']} "
                   f"| \"{r['transcript'][:40]}\"")
 
+        # ── OCR ──
+        print("\n  [OCR] 자막 인식 중...")
+        ocr_results = ocr.extract_texts(frames, timestamps, sample_interval=3)
+        # OCR 텍스트에서도 키워드 매칭 (1글자 키워드는 OCR에서 제외 — 오탐 방지)
+        ocr_records = []
+        for ocr_item in ocr_results:
+            matches = kw_mapper.match(
+                ocr_item["text"], vod_id,
+                ocr_item["frame_ts"], ocr_item["frame_ts"] + 1.0
+            )
+            for m in matches:
+                if len(m["keyword"]) >= 2:  # OCR은 2글자 이상만
+                    ocr_records.append(m)
+
+        print(f"  → OCR 프레임: {len(ocr_results)}개 (텍스트 있는 것만)")
+        print(f"  → 키워드 매칭: {len(ocr_records)}건")
+        for r in ocr_records[:10]:
+            print(f"    [{format_time(r['start_ts'])}] "
+                  f"\"{r['keyword']}\" → {r['ad_category']} "
+                  f"| \"{r['transcript'][:40]}\"")
+        if len(ocr_records) > 10:
+            print(f"    ... +{len(ocr_records)-10}건")
+
         # ── 구간별 멀티시그널 요약 ──
         print(f"\n  {'─' * 60}")
         print(f"  멀티시그널 요약 (10초 구간)")
@@ -225,11 +252,20 @@ def main():
                 cats = set(r["ad_category"] for r in clip_in_range)
                 signals.append(f"CLIP: {', '.join(list(cats)[:2])}")
 
+            # OCR 체크
+            ocr_in_range = [r for r in ocr_records
+                            if t_start <= r["start_ts"] < t_end]
+            if ocr_in_range:
+                score += 2
+                ocr_kws = set(r["keyword"] for r in ocr_in_range)
+                signals.append(f"OCR: {', '.join(list(ocr_kws)[:3])}")
+
             if signals:
                 # 신호 종류 수 체크 (최소 2종 이상이어야 TRIGGER)
                 n_signal_types = (1 if yolo_in_range else 0) + \
                                  (1 if stt_in_range else 0) + \
-                                 (1 if clip_in_range else 0)
+                                 (1 if clip_in_range else 0) + \
+                                 (1 if ocr_in_range else 0)
                 if score >= 3 and n_signal_types >= 2:
                     trigger = "🔥 TRIGGER"
                 elif score >= 3 and n_signal_types == 1:
@@ -248,6 +284,7 @@ def main():
             "yolo_count": len(yolo_records),
             "clip_count": len(clip_records),
             "stt_count": len(stt_records),
+            "ocr_count": len(ocr_records),
             "food_context_frames": ctx_frames,
             "total_frames": len(frames),
         })
@@ -256,17 +293,19 @@ def main():
     print(f"\n{'━' * 70}")
     print("전체 요약")
     print(f"{'━' * 70}")
-    print(f"\n{'VOD':<40} {'YOLO':>6} {'CLIP':>6} {'STT':>6}")
-    print(f"{'─' * 40} {'─' * 6} {'─' * 6} {'─' * 6}")
+    print(f"\n{'VOD':<35} {'YOLO':>6} {'CLIP':>6} {'STT':>6} {'OCR':>6}")
+    print(f"{'─' * 35} {'─' * 6} {'─' * 6} {'─' * 6} {'─' * 6}")
     for r in all_results:
-        name = r["filename"][:38]
-        print(f"{name:<40} {r['yolo_count']:>6} {r['clip_count']:>6} {r['stt_count']:>6}")
+        name = r["filename"][:33]
+        print(f"{name:<35} {r['yolo_count']:>6} {r['clip_count']:>6} "
+              f"{r['stt_count']:>6} {r['ocr_count']:>6}")
 
     total_yolo = sum(r["yolo_count"] for r in all_results)
     total_clip = sum(r["clip_count"] for r in all_results)
     total_stt = sum(r["stt_count"] for r in all_results)
-    print(f"{'─' * 40} {'─' * 6} {'─' * 6} {'─' * 6}")
-    print(f"{'합계':<40} {total_yolo:>6} {total_clip:>6} {total_stt:>6}")
+    total_ocr = sum(r["ocr_count"] for r in all_results)
+    print(f"{'─' * 35} {'─' * 6} {'─' * 6} {'─' * 6} {'─' * 6}")
+    print(f"{'합계':<35} {total_yolo:>6} {total_clip:>6} {total_stt:>6} {total_ocr:>6}")
 
     # ── 결과 텍스트 파일 저장 ──
     out_dir = PROJECT_ROOT / "data"
