@@ -67,6 +67,7 @@ import sqlalchemy        # ORM (선택)
 | `serving.mv_age_grp_vod_stats` | 연령대별 선호 VOD MV |
 | `serving.mv_daily_watch_stats` | 일별 시청 통계 MV |
 | `serving.shopping_ad` | 쇼핑 광고 팝업 서빙 (비정규화, TTL 30일) |
+| `serving.popular_recommendation` | 장르별 인기 추천 Top-N (글로벌, TTL 7일) |
 
 ## 인터페이스
 

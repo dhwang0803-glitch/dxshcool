@@ -34,6 +34,7 @@
 | `serving.mv_age_grp_vod_stats` | `Database_Design`(cron REFRESH) | `API_Server`(읽기) |
 | `serving.mv_daily_watch_stats` | `Database_Design`(cron REFRESH) | `API_Server`(읽기) |
 | `serving.shopping_ad` | `Shopping_Ad` | `API_Server`(읽기) |
+| `serving.popular_recommendation` | `CF_Engine`, `Vector_Search` | `API_Server`(읽기) |
 
 ---
 
@@ -99,6 +100,7 @@
 | 읽기 | `public.user_embedding` | `user_id_fk`, `embedding` | VARCHAR/VECTOR(896) | ALS 초기값 |
 | 읽기 | `public.watch_history` | `user_id_fk`, `vod_id_fk`, `satisfaction` | - | 행렬 분해 입력 |
 | 쓰기 | `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | - | `'COLLABORATIVE'` |
+| 쓰기 | `serving.popular_recommendation` | `genre`, `rank`, `vod_id_fk`, `score`, `recommendation_type` | VARCHAR(64)/SMALLINT/VARCHAR(64)/REAL/VARCHAR(32) | `'POPULAR'` 장르별 Top-N |
 
 ### Vector_Search *(미구현)*
 
@@ -109,6 +111,7 @@
 | 읽기 | `public.user_embedding` | `user_id_fk`, `embedding` | VECTOR(896) | 개인화 검색 |
 | 쓰기 | `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | - | 유저 기반: `'VISUAL_SIMILARITY'` |
 | 쓰기 | `serving.vod_recommendation` | `source_vod_id`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | VARCHAR(64)/VARCHAR(64)/SMALLINT/REAL/VARCHAR(32) | 콘텐츠 기반: `'CONTENT_BASED'` |
+| 쓰기 | `serving.popular_recommendation` | `genre`, `rank`, `vod_id_fk`, `score`, `recommendation_type` | VARCHAR(64)/SMALLINT/VARCHAR(64)/REAL/VARCHAR(32) | `'POPULAR'` 장르별 Top-N |
 
 ### Object_Detection
 
