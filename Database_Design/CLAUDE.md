@@ -52,8 +52,11 @@ import sqlalchemy        # ORM (선택)
 | `public.vod_meta_embedding` | VOD 메타데이터 384차원 벡터 (pgvector) |
 | `public.user_embedding` | 사용자 행동 벡터 896차원 (CLIP 512 + META 384, pgvector) |
 | `public.watch_history` | 시청 이력 — 주별 파티셔닝 |
-| `public.detected_objects` | 사물인식 결과 (Shopping_Ad 입력) |
-| `public.tv_schedule` | TV 실시간 시간표 (EPG) |
+| `public.detected_object_yolo` | YOLO bbox 탐지 결과 (Object_Detection 적재) |
+| `public.detected_object_clip` | CLIP zero-shot 개념 태깅 (Object_Detection 적재) |
+| `public.detected_object_stt` | Whisper STT 키워드 추출 (Object_Detection 적재) |
+| `public.tv_schedule` | EPG 방송 편성표 (Shopping_Ad 매칭) |
+| `public.homeshopping_product` | 홈쇼핑 상품 카탈로그 (Shopping_Ad 적재) |
 
 ### Gold 계층 (serving 스키마)
 
@@ -63,6 +66,7 @@ import sqlalchemy        # ORM (선택)
 | `serving.mv_vod_watch_stats` | VOD별 시청 통계 MV |
 | `serving.mv_age_grp_vod_stats` | 연령대별 선호 VOD MV |
 | `serving.mv_daily_watch_stats` | 일별 시청 통계 MV |
+| `serving.shopping_ad` | 쇼핑 광고 팝업 서빙 (비정규화, TTL 30일) |
 
 ## 인터페이스
 
