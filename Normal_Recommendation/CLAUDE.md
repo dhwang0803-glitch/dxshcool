@@ -43,39 +43,67 @@ from dotenv import load_dotenv
 ## 추천 파이프라인
 
 ```
-vod 테이블 (rating, release_date) 로드
-    → 시리즈 기준 그룹핑 (에피소드 → 시리즈 단위로 집약)
-    → 인기 점수 계산: rating + 최신성 가중치(release_date)
+vod 테이블 (tmdb_vote_average, tmdb_vote_count, release_date, series_nm) 로드
+watch_history 시청 통계 집계 (watch_count, watch_count_7d, completion_rate, satisfaction)
+    → series_nm 기준 시리즈 집약
+    → 2단계 인기 점수 계산 (cold/warm/blend)
     → 장르별(영화/드라마/예능/애니) Top-20 생성
     → parquet 저장 → 조장에게 전달 → DB 적재
 ```
 
 ## 인기 점수 계산 방식
 
-### 공식
+### 2단계 전략 (POPULARITY_SCORE_DESIGN.md 기준)
+
+시청 이력 유무에 따라 공식을 분리하고 선형 보간(blend)으로 전환.
 
 ```
-score = w_rating * norm(rating) + w_recency * recency_score(release_date)
+watch_count < WARM_THRESHOLD(10) → cold stage (TMDB 기반)
+watch_count >= WARM_THRESHOLD    → warm stage (자체 시청 기반)
+그 사이                          → blend (선형 보간)
 ```
 
-| 파라미터 | 기본값 | 설명 |
-|---------|-------|------|
-| `w_rating` | 0.6 | rating 가중치 |
-| `w_recency` | 0.4 | 최신성 가중치 |
-| `top_n` | 20 | 장르별 추천 개수 |
+### Cold Stage 공식
 
-### 최신성 점수 (recency_score)
+```
+score_cold = 0.65 * vote_score + 0.35 * freshness
+```
 
-- `release_date` 기준 min-max 정규화 (최신일수록 1에 가까움)
-- `release_date` NULL인 경우 0으로 처리
-- **최신이면서 rating이 높을수록 1순위**
+### Warm Stage 공식
+
+```
+score_warm = 0.45 * watch_heat + 0.25 * quality + 0.15 * vote_score + 0.15 * freshness
+```
+
+### 컴포넌트 설명
+
+| 컴포넌트 | 설명 |
+|---------|------|
+| `vote_score` | TMDB 평점 × 로그 정규화 × VC credibility 댐핑 |
+| `freshness` | 출시일부터 1년간 1.0→0.0 선형 감쇄 |
+| `watch_heat` | 최근 7일 시청 수 / 전체 평균 (상한 5배, 정규화) |
+| `quality` | avg(completion_rate) × avg(satisfaction), 시청 5건 미만 시 0 |
+
+### 확정 파라미터
+
+| 파라미터 | 값 | 설명 |
+|---------|---|------|
+| `WARM_THRESHOLD` | 10 | warm stage 전환 시청 수 기준 |
+| `QUALITY_MIN_WC` | 5 | quality 계산 최소 시청 수 |
+| `VC_CREDIBILITY_CAP` | 50 | vote_count 신뢰도 댐핑 상한 |
 
 ### 시리즈 집약 기준
 
 - `series_nm` 기준으로 그룹핑 — 동일 시리즈는 **1개**만 추천
 - `series_nm` NULL인 경우 단편/독립작품으로 간주, 개별 VOD 그대로 처리
-- rating: 시리즈 내 에피소드 평균값 사용
+- tmdb_vote_average: 시리즈 내 에피소드 평균
+- tmdb_vote_count: 시리즈 내 에피소드 합산
 - release_date: 시리즈 내 가장 최신 에피소드 기준
+
+## 전제 조건 (실행 전 필수)
+
+1. `Database_Design` 마이그레이션 완료 — `vod` 테이블에 `tmdb_vote_average`, `tmdb_vote_count`, `tmdb_popularity` 컬럼 추가
+2. `RAG` 파이프라인 수정 완료 — TMDB API 응답에서 3개 필드 수집 후 vod 테이블 적재
 
 ## 업데이트 주기
 
@@ -88,7 +116,8 @@ score = w_rating * norm(rating) + w_recency * recency_score(release_date)
 
 | 테이블 | 컬럼 | 용도 |
 |--------|------|------|
-| `public.vod` | `full_asset_id`, `genre`, `ct_cl`, `rating`, `release_date`, `series_nm` | 인기 기준 VOD 목록 |
+| `public.vod` | `full_asset_id`, `genre`, `ct_cl`, `release_date`, `series_nm`, `tmdb_vote_average`, `tmdb_vote_count` | 인기 기준 VOD 목록 |
+| `public.watch_history` | `vod_id_fk`, `strt_dt`, `completion_rate`, `satisfaction` | 시청 통계 집계 |
 
 ### 다운스트림 (쓰기)
 

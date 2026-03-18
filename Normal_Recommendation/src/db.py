@@ -5,6 +5,7 @@ import os
 import getpass
 from contextlib import contextmanager
 
+import pandas as pd
 import psycopg2
 from dotenv import load_dotenv
 
@@ -46,3 +47,27 @@ def get_conn():
         raise
     finally:
         conn.close()
+
+
+def load_watch_stats(conn) -> pd.DataFrame:
+    """
+    watch_history에서 VOD별 시청 통계 집계.
+
+    반환 컬럼:
+        vod_id_fk         — VOD ID
+        watch_count       — 전체 시청 수
+        watch_count_7d    — 최근 7일 시청 수
+        avg_completion_rate — 평균 완주율
+        avg_satisfaction    — 평균 만족도
+    """
+    query = """
+        SELECT
+            vod_id_fk,
+            COUNT(*)                                                         AS watch_count,
+            COUNT(*) FILTER (WHERE strt_dt >= NOW() - INTERVAL '7 days')    AS watch_count_7d,
+            AVG(completion_rate)                                             AS avg_completion_rate,
+            AVG(satisfaction)                                                AS avg_satisfaction
+        FROM public.watch_history
+        GROUP BY vod_id_fk
+    """
+    return pd.read_sql(query, conn)
