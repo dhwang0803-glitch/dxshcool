@@ -34,94 +34,29 @@ watch_history 테이블 로드
 
 ---
 
-## 구현 현황
+## 구현 현황 (2026-03-18 기준)
 
 | 파일 | 상태 | 설명 |
 |------|------|------|
 | `config/als_config.yaml` | ✅ 완료 | 하이퍼파라미터, recommendation_type |
-| `src/data_loader.py` | ✅ 완료 | DB → csr_matrix 변환, 인코더 반환 |
+| `src/data_loader.py` | ✅ 완료 | DB → csr_matrix 변환, filter_quality 옵션 포함 |
 | `src/als_model.py` | ✅ 완료 | ALS 학습 + 전체 유저 추천 생성 |
 | `src/recommender.py` | ✅ 완료 | 인덱스 → vod_id_fk 역변환, 레코드 포매팅 |
-| `scripts/train.py` | 🔧 수정 필요 | --output parquet / --from-parquet 옵션 미구현 |
+| `scripts/train.py` | ✅ 완료 | --output parquet / --from-parquet / --dry-run 옵션 구현 |
 | `scripts/export_to_db.py` | ✅ 완료 | serving.vod_recommendation DELETE+INSERT |
-| `scripts/evaluate.py` | ✅ 완료 | NDCG@K, MRR, HitRate@K 평가 |
-| `tests/test_data_loader.py` | ✅ 완료 | 희소 행렬 shape, 인코더 정합성, confidence 값 |
-| `tests/test_als_model.py` | ✅ 완료 | 학습 후 벡터 shape, 추천 결과 K개 |
-| `tests/test_recommender.py` | ✅ 완료 | 역매핑 정확성, 출력 형식, recommendation_type |
-
-**테스트 결과**: 9/9 PASSED
-
----
-
-## 실행 방법
-
-```bash
-# 팀원 (DB 쓰기 권한 없음) — parquet 출력 후 조장에게 전달
-python scripts/train.py --output parquet
-# → data/cf_recommendations_YYYYMMDD.parquet 생성
-
-# 조장 — parquet 받아서 DB 적재
-python scripts/train.py --from-parquet data/cf_recommendations_YYYYMMDD.parquet
-
-# 조장 — DB 직접 학습 + 적재 (1회성 전체 실행)
-python scripts/train.py
-
-# dry-run (DB 저장 없이 추천만 생성)
-python scripts/train.py --dry-run
-
-# 성능 평가
-python scripts/evaluate.py --k 20
-```
-
-> ⚠️ `--output parquet` / `--from-parquet` 옵션은 `scripts/train.py` 구현 필요
+| `scripts/evaluate.py` | ✅ 완료 | NDCG@K, MRR, HitRate@K, --filter-quality 옵션 포함 |
+| `scripts/score_cutoff_analysis.py` | ✅ 완료 | 유저별 점수 급락 지점 분석 |
+| `scripts/cold_impact_analysis.py` | ✅ 완료 | cold VOD 비중 영향 분석 |
+| `scripts/cutoff1_sample_report.py` | ✅ 완료 | 1위 급락 유저 샘플 리포트 생성 |
+| `scripts/full_eval.py` | ✅ 완료 | 필터 전/후 비교 + 세그먼트 분석 |
+| `scripts/inspect_recommendations.py` | ✅ 완료 | 추천 결과 육안 검증 (md 저장 기능 포함) |
+| `scripts/pilot_test.py` | ✅ 완료 | 파일럿 테스트 |
+| `scripts/pilot_cutoff_visual.py` | ✅ 완료 | 파일럿 급락 지점 시각화 |
+| `tests/` | ✅ 9/9 PASSED | data_loader, als_model, recommender |
 
 ---
 
-## STEP별 상세 설계
-
-### STEP 1. 데이터 로더 (`src/data_loader.py`)
-
-- DB 연결: `psycopg2` + `.env` (os.getenv)
-- 쿼리: `SELECT user_id_fk, vod_id_fk, completion_rate FROM watch_history WHERE completion_rate IS NOT NULL`
-- `completion_rate` → confidence = `1 + alpha * completion_rate` (alpha=40)
-- 출력: `(csr_matrix, user_encoder, item_encoder, user_decoder, item_decoder)`
-
-### STEP 2. ALS 모델 (`src/als_model.py`)
-
-- `implicit.als.AlternatingLeastSquares` (v0.7.x)
-- `model.fit(mat)` — user×item 행렬 직접 입력 (v0.7 API, mat.T 불필요)
-- `model.recommend(user_ids, mat[user_ids], N=top_k, filter_already_liked_items=True)`
-- 배치 추천: 전체 유저 한 번에 처리
-
-### STEP 3. 추천 결과 포매터 (`src/recommender.py`)
-
-- 인덱스 → `vod_id_fk` 역매핑
-- 출력: `List[dict(user_id_fk, vod_id_fk, score, rank, recommendation_type)]`
-
-### STEP 4. 학습 스크립트 (`scripts/train.py`)
-
-1. `.env` 로드 → DB 연결
-2. `data_loader` → 희소 행렬
-3. `als_model` → 학습
-4. `als_model` → 추천 생성
-5. `recommender` → 레코드 변환
-6. `export_to_db` → DB 저장 또는 parquet 출력 (권한에 따라 분기)
-
-### STEP 5. 평가 스크립트 (`scripts/evaluate.py`)
-
-- Hold-out: 유저별 마지막 아이템 1건 테스트셋 분리
-- 지표: NDCG@K, MRR, HitRate@K
-- 결과: `docs/eval_report_{날짜}.md`
-
-### STEP 6. DB 적재 (`scripts/export_to_db.py`)
-
-- DELETE 기존 CF 추천 (해당 유저 + recommendation_type)
-- INSERT 신규 추천 (배치 1,000건)
-- **UNIQUE (user_id_fk, vod_id_fk) 확인 완료** → DELETE+INSERT 패턴 유지
-
----
-
-## 하이퍼파라미터 (`config/als_config.yaml`)
+## 확정 하이퍼파라미터
 
 | 파라미터 | 값 |
 |----------|-----|
@@ -130,24 +65,101 @@ python scripts/evaluate.py --k 20
 | regularization | 0.01 |
 | alpha | 40 |
 | top_k | 20 |
-| recommendation_type | `"COLLABORATIVE"` ✅ 확정 |
+| recommendation_type | `"COLLABORATIVE"` |
 | batch_size | 1,000 |
-
-### recommendation_type DB CHECK 허용값
-
-`'VISUAL_SIMILARITY'` | `'COLLABORATIVE'` | `'HYBRID'`
-(Database_Design/schemas/create_embedding_tables.sql `chk_rec_type` 참조)
 
 ---
 
-## ✅ 확인 완료 사항
+## 공식 평가 결과 (2026-03-17 확정, k=10)
 
-- [x] `recommendation_type` → `'COLLABORATIVE'` 확정 (config 반영 완료)
-- [x] `serving.vod_recommendation` UNIQUE (user_id_fk, vod_id_fk) 확인 → DELETE+INSERT 유지
+| 지표 | 필터 없음 | 필터 ON | 변화 |
+|------|----------|---------|------|
+| NDCG@10 | 0.2353 | 0.2659 | +13.0% |
+| MRR | 0.1900 | 0.2193 | +15.4% |
+| HitRate@10 | 0.3829 | 0.4176 | +9.1% |
+| Precision@10 | 0.0383 | 0.0418 | +9.1% |
+| Coverage | 0.0670 | 0.0825 | +23.1% |
 
-## 🔧 미결 사항
+### 세그먼트별 성능 (필터 ON 기준)
 
-- [ ] `scripts/train.py` — `--output parquet` / `--from-parquet` 옵션 구현
+| 세그먼트 | 유저 수 | NDCG@10 | HitRate@10 |
+|----------|---------|---------|------------|
+| Cold (2~4개) | 74,338명 | 0.3593 | 0.5182 |
+| Warm (5~19개) | 52,717명 | 0.2068 | 0.3771 |
+| Hot (20개+) | 20,049명 | 0.0744 | 0.1510 |
+
+---
+
+## DB / 유저 현황 (2026-03-18 기준)
+
+| 항목 | 수치 |
+|------|------|
+| 전체 VOD | 166,159건 |
+| 추천 가능 VOD (poster+embedding 둘 다) | 119,730건 (72.1%) |
+| cold VOD (둘 중 하나 없음) | 46,429건 (27.9%) |
+| 전체 유저 | 242,702명 |
+| 5개 미만 시청 유저 | 130,883명 (53.9%) |
+| cold VOD 시청 유저 | 90,593명 (37.3%) |
+| cold 비중 50% 초과 유저 | 33,891명 (14.0%) |
+| 시청이력 중 cold 비율 | 21.1% |
+
+---
+
+## 다음 작업 (2026-03-18 기준)
+
+| # | 작업 | 상태 |
+|---|------|------|
+| Step 3 | score_cutoff_analysis --users 5000 재실행 (전체 기준 k 지점 확정) | ✅ 완료 (2026-03-18) |
+| Step 5 | 배우/감독 기반 추천 (`src/content_recommender.py`) | 🔧 recommendation_type 미결 (조장 확인 필요) |
+
+### Step 3 결과 — 5000명 샘플 (2026-03-18 확정, 품질 필터 ON)
+
+| 지표 | 값 |
+|------|----|
+| 50% 유저 급락 기준 | K=1 이내 |
+| 75% 유저 급락 기준 | K=2 이내 |
+| 90% 유저 급락 기준 | K=4 이내 |
+| 급락 지점 평균 점수 | 0.8622 |
+| Top-20 끝 평균 점수 | 0.5011 |
+| 권장 K (75% 커버) | 2 |
+
+> 64.1% 유저가 1위에서 급락 → K=2 이내로 의미있는 추천 완료됨.
+> **폴백 전략 확정**: 1~2위 고품질 필터 ON + 3~10위 저품질 인기 VOD 폴백
+> 리포트: `docs/score_cutoff_report_20260318_151010.md`
+
+### Step 5 — 배우/감독 기반 추천 상세
+
+- ALS(협업 필터링)와 **독립적인 별도 추천 방식**
+- `watch_history JOIN public.vod` → 유저가 많이 본 배우/감독 빈도 추출 → 미시청 VOD 추천
+- 관련 컬럼: `director` (VARCHAR), `cast_lead` (TEXT), `cast_guest` (TEXT)
+- `recommendation_type`: COLLABORATIVE 유지 vs CONTENT_BASED 신규 → **조장 확인 후 결정**
+
+---
+
+## 실행 방법
+
+```bash
+# 팀원 (DB 쓰기 권한 없음)
+python scripts/train.py --output parquet
+
+# 조장 — parquet 받아서 DB 적재
+python scripts/train.py --from-parquet data/cf_recommendations_YYYYMMDD.parquet
+
+# 조장 — DB 직접 학습 + 적재
+python scripts/train.py
+
+# dry-run
+python scripts/train.py --dry-run
+
+# 성능 평가
+python scripts/evaluate.py --filter-quality --k 10
+
+# cold 비중 분석
+python scripts/cold_impact_analysis.py
+
+# 급락 지점 분석 (5,000명 샘플)
+python scripts/score_cutoff_analysis.py --users 5000 --filter-quality
+```
 
 ---
 
@@ -160,6 +172,11 @@ python scripts/evaluate.py --k 20
 | `public.watch_history` | `user_id_fk` | VARCHAR | 유저 식별자 |
 | `public.watch_history` | `vod_id_fk` | VARCHAR | VOD 식별자 |
 | `public.watch_history` | `completion_rate` | FLOAT | confidence 계산 (alpha=40) |
+| `public.vod` | `poster_url` | VARCHAR | 품질 필터 기준 |
+| `public.vod` | `director` | VARCHAR(255) | 배우/감독 추천용 |
+| `public.vod` | `cast_lead` | TEXT | 배우/감독 추천용 |
+| `public.vod` | `cast_guest` | TEXT | 배우/감독 추천용 |
+| `public.vod_embedding` | `vod_id_fk` | VARCHAR | 품질 필터 기준 |
 
 ### 다운스트림 (쓰기)
 
