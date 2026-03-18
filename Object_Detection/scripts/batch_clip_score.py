@@ -33,7 +33,7 @@ from location_tagger import LocationTagger
 from context_filter import ContextFilter
 
 DATA_DIR    = PROJECT_ROOT / "data"
-CONFIG_PATH = PROJECT_ROOT / "config" / "clip_queries.yaml"
+CONFIG_PATH = PROJECT_ROOT / "config" / "clip_queries_ko.yaml"
 STATUS_FILE = DATA_DIR / "clip_status.json"
 LOG_FILE    = DATA_DIR / "clip_score.log"
 
@@ -148,7 +148,7 @@ def main():
     parser = argparse.ArgumentParser(description="VOD CLIP Zero-shot 배치 스코어링")
     parser.add_argument("--input-dir", type=str, default=str(PROJECT_ROOT / "data" / "trailers_아름"))
     parser.add_argument("--output",    type=str, default=str(DATA_DIR / "vod_clip_concept.parquet"))
-    parser.add_argument("--config",    type=str, default=str(CONFIG_PATH), help="쿼리 yaml 경로 (기본값: clip_queries.yaml)")
+    parser.add_argument("--config",    type=str, default=str(CONFIG_PATH), help="쿼리 yaml 경로 (기본값: clip_queries_ko.yaml)")
     parser.add_argument("--model",     type=str, default=None, help="CLIP 모델명 (미지정시 config 값 사용)")
     parser.add_argument("--fps",       type=float, default=1.0)
     parser.add_argument("--threshold", type=float, default=None, help="clip_score 임계값 (미지정시 config 값 사용)")
@@ -239,6 +239,9 @@ def main():
                     yolo_labels=yolo_labels,
                     clip_scores=ts_to_scores.get(frame_ts_key, {}),
                     ad_category=r.get("ad_category", ""),
+                    query_category_map=query_category_map,
+                    threshold=threshold,
+                    travel_groups=config.get("travel_groups", {}),
                 )
                 r["context_valid"]  = ctx["context_valid"]
                 r["context_reason"] = ctx["context_reason"]

@@ -27,6 +27,43 @@ VOD 영상 파일 (로컬 트레일러 5,726개)
     → [사전처리 완료 후 영상 파일 삭제 가능 — DB에는 타임스탬프+광고만 저장]
 ```
 
+### Shopping_Ad 연동 — 임베딩 기반 의미 매칭
+
+Object_Detection 산출물(label/concept/keyword)을 텍스트 임베딩하여 pgvector에 저장하고,
+`product_catalog` 상품명 임베딩과 코사인 유사도로 광고 상품을 매칭한다.
+
+```
+[Object Detection 산출물]
+  YOLO label:    "비빔밥"
+  CLIP concept:  "해변 바다 리조트 수영장"
+  STT keyword:   "여행"
+        ↓ sentence-transformers 텍스트 임베딩 (384d)
+        ↓
+[pgvector: public.detected_objects.embedding]
+        ↓ cosine similarity
+[pgvector: product_catalog.embedding]
+  product_name: "제주 여행 패키지", "한식 밀키트" 등
+        ↓
+[serving.shopping_ad]
+  vod_id | ts_start | ts_end | product_id | confidence
+```
+
+**rule-based 대비 장점:**
+- 카테고리 룰 수동 관리 불필요
+- 신규 상품 추가 시 임베딩만 추가하면 자동 연결
+- "삼겹살" → "BBQ 그릴", "캠핑 의자" 등 의미 기반 확장 매칭 가능
+
+**DB 추가 필요 컬럼 (황대원 협의):**
+
+| 테이블 | 컬럼 | 타입 | 용도 |
+|--------|------|------|------|
+| `public.detected_objects` | `embedding` | `vector(384)` | label 임베딩 |
+| `product_catalog` | `embedding` | `vector(384)` | 상품명 임베딩 |
+
+**임베딩 모델:** `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` (384d, 한국어 지원)
+
+---
+
 ### UI 서빙 아키텍처
 
 ```
@@ -177,8 +214,11 @@ python scripts/batch_detect.py --ct-cl ""              # 전체 처리
 
 - DB 적재 스크립트 (`scripts/ingest_to_db.py`) 별도 구현 예정 — 스키마 확정 완료 (detected_object_yolo/clip/stt)
 - 모델 파일 (.pt) git 커밋 금지 → `.gitignore`에 등록됨
-- Phase 5 파인튜닝 진행 중 — TS.z01 완료 (train 20,872 / val 5,218), Drive 업로드 후 Colab 학습 예정
+- Phase 5 파인튜닝 — Colab A100에서 TS.z01 파일럿 학습 진행 중 (70클래스, train 20,877장)
+  - `phase5_pilot_train.ipynb`: 파일럿 전용 노트북 (data.yaml 자동 복구 포함)
+  - mAP@0.5 ≥ 0.60 합격 시 전체 데이터 학습, 미달 시 z02+ 추가
 - Colab 로컬 디스크 ~80GB 한계 — TS.z02(107GB) 해제 시 Drive 직접 압축 해제 방식 사용 (`phase5_ts_drive_preprocess.ipynb`)
+- YAML 확장 완료 (PR #47): stt_keywords 28→156, clip_queries 121→172, keyword_mapper 한국어 조사 버그 수정
 
 ---
 
