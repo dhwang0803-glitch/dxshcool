@@ -28,7 +28,7 @@ factors: 128
 iterations: 20
 regularization: 0.01
 alpha: 40
-top_k: 20
+top_k: 10
 recommendation_type: "COLLABORATIVE"
 ```
 

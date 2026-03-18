@@ -5,7 +5,7 @@ model:
   alpha: 40
 
 recommend:
-  top_k: 20
+  top_k: 10
   # DB CHECK 제약 허용값: 'VISUAL_SIMILARITY' | 'COLLABORATIVE' | 'HYBRID'
   # (Database_Design/schemas/create_embedding_tables.sql chk_rec_type 참조)
   recommendation_type: "COLLABORATIVE"

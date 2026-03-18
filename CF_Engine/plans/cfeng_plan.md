@@ -64,7 +64,7 @@ watch_history 테이블 로드
 | iterations | 20 |
 | regularization | 0.01 |
 | alpha | 40 |
-| top_k | 20 |
+| top_k | 10 |
 | recommendation_type | `"COLLABORATIVE"` |
 | batch_size | 1,000 |
 
