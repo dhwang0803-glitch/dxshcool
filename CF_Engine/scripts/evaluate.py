@@ -86,6 +86,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="config/als_config.yaml")
     parser.add_argument("--k", type=int, default=20)
+    parser.add_argument("--filter-quality", action="store_true",
+                        help="poster_url + vod_embedding 둘 다 있는 VOD만 사용")
     args = parser.parse_args()
 
     with open(args.config, encoding="utf-8") as f:
@@ -94,7 +96,8 @@ def main():
 
     t0 = time.time()
     conn = get_conn()
-    mat, user_enc, item_enc, user_dec, item_dec = load_matrix(conn, alpha=m["alpha"])
+    mat, user_enc, item_enc, user_dec, item_dec = load_matrix(conn, alpha=m["alpha"],
+                                                               filter_quality=args.filter_quality)
     conn.close()
 
     log.info("Hold-out 분리 중...")
@@ -122,9 +125,10 @@ def main():
         f.write(f"# CF_Engine 평가 리포트 — {date_str}\n\n")
         f.write(f"| 지표 | 값 |\n|------|----|\n")
         for key, val in metrics.items():
-            f.write(f"| {key} | {val:.4f if isinstance(val, float) else val} |\n")
+            f.write(f"| {key} | {f'{val:.4f}' if isinstance(val, float) else val} |\n")
         f.write(f"\n- 모델: ALS factors={m['factors']}, iterations={m['iterations']}\n")
         f.write(f"- k={args.k}\n")
+        f.write(f"- 품질 필터: {'ON (poster_url + vod_embedding 있는 VOD만)' if args.filter_quality else 'OFF (전체)'}\n")
     log.info("리포트 저장: %s", report_path)
 
 

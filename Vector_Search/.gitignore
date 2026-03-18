@@ -1,0 +1,15 @@
+# 인덱스/임베딩 데이터
+data/*.pkl
+data/*.json
+data/*.log
+data/*.faiss
+data/*.index
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# .gitkeep은 추적
+!data/.gitkeep

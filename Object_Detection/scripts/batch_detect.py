@@ -27,6 +27,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from frame_extractor import extract_frames, list_video_files
 from detector import Detector
+from vod_filter import filter_videos_by_ct_cl
 
 DATA_DIR    = PROJECT_ROOT / "data"
 STATUS_FILE = DATA_DIR / "detect_status.json"
@@ -110,6 +111,8 @@ def main():
     parser.add_argument("--dry-run",   action="store_true", help="파일 목록만 출력, 추론 X")
     parser.add_argument("--status",    action="store_true", help="진행 상황 출력")
     parser.add_argument("--batch-save-interval", type=int, default=10)
+    parser.add_argument("--ct-cl", type=str, default="TV 연예/오락",
+                        help="처리 대상 콘텐츠 분류 (기본값: 'TV 연예/오락', 전체는 '')")
     args = parser.parse_args()
 
     status = load_status()
@@ -123,6 +126,13 @@ def main():
     if not video_files:
         log.error(f"영상 파일 없음: {args.input_dir}")
         return
+
+    # ct_cl 필터
+    if args.ct_cl:
+        video_files = filter_videos_by_ct_cl(video_files, args.ct_cl)
+        if not video_files:
+            log.error(f"ct_cl='{args.ct_cl}' 조건에 맞는 영상 없음")
+            return
 
     # 랜덤 샘플링
     if args.random and args.limit > 0:

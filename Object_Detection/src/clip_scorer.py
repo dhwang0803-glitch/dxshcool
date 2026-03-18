@@ -13,13 +13,25 @@ from PIL import Image
 
 
 class ClipScorer:
+    # multilingual 텍스트 전용 모델 — 이미지 인코딩 불가, 별도 이미지 모델 필요
+    _MULTILINGUAL_TEXT_ONLY = {"clip-ViT-B-32-multilingual-v1",
+                                "sentence-transformers/clip-ViT-B-32-multilingual-v1"}
+    _IMAGE_MODEL_FOR_MULTILINGUAL = "clip-ViT-B-32"
+
     def __init__(self, model_name: str = "clip-ViT-B-32"):
         from sentence_transformers import SentenceTransformer
-        try:
-            self.model = SentenceTransformer(model_name)
-        except Exception:
-            fallback = "sentence-transformers/clip-ViT-B-32-multilingual-v1"
-            self.model = SentenceTransformer(fallback)
+        self._is_multilingual = model_name in self._MULTILINGUAL_TEXT_ONLY
+        if self._is_multilingual:
+            # 이미지: clip-ViT-B-32 / 텍스트: multilingual (같은 임베딩 공간)
+            self._img_model = SentenceTransformer(self._IMAGE_MODEL_FOR_MULTILINGUAL)
+            self._txt_model = SentenceTransformer(model_name)
+            self.model = self._txt_model  # 하위호환용
+        else:
+            try:
+                self.model = SentenceTransformer(model_name)
+            except Exception:
+                fallback = "sentence-transformers/clip-ViT-B-32-multilingual-v1"
+                self.model = SentenceTransformer(fallback)
 
     def _frame_to_pil(self, frame: np.ndarray) -> Image.Image:
         import cv2
@@ -37,8 +49,12 @@ class ClipScorer:
             return {}
 
         pil = self._frame_to_pil(frame)
-        img_emb = self.model.encode(pil, convert_to_numpy=True)
-        txt_emb = self.model.encode(queries, convert_to_numpy=True)
+        if self._is_multilingual:
+            img_emb = self._img_model.encode(pil, convert_to_numpy=True)
+            txt_emb = self._txt_model.encode(queries, convert_to_numpy=True)
+        else:
+            img_emb = self.model.encode(pil, convert_to_numpy=True)
+            txt_emb = self.model.encode(queries, convert_to_numpy=True)
 
         # 코사인 유사도
         img_norm = img_emb / (np.linalg.norm(img_emb) + 1e-8)
@@ -60,22 +76,48 @@ class ClipScorer:
         timestamps: list[float],
         results: list[dict[str, float]],
         threshold: float = 0.22,
+        query_category_map: dict[str, str] | None = None,
     ) -> list[dict]:
         """
         score_frames 결과 → parquet 행 리스트.
-        threshold 미만 제거.
+        threshold 미만 제거. negative 카테고리 제거.
+        negative 쿼리 최고 점수가 positive 최고 점수 이상이면 프레임 전체 억제.
+
+        Args:
+            query_category_map: {"쿼리": "카테고리"} — ad_category 컬럼 부여용.
+                                 "negative" 카테고리는 records에서 제외.
 
         Returns:
-            list of {"vod_id", "frame_ts", "concept", "clip_score"}
+            list of {"vod_id", "frame_ts", "concept", "clip_score", "ad_category"}
         """
         records = []
         for ts, scores in zip(timestamps, results):
+            # negative 최고 점수 계산
+            neg_scores = [s for q, s in scores.items()
+                          if query_category_map and query_category_map.get(q) == "negative"]
+            max_neg = max(neg_scores) if neg_scores else 0.0
+
+            # positive 최고 점수 계산
+            pos_scores = [s for q, s in scores.items()
+                          if query_category_map and query_category_map.get(q) != "negative"
+                          and s >= threshold]
+            max_pos = max(pos_scores) if pos_scores else 0.0
+
+            # negative가 positive 이상이면 프레임 전체 억제
+            if max_neg >= max_pos and max_neg > 0:
+                continue
+
             for concept, score in scores.items():
-                if score >= threshold:
-                    records.append({
-                        "vod_id":     vod_id,
-                        "frame_ts":   ts,
-                        "concept":    concept,
-                        "clip_score": round(score, 4),
-                    })
+                if score < threshold:
+                    continue
+                ad_category = query_category_map.get(concept, "") if query_category_map else ""
+                if ad_category == "negative":
+                    continue
+                records.append({
+                    "vod_id":      vod_id,
+                    "frame_ts":    ts,
+                    "concept":     concept,
+                    "clip_score":  round(score, 4),
+                    "ad_category": ad_category,
+                })
         return records
