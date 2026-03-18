@@ -94,4 +94,4 @@ score = w_rating * norm(rating) + w_recency * recency_score(release_date)
 
 | 테이블 | 컬럼 | 비고 |
 |--------|------|------|
-| `serving.vod_recommendation` | `vod_id_fk`, `rank`, `score`, `recommendation_type` | `'POPULAR'`, `user_id_fk=NULL`, `source_vod_id=NULL` |
+| `serving.popular_recommendation` | `genre`, `rank`, `vod_id_fk`, `score`, `recommendation_type`, `expires_at` | UNIQUE(genre, rank), TTL=7일 |

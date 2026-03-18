@@ -3,19 +3,20 @@
 **브랜치**: Normal_Recommendation
 **담당**: 담당자 C (Cold Start 대응)
 **작성일**: 2026-03-17
-**목표**: 시청 이력 없는 신규 유저(Cold Start) 대상으로 장르/콘텐츠유형별 인기 VOD Top-N을 생성하여 `serving.vod_recommendation` 테이블에 적재
+**목표**: 시청 이력 없는 신규 유저(Cold Start) 대상으로 장르별 인기 VOD Top-20을 생성하여 `serving.popular_recommendation` 테이블에 적재
 
 ---
 
 ## 전체 구조
 
 ```
-[PLAN_01] vod 테이블 + watch_history 로드
-             → 인기 지표 계산 (조회수 + 평점 가중합)
-             → 장르/콘텐츠유형별 Top-N 추천 결과 생성
+[PLAN_01] vod 테이블 로드 (rating, release_date, series_nm)
+             → series_nm 기준 시리즈 집약
+             → rating(0.6) + 최신성(0.4) 인기 점수 계산
+             → 고정 4개 장르(영화/드라마/예능/애니) 각 Top-20 추출
              → data/recommendations_popular_YYYYMMDD.parquet 저장
                              ↓
-[PLAN_02] parquet → serving.vod_recommendation 적재
+[PLAN_02] parquet → serving.popular_recommendation 적재
                    (조장 전용: DB 쓰기 권한 필요)
 ```
 
@@ -25,37 +26,36 @@
 
 | 단계 | 파일 | 입력 | 출력 | 예상 시간 |
 |------|------|------|------|---------|
-| PLAN_01 | `scripts/run_pipeline.py` | vod + watch_history 테이블 | `data/recommendations_popular_YYYYMMDD.parquet` | 수 분 |
-| PLAN_02 | `scripts/export_to_db.py` | parquet 파일 | `serving.vod_recommendation` | 수 분 |
+| PLAN_01 | `scripts/run_pipeline.py` | `public.vod` 테이블 | `data/recommendations_popular_YYYYMMDD.parquet` | 수 분 |
+| PLAN_02 | `scripts/export_to_db.py` | parquet 파일 | `serving.popular_recommendation` | 수 분 |
 
 ---
 
 ## 인기 지표 계산 방식
 
-### 조회수 (watch_count)
-`watch_history` 테이블에서 `vod_id_fk` 기준 시청 건수 집계.
-
-```sql
-SELECT vod_id_fk, COUNT(*) AS watch_count
-FROM public.watch_history
-GROUP BY vod_id_fk;
-```
-
 ### 인기 점수 공식
 
 ```
-score = w1 * norm(watch_count) + w2 * norm(rating)
+score = 0.6 * norm(rating) + 0.4 * recency_score(release_date)
 ```
 
 | 파라미터 | 기본값 | 설명 |
 |---------|-------|------|
-| `w1` | 0.7 | 조회수 가중치 |
-| `w2` | 0.3 | 평점 가중치 |
-| `top_n` | 20 | 카테고리별 추천 개수 |
+| `rating_weight` | 0.6 | rating 가중치 |
+| `recency_weight` | 0.4 | 최신성 가중치 |
+| `top_n` | 20 | 장르별 추천 개수 |
 
 - **정규화**: min-max 정규화 (0~1 범위)
-- **평점 NULL 처리**: 0으로 대체 후 정규화
+- **rating NULL 처리**: 0으로 대체 후 정규화
+- **release_date NULL 처리**: recency 0으로 처리 (최하위 취급)
 - **장르 분리**: 슬래시(`/`) 구분 다중 장르 → 각 장르에 개별 등록
+
+### 시리즈 집약 기준
+
+- `series_nm` 기준으로 그룹핑 — 동일 시리즈는 **1개**만 추천
+- `series_nm` NULL → 단편/독립작품, 개별 VOD 그대로 처리
+- rating: 시리즈 내 에피소드 **평균**
+- release_date: 시리즈 내 **가장 최신** 에피소드 기준
 
 ---
 
@@ -68,23 +68,22 @@ score = w1 * norm(watch_count) + w2 * norm(rating)
 ### `scripts/run_pipeline.py` 실행 방법
 
 ```bash
-# 팀원 (DB 쓰기 권한 없음) — parquet 출력
-python scripts/run_pipeline.py --output parquet
-# → data/recommendations_popular_YYYYMMDD.parquet 생성 후 조장에게 전달
+# 팀원 (parquet 저장)
+python Normal_Recommendation/scripts/run_pipeline.py --output parquet
 
-# 조장 — parquet 받아서 DB 직접 적재
-python scripts/export_to_db.py --from-parquet data/recommendations_popular_YYYYMMDD.parquet
+# 드라이런
+python Normal_Recommendation/scripts/run_pipeline.py --dry-run
 
-# 조장 — DB 직접 실행 + 적재 (1회성 전체)
-python scripts/run_pipeline.py
+# 조장 (DB 직접 적재)
+python Normal_Recommendation/scripts/run_pipeline.py
 ```
 
 ### Parquet 스키마
 
 ```python
 # data/recommendations_popular_YYYYMMDD.parquet
-# 컬럼: vod_id_fk, rank, score, recommendation_type, genre, ct_cl
-# 타입: str,       int,  float, str,                  str,   str
+# 컬럼: category_value, rank, vod_id_fk, score, recommendation_type
+# 타입: str,            int,  str,        float, str
 ```
 
 ---
@@ -102,7 +101,7 @@ Normal_Recommendation/
 ├── tests/
 │   └── test_popularity.py      ← pytest
 ├── config/
-│   └── recommend_config.yaml   ← top_n, 가중치 설정값
+│   └── recommend_config.yaml   ← rating_weight, recency_weight, top_n
 └── docs/
     ├── plans/
     │   ├── PLAN_00_MASTER.md   ← 이 파일
@@ -117,32 +116,33 @@ Normal_Recommendation/
 
 | 항목 | 내용 |
 |------|------|
-| vod 테이블 | 166,159건 (`full_asset_id`, `genre`, `ct_cl`, `rating`) |
-| watch_history 테이블 | 약 44,000,000건 (`vod_id_fk`, `user_id_fk`) |
-| 추천 대상 유저 | Cold Start 유저 (시청 이력 없음) → user_id_fk=NULL |
+| vod 테이블 | 166,159건 (`full_asset_id`, `genre`, `ct_cl`, `rating`, `release_date`, `series_nm`) |
+| 대상 장르 | 영화 / 드라마 / 예능 / 애니 고정 4개 |
+| 추천 대상 유저 | Cold Start 유저 (시청 이력 없음) |
 | recommendation_type | `'POPULAR'` 고정값 |
-| source_vod_id | NULL (콘텐츠 기반 아님) |
-| UNIQUE constraint | `serving.vod_recommendation` UNIQUE (user_id_fk, vod_id_fk) |
+| expires_at | 현재시간 + 7일 (TTL) |
+| UNIQUE constraint | `serving.popular_recommendation` UNIQUE (genre, rank) |
+| 업데이트 주기 | 1주일 1회 수동 실행 |
 
 ---
 
 ## 진행 체크리스트
 
 ### PLAN_01: 인기 VOD 집계 및 추천 결과 생성
-- [ ] `src/popularity.py` 구현 (인기 지표 계산 로직)
-- [ ] `src/db.py` 구현 (DB 연결 공통 모듈)
-- [ ] `config/recommend_config.yaml` 작성 (top_n, 가중치)
-- [ ] `scripts/run_pipeline.py` 구현 (실행 스크립트)
+- [x] `src/popularity.py` 구현 (인기 지표 계산 로직)
+- [x] `src/db.py` 구현 (DB 연결 공통 모듈)
+- [x] `config/recommend_config.yaml` 작성 (rating_weight, recency_weight, top_n)
+- [x] `scripts/run_pipeline.py` 구현 (실행 스크립트)
 - [ ] parquet 저장 확인
 
 ### PLAN_02: DB 적재
-- [ ] `scripts/export_to_db.py` 구현
+- [x] `scripts/export_to_db.py` 구현
 - [ ] 조장에게 parquet 전달
-- [ ] `serving.vod_recommendation` 적재 완료 확인
+- [ ] `serving.popular_recommendation` 적재 완료 확인
 
 ### 테스트
-- [ ] `tests/test_popularity.py` 작성 (pytest)
-- [ ] 단위 테스트 전체 통과 확인
+- [x] `tests/test_popularity.py` 작성 (pytest 22개)
+- [x] 단위 테스트 전체 통과 확인
 
 ---
 

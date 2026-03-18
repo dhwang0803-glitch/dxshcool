@@ -3,91 +3,57 @@
 **브랜치**: Normal_Recommendation
 **스크립트**: `scripts/run_pipeline.py`
 **라이브러리**: `src/popularity.py`, `src/db.py`
-**입력**: `public.vod` + `public.watch_history` 테이블
+**입력**: `public.vod` 테이블
 **출력**: `data/recommendations_popular_YYYYMMDD.parquet`
 
 ---
 
 ## 목표
 
-1. `watch_history`에서 VOD별 시청 건수(조회수) 집계
-2. `vod` 테이블의 `rating`과 결합하여 인기 점수 계산
-3. 장르(`genre`) 및 콘텐츠 유형(`ct_cl`)별 Top-N VOD 추출
-4. 결과를 parquet으로 저장
+1. `vod` 테이블에서 `rating`, `release_date`, `series_nm` 로드
+2. `series_nm` 기준으로 시리즈 단위 집약
+3. rating + 최신성(release_date) 기반 인기 점수 계산
+4. 고정 4개 장르(영화/드라마/예능/애니) 각 Top-20 추출
+5. 결과를 parquet으로 저장
 
 ---
 
-## 인기 점수 계산 상세
+## 파이프라인 상세
 
-### Step 1: 조회수 집계
-
-```sql
-SELECT vod_id_fk, COUNT(*) AS watch_count
-FROM public.watch_history
-GROUP BY vod_id_fk;
-```
-
-### Step 2: vod 테이블과 조인
+### Step 1: vod 테이블 로드
 
 ```sql
-SELECT
-    v.full_asset_id,
-    v.genre,
-    v.ct_cl,
-    v.rating,
-    COALESCE(w.watch_count, 0) AS watch_count
-FROM public.vod v
-LEFT JOIN (
-    SELECT vod_id_fk, COUNT(*) AS watch_count
-    FROM public.watch_history
-    GROUP BY vod_id_fk
-) w ON v.full_asset_id = w.vod_id_fk;
+SELECT full_asset_id, genre, ct_cl, rating, release_date, series_nm
+FROM public.vod;
 ```
 
-### Step 3: 인기 점수 계산
+### Step 2: 시리즈 집약 (`aggregate_by_series`)
+
+- `series_nm` NULL → 개별 VOD 그대로 처리
+- `series_nm` 있음 → 시리즈 단위 1개로 집약
+  - `rating`: 에피소드 평균값
+  - `release_date`: 가장 최신 에피소드 기준
+
+### Step 3: 인기 점수 계산 (`calc_popularity_score`)
 
 ```python
-# min-max 정규화
-def minmax_norm(series):
-    mn, mx = series.min(), series.max()
-    if mx == mn:
-        return series * 0
-    return (series - mn) / (mx - mn)
+# 최신성: 오늘 기준 경과 일수 → 역수 정규화 (최신=1, 오래됨=0)
+norm_recency = 1 - minmax_norm(days_from_today)
 
-df['norm_watch'] = minmax_norm(df['watch_count'])
-df['norm_rating'] = minmax_norm(df['rating'].fillna(0))
-
-# 가중합 (config에서 로드)
-df['score'] = w1 * df['norm_watch'] + w2 * df['norm_rating']
+score = 0.6 * norm(rating) + 0.4 * norm_recency
 ```
 
-### Step 4: 장르별 Top-N 추출
+| 파라미터 | 값 | 설명 |
+|---------|---|------|
+| `rating_weight` | 0.6 | rating 가중치 |
+| `recency_weight` | 0.4 | 최신성 가중치 |
+| `release_date` NULL | 0으로 처리 | 미수집 VOD |
 
-```python
-# 슬래시 구분 다중 장르 처리
-df_exploded = df.assign(genre=df['genre'].str.split('/')).explode('genre')
-df_exploded['genre'] = df_exploded['genre'].str.strip()
+### Step 4: 장르별 Top-20 추출 (`get_top_n_by_genre`)
 
-# 장르별 Top-N
-genre_top = (
-    df_exploded
-    .sort_values('score', ascending=False)
-    .groupby('genre')
-    .head(top_n)
-    .assign(rank=lambda x: x.groupby('genre').cumcount() + 1)
-)
-```
-
-### Step 5: ct_cl별 Top-N 추출
-
-```python
-ctcl_top = (
-    df.sort_values('score', ascending=False)
-    .groupby('ct_cl')
-    .head(top_n)
-    .assign(rank=lambda x: x.groupby('ct_cl').cumcount() + 1)
-)
-```
+- 슬래시(`/`) 구분 다중 장르 → explode
+- **고정 4개 장르만 필터**: 영화 / 드라마 / 예능 / 애니
+- 장르별 score 내림차순 Top-20
 
 ---
 
@@ -95,13 +61,14 @@ ctcl_top = (
 
 ```yaml
 popularity:
-  watch_weight: 0.7    # w1: 조회수 가중치
-  rating_weight: 0.3   # w2: 평점 가중치
-  top_n: 20            # 카테고리별 추천 개수
+  rating_weight: 0.6
+  recency_weight: 0.4
+  top_n: 20
 
 export:
   recommendation_type: "POPULAR"
-  output_dir: "data"
+  ttl_days: 7
+  output_dir: "Normal_Recommendation/data"
 ```
 
 ---
@@ -110,39 +77,25 @@ export:
 
 | 컬럼 | 타입 | 설명 |
 |------|------|------|
-| `vod_id_fk` | str | VOD ID (`full_asset_id`) |
-| `rank` | int | 카테고리 내 순위 (1~top_n) |
+| `category_value` | str | 장르명 (영화/드라마/예능/애니) |
+| `rank` | int | 장르 내 순위 (1~20) |
+| `vod_id_fk` | str | VOD ID |
 | `score` | float | 인기 점수 (0~1) |
 | `recommendation_type` | str | 고정값: `'POPULAR'` |
-| `genre` | str | 해당 장르 (explode 적용) |
-| `ct_cl` | str | 콘텐츠 유형 |
 
 ---
 
 ## 실행 방법
 
 ```bash
-conda activate myenv
-
 # 팀원 (parquet 저장)
-python scripts/run_pipeline.py --output parquet
+python Normal_Recommendation/scripts/run_pipeline.py --output parquet
 
-# 드라이런 (저장 없이 결과만 출력)
-python scripts/run_pipeline.py --dry-run
+# 드라이런
+python Normal_Recommendation/scripts/run_pipeline.py --dry-run
 
 # 조장 (DB 직접 적재)
-python scripts/run_pipeline.py
-```
-
----
-
-## 예상 산출물
-
-```
-Normal_Recommendation/data/
-└── recommendations_popular_20260317.parquet
-    ← 장르별 Top-20 + ct_cl별 Top-20 통합
-    ← 예상 행 수: 장르 수 × 20 + ct_cl 수 × 20
+python Normal_Recommendation/scripts/run_pipeline.py
 ```
 
 ---
