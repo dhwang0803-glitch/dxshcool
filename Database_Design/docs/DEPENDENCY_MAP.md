@@ -19,7 +19,9 @@
 | `public.vod_embedding` | `VOD_Embedding` | `User_Embedding`(읽기), `Vector_Search`(읽기), `CF_Engine`(읽기) |
 | `public.vod_meta_embedding` | `VOD_Embedding` | `User_Embedding`(읽기), `Vector_Search`(읽기) |
 | `public.user_embedding` | `User_Embedding` | `CF_Engine`(읽기), `Vector_Search`(읽기) |
-| `public.detected_objects` | `Object_Detection` | `Shopping_Ad`(읽기) |
+| `public.detected_object_yolo` | `Object_Detection` | `Shopping_Ad`(읽기) |
+| `public.detected_object_clip` | `Object_Detection` | `Shopping_Ad`(읽기) |
+| `public.detected_object_stt` | `Object_Detection` | `Shopping_Ad`(읽기) |
 | `public.tv_schedule` | *(외부 EPG 적재)* | `Shopping_Ad`(읽기) |
 | `public.homeshopping_product` | `Shopping_Ad` | `Shopping_Ad`(읽기), `API_Server`(읽기) |
 
@@ -31,6 +33,8 @@
 | `serving.mv_vod_watch_stats` | `Database_Design`(cron REFRESH) | `API_Server`(읽기) |
 | `serving.mv_age_grp_vod_stats` | `Database_Design`(cron REFRESH) | `API_Server`(읽기) |
 | `serving.mv_daily_watch_stats` | `Database_Design`(cron REFRESH) | `API_Server`(읽기) |
+| `serving.shopping_ad` | `Shopping_Ad` | `API_Server`(읽기) |
+| `serving.popular_recommendation` | `CF_Engine`, `Vector_Search` | `API_Server`(읽기) |
 
 ---
 
@@ -96,6 +100,7 @@
 | 읽기 | `public.user_embedding` | `user_id_fk`, `embedding` | VARCHAR/VECTOR(896) | ALS 초기값 |
 | 읽기 | `public.watch_history` | `user_id_fk`, `vod_id_fk`, `satisfaction` | - | 행렬 분해 입력 |
 | 쓰기 | `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | - | `'COLLABORATIVE'` |
+| 쓰기 | `serving.popular_recommendation` | `genre`, `rank`, `vod_id_fk`, `score`, `recommendation_type` | VARCHAR(64)/SMALLINT/VARCHAR(64)/REAL/VARCHAR(32) | `'POPULAR'` 장르별 Top-N |
 
 ### Vector_Search *(미구현)*
 
@@ -106,35 +111,34 @@
 | 읽기 | `public.user_embedding` | `user_id_fk`, `embedding` | VECTOR(896) | 개인화 검색 |
 | 쓰기 | `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | - | 유저 기반: `'VISUAL_SIMILARITY'` |
 | 쓰기 | `serving.vod_recommendation` | `source_vod_id`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | VARCHAR(64)/VARCHAR(64)/SMALLINT/REAL/VARCHAR(32) | 콘텐츠 기반: `'CONTENT_BASED'` |
+| 쓰기 | `serving.popular_recommendation` | `genre`, `rank`, `vod_id_fk`, `score`, `recommendation_type` | VARCHAR(64)/SMALLINT/VARCHAR(64)/REAL/VARCHAR(32) | `'POPULAR'` 장르별 Top-N |
 
 ### Object_Detection
 
 | 방향 | 테이블/파일 | 컬럼 | 타입 | 비고 |
 |------|------------|------|------|------|
 | 읽기 | 로컬 VOD 영상 파일 | `file_path`, `vod_id` | str | 추론 입력 |
-| 읽기 | `public.vod` | `full_asset_id` | VARCHAR(64) | VOD 식별자 매핑 (선택) |
-| 쓰기 | `data/vod_detected_object.parquet` (로컬) | `vod_id` | str | Shopping_Ad 소비 |
-| 쓰기 | `data/vod_detected_object.parquet` (로컬) | `frame_ts` | float | 프레임 타임스탬프(초) |
-| 쓰기 | `data/vod_detected_object.parquet` (로컬) | `label` | str | YOLO COCO 클래스명 |
-| 쓰기 | `data/vod_detected_object.parquet` (로컬) | `confidence` | float | 0.5 이상만 저장 |
-| 쓰기 | `data/vod_detected_object.parquet` (로컬) | `bbox` | list[float] | [x1,y1,x2,y2] 픽셀 좌표 |
-| 쓰기 | `public.detected_objects` (VPC — 예정) | *(스키마 미확정)* | - | Database_Design과 협의 후 확정 |
+| 읽기 | `public.vod` | `full_asset_id`, `youtube_video_id`, `duration_sec`, `trailer_processed` | VARCHAR(64)/VARCHAR(20)/REAL/BOOLEAN | VOD 식별 + 트레일러 상태 |
+| 쓰기 | `data/vod_detected_object.parquet` (로컬) | `vod_id`, `frame_ts`, `label`, `confidence`, `bbox` | str/float/str/float/list | Shopping_Ad 소비 |
+| 쓰기 | `data/vod_clip_concept.parquet` (로컬) | `vod_id`, `frame_ts`, `concept`, `clip_score`, `ad_category`, `context_valid` | str/float/str/float/str/bool | Shopping_Ad 소비 |
+| 쓰기 | `data/vod_stt_concept.parquet` (로컬) | `vod_id`, `start_ts`, `end_ts`, `transcript`, `keyword`, `ad_category`, `ad_hints` | str/float/float/str/str/str/list | Shopping_Ad 소비 |
+| 쓰기 | `public.detected_object_yolo` | `vod_id_fk`, `frame_ts`, `label`, `confidence`, `bbox` | VARCHAR(64)/REAL/VARCHAR(64)/REAL/REAL[] | YOLO bbox 탐지 결과 |
+| 쓰기 | `public.detected_object_clip` | `vod_id_fk`, `frame_ts`, `concept`, `clip_score`, `ad_category`, `context_valid`, `context_reason` | VARCHAR(64)/REAL/VARCHAR(200)/REAL/VARCHAR(32)/BOOLEAN/TEXT | CLIP 개념 태깅 |
+| 쓰기 | `public.detected_object_stt` | `vod_id_fk`, `start_ts`, `end_ts`, `transcript`, `keyword`, `ad_category`, `ad_hints` | VARCHAR(64)/REAL/REAL/TEXT/VARCHAR(100)/VARCHAR(32)/TEXT | STT 키워드 추출 |
+| 쓰기 | `public.vod` | `trailer_processed` | BOOLEAN | 처리 완료 시 TRUE 갱신 |
 
 ### Shopping_Ad
 
 | 방향 | 테이블 | 컬럼 | 타입 | 비고 |
 |------|--------|------|------|------|
-| 읽기 | `public.detected_objects` | *(스키마 미확정)* | - | YOLO 탐지 결과 매칭용 |
-| 읽기 | `public.tv_schedule` | *(스키마 미확정)* | - | EPG 편성표 매칭용 |
-| 쓰기 | `public.homeshopping_product` | `channel` | VARCHAR(32) | 채널명 |
-| 쓰기 | `public.homeshopping_product` | `broadcast_date` | DATE | 방송일 |
-| 쓰기 | `public.homeshopping_product` | `start_time`, `end_time` | TIME | 방송 시작/종료 |
-| 쓰기 | `public.homeshopping_product` | `raw_name` | TEXT | 원본 상품명 |
-| 쓰기 | `public.homeshopping_product` | `normalized_name` | VARCHAR(200) | 정규화 상품명 |
-| 쓰기 | `public.homeshopping_product` | `price` | INTEGER | 판매가 |
-| 쓰기 | `public.homeshopping_product` | `product_url`, `image_url` | TEXT | 상품/이미지 링크 |
-| 쓰기 | `public.homeshopping_product` | `program_name` | VARCHAR(200) | 프로그램명 |
-| 쓰기 | `public.homeshopping_product` | `crawled_at` | TIMESTAMPTZ | 크롤링 시각 (DEFAULT NOW()) |
+| 읽기 | `public.detected_object_yolo` | `vod_id_fk`, `frame_ts`, `label`, `confidence`, `bbox` | VARCHAR(64)/REAL/VARCHAR(64)/REAL/REAL[] | YOLO 탐지 결과 |
+| 읽기 | `public.detected_object_clip` | `vod_id_fk`, `frame_ts`, `concept`, `clip_score`, `ad_category`, `context_valid` | VARCHAR(64)/REAL/VARCHAR(200)/REAL/VARCHAR(32)/BOOLEAN | CLIP 개념 태깅 |
+| 읽기 | `public.detected_object_stt` | `vod_id_fk`, `start_ts`, `end_ts`, `keyword`, `ad_category`, `ad_hints` | VARCHAR(64)/REAL/REAL/VARCHAR(100)/VARCHAR(32)/TEXT | STT 키워드 |
+| 읽기 | `public.tv_schedule` | `channel`, `broadcast_date`, `start_time`, `end_time`, `program_name`, `genre` | VARCHAR(64)/DATE/TIME/TIME/VARCHAR(300)/VARCHAR(64) | EPG 편성표 매칭 |
+| 읽기 | `public.vod` | `full_asset_id`, `asset_nm` | VARCHAR(64)/VARCHAR(255) | VOD 메타데이터 |
+| 읽기 | `public.homeshopping_product` | `id`, `channel`, `broadcast_date`, `start_time`, `normalized_name`, `price`, `product_url`, `image_url` | 각종 | 상품 매칭용 |
+| 쓰기 | `public.homeshopping_product` | `channel`, `broadcast_date`, `start_time`, `end_time`, `raw_name`, `normalized_name`, `price`, `product_url`, `image_url`, `program_name` | 각종 | 홈쇼핑 크롤링 적재 |
+| 쓰기 | `serving.shopping_ad` | `vod_id_fk`, `ts_start`, `ts_end`, `ad_category`, `signal_source`, `score`, `ad_hints`, `product_id_fk`, `product_name`, `product_price`, `product_url`, `image_url`, `channel` | 각종 | 팝업 서빙 데이터 |
 
 ### API_Server
 
