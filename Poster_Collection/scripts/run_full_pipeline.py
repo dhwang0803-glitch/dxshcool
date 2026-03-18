@@ -59,7 +59,7 @@ def clean_old_data(parts: int):
         logger.info("이전 데이터 %d개 파일 정리 완료", removed)
 
 
-def run_parallel_crawl(parts: int):
+def run_parallel_crawl(parts: int, rag_source: str = None, tmdb_migrate: bool = False):
     """crawl_posters.py를 N개 파트로 병렬 실행."""
     crawl_script = os.path.join(_SCRIPTS_DIR, "crawl_posters.py")
     procs = []
@@ -75,6 +75,10 @@ def run_parallel_crawl(parts: int):
             "--part", str(i),
             "--total-parts", str(parts),
         ]
+        if rag_source:
+            cmd += ["--rag-source", rag_source]
+        if tmdb_migrate:
+            cmd += ["--tmdb-migrate"]
         logger.info("파트 %d/%d 시작: %s", i, parts, " ".join(cmd))
         p = subprocess.Popen(
             cmd, stdout=log_f, stderr=subprocess.STDOUT,
@@ -293,6 +297,9 @@ def main():
     parser.add_argument("--skip-crawl", action="store_true", help="크롤링 건너뛰고 통합부터 시작")
     parser.add_argument("--skip-oci", action="store_true", help="OCI 업로드/DB 업데이트 건너뛰기")
     parser.add_argument("--dry-run", action="store_true", help="크롤링+통합만 실행 (OCI/DB 변경 없음)")
+    parser.add_argument("--rag-source", type=str, default=None, help="rag_source 필터 (예: TMDB_NEW_2025)")
+    parser.add_argument("--tmdb-migrate", action="store_true",
+                        help="TMDB URL → OCI 마이그레이션 (poster_url이 TMDB URL인 VOD 대상)")
     args = parser.parse_args()
 
     from dotenv import load_dotenv
@@ -304,10 +311,13 @@ def main():
     # Step 1: 크롤링
     if not args.skip_crawl:
         logger.info("=" * 60)
-        logger.info("Step 1: 이전 데이터 정리 + %d분할 병렬 크롤링", args.parts)
+        mode = "TMDB migrate" if args.tmdb_migrate else "크롤링"
+        logger.info("Step 1: 이전 데이터 정리 + %d분할 병렬 %s%s",
+                    args.parts, mode,
+                    f" (rag_source={args.rag_source})" if args.rag_source else "")
         logger.info("=" * 60)
         clean_old_data(args.parts)
-        run_parallel_crawl(args.parts)
+        run_parallel_crawl(args.parts, rag_source=args.rag_source, tmdb_migrate=args.tmdb_migrate)
     else:
         logger.info("크롤링 건너뜀 (--skip-crawl)")
 
