@@ -17,7 +17,9 @@ from pathlib import Path
 from collections import defaultdict
 
 import cv2
+import numpy as np
 import pandas as pd
+from PIL import Image, ImageDraw, ImageFont
 
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
@@ -35,18 +37,56 @@ BEST_PT = PROJECT_ROOT / "models" / "best.pt"
 BASE_PT = "yolo11s.pt"
 
 
+_FONT_CACHE = {}
+
+def _get_korean_font(size=20):
+    """한국어 지원 폰트 로드 (캐시)"""
+    if size in _FONT_CACHE:
+        return _FONT_CACHE[size]
+    font_paths = [
+        "C:/Windows/Fonts/malgunbd.ttf",    # 맑은 고딕 Bold
+        "C:/Windows/Fonts/malgun.ttf",       # 맑은 고딕
+        "C:/Windows/Fonts/NanumGothicBold.ttf",
+        "C:/Windows/Fonts/gulim.ttc",        # 굴림
+    ]
+    for fp in font_paths:
+        if Path(fp).exists():
+            try:
+                font = ImageFont.truetype(fp, size, encoding="unic")
+                _FONT_CACHE[size] = font
+                return font
+            except Exception:
+                continue
+    font = ImageFont.load_default()
+    _FONT_CACHE[size] = font
+    return font
+
+
 def draw_boxes(frame, boxes, color, label_prefix=""):
-    """프레임에 바운딩 박스 + 라벨 그리기"""
-    out = frame.copy()
+    """프레임에 바운딩 박스 + 한국어 라벨 그리기 (PIL 사용)"""
+    # BGR → RGB → PIL
+    pil_img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(pil_img)
+    font = _get_korean_font(20)
+    # color는 BGR tuple → RGB로 변환
+    rgb_color = (color[2], color[1], color[0])
+
     for b in boxes:
         x1, y1, x2, y2 = [int(v) for v in b["bbox"]]
         conf = b["confidence"]
         label = f"{label_prefix}{b['label']} {conf:.2f}"
-        cv2.rectangle(out, (x1, y1), (x2, y2), color, 2)
-        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-        cv2.rectangle(out, (x1, y1 - th - 6), (x1 + tw, y1), color, -1)
-        cv2.putText(out, label, (x1, y1 - 4),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        # bbox
+        draw.rectangle([x1, y1, x2, y2], outline=rgb_color, width=3)
+        # 텍스트 크기 측정
+        left, top, right, bottom = font.getbbox(label)
+        tw, th = right - left, bottom - top
+        # 텍스트 배경 (bbox 위에)
+        bg_y1 = max(y1 - th - 8, 0)
+        draw.rectangle([x1, bg_y1, x1 + tw + 8, bg_y1 + th + 6], fill=rgb_color)
+        draw.text((x1 + 4, bg_y1 + 2), label, fill=(255, 255, 255), font=font)
+
+    # PIL → BGR numpy
+    out = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
     return out
 
 
@@ -64,6 +104,8 @@ def main():
                         help="탐지 프레임 이미지 저장 (data/ab_test_frames/)")
     parser.add_argument("--best-only", action="store_true",
                         help="파인튜닝 모델만 테스트 (기본 모델 스킵)")
+    parser.add_argument("--videos", nargs="+", type=str, default=None,
+                        help="테스트할 영상 파일 직접 지정 (경로 또는 파일명)")
     args = parser.parse_args()
 
     random.seed(args.seed)
@@ -89,13 +131,29 @@ def main():
         print(f"    클래스 수: {len(model_b.model.names)}")
 
     # 영상 로드
-    video_files = list_video_files(args.input_dir)
-    if not video_files:
-        print(f"\n[ERROR] 영상 없음: {args.input_dir}")
-        return
-
-    sampled = random.sample(video_files, min(args.limit, len(video_files)))
-    print(f"\n대상 트레일러: {len(sampled)}건 (전체 {len(video_files)}건 중)")
+    if args.videos:
+        # 직접 지정된 파일 사용
+        input_dir = Path(args.input_dir)
+        sampled = []
+        for v in args.videos:
+            p = Path(v)
+            if p.exists():
+                sampled.append(p)
+            elif (input_dir / v).exists():
+                sampled.append(input_dir / v)
+            else:
+                print(f"[WARN] 파일 없음: {v}")
+        if not sampled:
+            print("[ERROR] 유효한 영상 파일 없음")
+            return
+    else:
+        video_files = list_video_files(args.input_dir)
+        if not video_files:
+            print(f"\n[ERROR] 영상 없음: {args.input_dir}")
+            return
+        sampled = random.sample(video_files, min(args.limit, len(video_files)))
+    total = len(video_files) if not args.videos else len(sampled)
+    print(f"\n대상 트레일러: {len(sampled)}건 (전체 {total}건 중)")
     print(f"conf threshold: {args.conf} | fps: {args.fps}")
 
     frames_dir = PROJECT_ROOT / "data" / "ab_test_frames"
