@@ -12,3 +12,8 @@ recommend:
 
 db:
   batch_size: 1000
+
+content_boost:
+  enabled: true
+  # 동일 감독 or 동일 배우를 min_count편 이상 시청한 유저에게만 적용
+  min_count: 3

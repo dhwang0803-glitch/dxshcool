@@ -127,12 +127,16 @@ watch_history 테이블 로드
 > **폴백 전략 확정**: 1~2위 고품질 필터 ON + 3~10위 저품질 인기 VOD 폴백
 > 리포트: `docs/score_cutoff_report_20260318_151010.md`
 
-### Step 5 — 배우/감독 기반 추천 상세
+### Step 5 — 배우/감독 기반 추천 후처리 상세 (확정)
 
-- ALS(협업 필터링)와 **독립적인 별도 추천 방식**
-- `watch_history JOIN public.vod` → 유저가 많이 본 배우/감독 빈도 추출 → 미시청 VOD 추천
-- 관련 컬럼: `director` (VARCHAR), `cast_lead` (TEXT), `cast_guest` (TEXT)
-- `recommendation_type`: COLLABORATIVE 유지 vs CONTENT_BASED 신규 → **조장 확인 후 결정**
+- ALS Top-K 결과에 **후처리로 1~2개 추가**하는 방식
+- `recommendation_type`: **COLLABORATIVE 유지** (DB 스키마 변경 없음)
+- 트리거 조건: 동일 감독 3편 이상 OR 동일 배우 3편 이상 시청한 유저에게만 적용
+- 추가 개수: 감독 조건 충족 시 1개 + 배우 조건 충족 시 1개 (최대 2개)
+- 추가 위치: ALS rank 뒤에 rank+1, rank+2로 붙임
+- 후보 조건: 미시청 + 품질 필터(poster+embedding) 통과 VOD
+- cast 컬럼 형태: JSON 배열 `["현빈", ...]` or 쉼표 구분 `"정형돈, 데프콘"` 혼재 → 파싱 처리
+- 구현 파일: `src/content_recommender.py` + `scripts/train.py` 후처리 연동
 
 ---
 

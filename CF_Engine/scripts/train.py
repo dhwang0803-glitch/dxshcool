@@ -25,6 +25,10 @@ sys.stdout.reconfigure(encoding="utf-8")
 from src.data_loader import get_conn, load_matrix
 from src.als_model import train, recommend_all
 from src.recommender import build_records
+from src.content_recommender import (
+    load_vod_content, load_quality_vod_ids,
+    load_user_history_map, apply_content_boost,
+)
 from export_to_db import export
 
 logging.basicConfig(
@@ -84,10 +88,13 @@ def load_parquet(parquet_path: Path) -> list[dict]:
     return records
 
 
-def run_pipeline(cfg: dict) -> tuple[list[dict], tuple]:
-    """DB 로드 → ALS 학습 → 추천 생성 → 레코드 변환. (mat shape 반환)"""
+def run_pipeline(cfg: dict) -> tuple:
+    """DB 로드 → ALS 학습 → 추천 생성 → 콘텐츠 후처리 → 레코드 변환. (mat shape 반환)"""
     m = cfg["model"]
     r = cfg["recommend"]
+    c = cfg.get("content_boost", {})
+    boost_enabled = c.get("enabled", True)
+    min_count = c.get("min_count", 3)
 
     conn = get_conn()
     log.info("DB 접속 완료")
@@ -99,6 +106,19 @@ def run_pipeline(cfg: dict) -> tuple[list[dict], tuple]:
     records = build_records(user_ids, item_indices, scores,
                             user_dec, item_dec,
                             recommendation_type=r["recommendation_type"])
+
+    # ── 감독/배우 선호 후처리 ──────────────────────────────────────
+    if boost_enabled:
+        log.info("콘텐츠 후처리 로드 중...")
+        vod_content = load_vod_content(conn)
+        quality_vod_ids = load_quality_vod_ids(conn)
+        user_history_map = load_user_history_map(conn)
+        records = apply_content_boost(
+            records, user_history_map, vod_content, quality_vod_ids,
+            recommendation_type=r["recommendation_type"],
+            min_count=min_count,
+        )
+
     conn.close()
     return records, mat.shape
 
