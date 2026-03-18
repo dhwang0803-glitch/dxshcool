@@ -181,16 +181,31 @@ python scripts/ingest_to_db.py \
 
 | 소스 | 핵심 컬럼 | 타입 | 용도 |
 |------|----------|------|------|
-| `vod_detected_object.parquet` | `vod_id`, `frame_ts`, `label`, `confidence`, `bbox` | str/float/str/float/list | YOLO 탐지 결과 — 트리거 조건 적용 대상 |
-| `vod_clip_concept.parquet` | `vod_id`, `frame_ts`, `concept`, `clip_score`, `ad_category`, `context_valid` | str/float/str/float/str/bool | CLIP 개념 태깅 |
-| `vod_stt_concept.parquet` | `vod_id`, `start_ts`, `end_ts`, `keyword`, `ad_category`, `ad_hints` | str/float/float/str/str/list | STT 키워드 |
-| `public.vod` | `full_asset_id`, `asset_nm`, `genre` | VARCHAR(64), VARCHAR, VARCHAR | VOD 메타데이터 + **세부장르** (VOD_Embedding 분류 결과) |
+| `vod_detected_object.parquet` | `vod_id`, `frame_ts`, `label`, `confidence`, `bbox` | str/float/str/float/list | YOLO 탐지 결과 소비 |
+| `vod_clip_concept.parquet` | `vod_id`, `frame_ts`, `concept`, `clip_score`, `ad_category`, `context_valid` | str/float/str/float/str/bool | CLIP 개념 소비 |
+| `vod_stt_concept.parquet` | `vod_id`, `start_ts`, `end_ts`, `transcript`, `keyword`, `ad_category`, `ad_hints` | str/float/float/str/str/str/list | STT 키워드 소비 |
+| `public.vod` | `full_asset_id`, `asset_nm`, `genre` | VARCHAR(64), VARCHAR(255), VARCHAR | VOD 메타데이터 + **세부장르** |
+| `public.detected_object_yolo` | `vod_id_fk`, `frame_ts`, `label`, `confidence`, `bbox` | VARCHAR(64)/REAL/VARCHAR(64)/REAL/REAL[] | YOLO 탐지 DB 조회 |
+| `public.detected_object_clip` | `vod_id_fk`, `frame_ts`, `concept`, `clip_score`, `ad_category`, `context_valid` | VARCHAR(64)/REAL/VARCHAR(200)/REAL/VARCHAR(32)/BOOLEAN | CLIP 개념 DB 조회 |
+| `public.detected_object_stt` | `vod_id_fk`, `start_ts`, `end_ts`, `keyword`, `ad_category`, `ad_hints` | VARCHAR(64)/REAL/REAL/VARCHAR(100)/VARCHAR(32)/TEXT | STT 키워드 DB 조회 |
+| `public.tv_schedule` | `channel`, `broadcast_date`, `start_time`, `end_time`, `program_name`, `genre` | VARCHAR(64)/DATE/TIME/TIME/VARCHAR(300)/VARCHAR(64) | EPG 편성표 매칭 |
+| `public.homeshopping_product` | `id`, `channel`, `broadcast_date`, `start_time`, `normalized_name`, `price`, `product_url`, `image_url` | SERIAL/VARCHAR(32)/DATE/TIME/VARCHAR(200)/INTEGER/TEXT/TEXT | 상품 매칭용 |
 
 ### 다운스트림 (쓰기)
 
 | 대상 | 컬럼 | 타입 | 비고 |
 |------|------|------|------|
-| `serving.shopping_ad` (VPC) | `vod_id`, `trigger_ts`, `genre`, `ad_category`, `product_nm`, `channel`, `air_start`, `air_end`, `signal_source`, `score` | str/float/str/str/str/str/time/time/str/float | ON CONFLICT (vod_id, trigger_ts) DO UPDATE — **스키마 Database_Design과 협의 필요** |
+| `serving.shopping_ad` | `vod_id_fk` | VARCHAR(64) | FK → vod (ON DELETE CASCADE) |
+| `serving.shopping_ad` | `ts_start`, `ts_end` | REAL | 트리거 구간 (초), CHECK ts_end >= ts_start |
+| `serving.shopping_ad` | `ad_category` | VARCHAR(32) | 한식, 지방특산물, 여행지 등 |
+| `serving.shopping_ad` | `signal_source` | VARCHAR(16) | CHECK IN ('stt','clip','yolo') |
+| `serving.shopping_ad` | `score` | REAL | 0.0~1.0 매칭 신뢰도 |
+| `serving.shopping_ad` | `ad_hints` | TEXT | JSON 배열 (지역 힌트) |
+| `serving.shopping_ad` | `product_id_fk` | INTEGER | FK → homeshopping_product.id (ON DELETE SET NULL) |
+| `serving.shopping_ad` | `product_name`, `product_price`, `product_url`, `image_url` | VARCHAR(200)/INTEGER/TEXT/TEXT | 비정규화 상품 정보 |
+| `serving.shopping_ad` | `channel` | VARCHAR(32) | 홈쇼핑 채널명 |
+| `serving.shopping_ad` | `expires_at` | TIMESTAMPTZ | TTL 30일 (DEFAULT NOW() + 30d) |
+| `public.homeshopping_product` | 전체 컬럼 | 각종 | 홈쇼핑 크롤링 적재 (UNIQUE: channel, broadcast_date, start_time, raw_name) |
 | `data/trigger_points.parquet` (로컬) | `vod_id`, `time_sec`, `genre`, `ad_category`, `score` | - | Phase 1 중간 검증용 |
 | `data/shopping_ad_candidates.parquet` (로컬) | serving.shopping_ad 컬럼 동일 | - | Phase 3 VPC 적재 전 검증용 |
 
@@ -237,8 +252,8 @@ python scripts/ingest_to_db.py \
 ## 협업 규칙
 
 - `main` 브랜치 직접 Push 금지 — 반드시 PR
-- Object_Detection parquet 스키마 변경 시 인터페이스 섹션 즉시 업데이트
-- `serving.shopping_ad` 스키마 확정 전까지 VPC 직접 적재 구현 보류
+- Object_Detection parquet 스키마 변경 시 이 파일 인터페이스 섹션 업데이트
+- `serving.shopping_ad` 스키마 확정 완료 — DB 적재 구현 가능
 - PR description 필수 항목:
   1. **변경사항 요약**
   2. **사후영향 평가**: `agents/IMPACT_ASSESSOR.md` 실행 결과
