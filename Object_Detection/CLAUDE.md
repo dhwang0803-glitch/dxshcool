@@ -8,7 +8,7 @@
 `vod_detected_object.parquet`을 생성한다. Shopping_Ad가 이 파일을 소비한다.
 
 > ⚠️ **로컬 전용 파이프라인**: VPC 인프라 제약(1 core / 1GB RAM)으로 모든 연산은 로컬에서 수행.
-> VPC에는 `public.detected_objects` 테이블만 적재 예정 (스키마 Database_Design과 협의 후 확정).
+> VPC에는 `detected_object_yolo`, `detected_object_clip`, `detected_object_stt` 3개 테이블에 적재.
 
 ### 데이터 플로우
 
@@ -191,7 +191,10 @@ python scripts/batch_detect.py --ct-cl ""              # 전체 처리
 | 소스 | 컬럼/항목 | 타입 | 용도 |
 |------|----------|------|------|
 | 로컬 VOD 영상 파일 | `vod_id`, `file_path` | str | 추론 입력 |
-| `public.vod` | `full_asset_id` | VARCHAR(64) | VOD 식별자 매핑 (선택) |
+| `public.vod` | `full_asset_id` | VARCHAR(64) | VOD 식별자 매핑 |
+| `public.vod` | `youtube_video_id` | VARCHAR(20) | 트레일러 다운로드 |
+| `public.vod` | `duration_sec` | REAL | 영상 길이 (초) |
+| `public.vod` | `trailer_processed` | BOOLEAN | 미처리 VOD 필터 (FALSE/NULL) |
 
 ### 다운스트림 (쓰기)
 
@@ -200,34 +203,16 @@ python scripts/batch_detect.py --ct-cl ""              # 전체 처리
 | `data/vod_detected_object.parquet` (로컬) | `vod_id`, `frame_ts`, `label`, `confidence`, `bbox` | str/float/str/float/list | Shopping_Ad 소비 |
 | `data/vod_clip_concept.parquet` (로컬) | `vod_id`, `frame_ts`, `concept`, `clip_score`, `ad_category`, `context_valid` | str/float/str/float/str/bool | Shopping_Ad 소비 |
 | `data/vod_stt_concept.parquet` (로컬) | `vod_id`, `start_ts`, `end_ts`, `transcript`, `keyword`, `ad_category`, `ad_hints` | str/float/float/str/str/str/list | Shopping_Ad 소비 |
-| `public.detected_objects` (VPC — 예정) | `vod_id` VARCHAR(64), `frame_ts` FLOAT, `label` VARCHAR, `confidence` FLOAT, `bbox` FLOAT[] | - | 황대원 스키마 확정 후 ingest_to_db.py 구현 |
-
-> `public.detected_objects` VPC 적재는 Database_Design 브랜치에서 스키마 확정 후 진행.
-> 현재 단계는 로컬 parquet 출력만 구현.
-
-### DB 신규 생성 필요 테이블 (황대원 협의)
-
-| 테이블 | 주요 컬럼 | 용도 |
-|--------|---------|------|
-| `serving.shopping_ad` | vod_id, ts_start, ts_end, product_id, ad_category, source, confidence | UI 실시간 팝업 |
-| `product_catalog` | product_id, product_name, category, price, image_url, purchase_url | 광고 상품 목록 |
-
-### public.vod 추가 필요 컬럼 (황대원 협의)
-
-| 컬럼 | 타입 | 용도 |
-|------|------|------|
-| `youtube_video_id` | VARCHAR(20) | YouTube iframe 재생 |
-| `duration_sec` | FLOAT | 영상 길이 |
-| `trailer_processed` | BOOLEAN | 사전 처리 완료 여부 |
+| `public.detected_object_yolo` | `vod_id_fk`, `frame_ts`, `label`, `confidence`, `bbox` | VARCHAR(64)/REAL/VARCHAR(64)/REAL/REAL[] | YOLO bbox 탐지 (ON CONFLICT 미적용, write-once) |
+| `public.detected_object_clip` | `vod_id_fk`, `frame_ts`, `concept`, `clip_score`, `ad_category`, `context_valid`, `context_reason` | VARCHAR(64)/REAL/VARCHAR(200)/REAL/VARCHAR(32)/BOOLEAN/TEXT | CLIP 개념 태깅 |
+| `public.detected_object_stt` | `vod_id_fk`, `start_ts`, `end_ts`, `transcript`, `keyword`, `ad_category`, `ad_hints` | VARCHAR(64)/REAL/REAL/TEXT/VARCHAR(100)/VARCHAR(32)/TEXT | STT 키워드 추출 |
+| `public.vod` | `trailer_processed` | BOOLEAN | 처리 완료 시 TRUE 갱신 |
 
 ---
 
 ## ⚠️ 알려진 이슈 / 현황
 
-- `public.detected_objects` 테이블 스키마 미확정 — Database_Design 담당자(황대원)와 협의 필요
-- `serving.shopping_ad`, `product_catalog` 테이블 미생성 — 황대원 협의 후 확정
-- `public.vod.youtube_video_id` 컬럼 미존재 — 황대원 협의 후 추가
-- DB 직접 적재 전 parquet → DB 적재 스크립트 (`scripts/ingest_to_db.py`) 별도 구현 예정
+- DB 적재 스크립트 (`scripts/ingest_to_db.py`) 별도 구현 예정 — 스키마 확정 완료 (detected_object_yolo/clip/stt)
 - 모델 파일 (.pt) git 커밋 금지 → `.gitignore`에 등록됨
 - Phase 5 파인튜닝 — Colab A100에서 TS.z01 파일럿 학습 진행 중 (70클래스, train 20,877장)
   - `phase5_pilot_train.ipynb`: 파일럿 전용 노트북 (data.yaml 자동 복구 포함)
