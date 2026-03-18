@@ -1,7 +1,21 @@
 """
 detector.py — YOLOv11/v8 추론 래퍼
 """
+import yaml
+from pathlib import Path
 from ultralytics import YOLO
+
+_CONFIG_DIR = Path(__file__).parent.parent / "config"
+_FOOD_NAMES_PATH = _CONFIG_DIR / "food_class_names.yaml"
+
+
+def _load_food_names() -> dict[int, str] | None:
+    """food_class_names.yaml → {0: '빵류', 1: '샌드위치/토스트', ...}"""
+    if not _FOOD_NAMES_PATH.exists():
+        return None
+    with open(_FOOD_NAMES_PATH, encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+    return cfg.get("names")
 
 
 class Detector:
@@ -9,6 +23,11 @@ class Detector:
         self.model = YOLO(model_name)
         self.confidence = confidence
         self.device = device
+
+        # 파인튜닝 모델이면 한국어 라벨로 오버라이드
+        food_names = _load_food_names()
+        if food_names:
+            self.model.names = food_names
 
     def infer(self, frames: list, timestamps: list) -> list:
         """

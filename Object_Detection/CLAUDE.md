@@ -229,8 +229,11 @@ python scripts/batch_detect.py --ct-cl ""              # 전체 처리
 - `public.vod.youtube_video_id` 컬럼 미존재 — 황대원 협의 후 추가
 - DB 직접 적재 전 parquet → DB 적재 스크립트 (`scripts/ingest_to_db.py`) 별도 구현 예정
 - 모델 파일 (.pt) git 커밋 금지 → `.gitignore`에 등록됨
-- Phase 5 파인튜닝 진행 중 — TS.z01 완료 (train 20,872 / val 5,218), Drive 업로드 후 Colab 학습 예정
+- Phase 5 파인튜닝 — Colab A100에서 TS.z01 파일럿 학습 진행 중 (70클래스, train 20,877장)
+  - `phase5_pilot_train.ipynb`: 파일럿 전용 노트북 (data.yaml 자동 복구 포함)
+  - mAP@0.5 ≥ 0.60 합격 시 전체 데이터 학습, 미달 시 z02+ 추가
 - Colab 로컬 디스크 ~80GB 한계 — TS.z02(107GB) 해제 시 Drive 직접 압축 해제 방식 사용 (`phase5_ts_drive_preprocess.ipynb`)
+- YAML 확장 완료 (PR #47): stt_keywords 28→156, clip_queries 121→172, keyword_mapper 한국어 조사 버그 수정
 
 ---
 
