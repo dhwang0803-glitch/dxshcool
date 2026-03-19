@@ -56,7 +56,7 @@ CREATE TABLE user_preference (
     PRIMARY KEY (user_id_fk, tag_category, tag_value),
 
     CONSTRAINT chk_up_affinity    CHECK (affinity >= 0.0 AND affinity <= 1.0),
-    CONSTRAINT chk_up_watch_count CHECK (watch_count >= 1),
+    CONSTRAINT chk_up_watch_count CHECK (watch_count >= 2),
     CONSTRAINT chk_up_completion  CHECK (avg_completion IS NULL OR (avg_completion >= 0.0 AND avg_completion <= 1.0))
 );
 
