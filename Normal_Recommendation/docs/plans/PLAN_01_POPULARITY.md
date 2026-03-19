@@ -4,8 +4,8 @@
 **스크립트**: `scripts/run_pipeline.py`
 **라이브러리**: `src/popularity.py`, `src/db.py`
 **입력**: `public.vod` 테이블 + `public.watch_history` 테이블
-**출력**: `data/recommendations_popular_YYYYMMDD.parquet`
-**최종수정**: 2026-03-18 (POPULARITY_SCORE_DESIGN.md v2 반영)
+**출력**: `data/popular_top20_by_genre_YYYYMMDD.parquet`
+**최종수정**: 2026-03-19 (ct_cl 기준 장르 필터링으로 교체, 파이프라인 실행 완료)
 
 ---
 
@@ -15,7 +15,7 @@
 2. `watch_history` 테이블에서 VOD별 시청 통계 집계
 3. `series_nm` 기준으로 시리즈 단위 집약
 4. 2단계 cold/warm/blend 인기 점수 계산
-5. 고정 4개 장르(영화/드라마/예능/애니) 각 Top-20 추출
+5. 고정 4개 장르(영화/TV드라마/TV 연예/오락/TV애니메이션) 각 Top-20 추출
 6. 결과를 parquet으로 저장
 
 ---
@@ -97,8 +97,8 @@ score      = (1 - blend) * score_cold + blend * score_warm
 
 ### Step 5: 장르별 Top-20 추출 (`get_top_n_by_genre`)
 
-- 슬래시(`/`) 구분 다중 장르 → explode
-- **고정 4개 장르만 필터**: 영화 / 드라마 / 예능 / 애니
+- `ct_cl` 컬럼 기준으로 직접 필터링 (슬래시 explode 방식 제거)
+- **고정 4개 장르만 필터**: 영화 / TV드라마 / TV 연예/오락 / TV애니메이션
 - 장르별 score 내림차순 Top-20
 
 ---
@@ -130,7 +130,7 @@ export:
 
 | 컬럼 | 타입 | 설명 |
 |------|------|------|
-| `category_value` | str | 장르명 (영화/드라마/예능/애니) |
+| `category_value` | str | 장르명 (영화/TV드라마/TV 연예/오락/TV애니메이션) |
 | `rank` | int | 장르 내 순위 (1~20) |
 | `vod_id_fk` | str | VOD ID |
 | `score` | float | 인기 점수 (0~1) |

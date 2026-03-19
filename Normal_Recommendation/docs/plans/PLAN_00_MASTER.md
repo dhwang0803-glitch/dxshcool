@@ -3,7 +3,7 @@
 **브랜치**: Normal_Recommendation
 **담당**: 담당자 C (Cold Start 대응)
 **작성일**: 2026-03-17
-**최종수정**: 2026-03-18 (POPULARITY_SCORE_DESIGN.md v2 반영)
+**최종수정**: 2026-03-19 (ct_cl 기준 장르 필터링으로 교체, 파이프라인 실행 완료)
 **목표**: 시청 이력 없는 신규 유저(Cold Start) 대상으로 장르별 인기 VOD Top-20을 생성하여 `serving.popular_recommendation` 테이블에 적재
 
 ---
@@ -15,8 +15,8 @@
           watch_history 시청 통계 집계 (watch_count, watch_count_7d, completion_rate, satisfaction)
              → series_nm 기준 시리즈 집약
              → 2단계 인기 점수 계산 (cold/warm/blend)
-             → 고정 4개 장르(영화/드라마/예능/애니) 각 Top-20 추출
-             → data/recommendations_popular_YYYYMMDD.parquet 저장
+             → 고정 4개 장르(영화/TV드라마/TV 연예/오락/TV애니메이션) 각 Top-20 추출
+             → data/popular_top20_by_genre_YYYYMMDD.parquet 저장
                              ↓
 [PLAN_02] parquet → serving.popular_recommendation 적재
                    (조장 전용: DB 쓰기 권한 필요)
@@ -28,7 +28,7 @@
 
 | 단계 | 파일 | 입력 | 출력 | 예상 시간 |
 |------|------|------|------|---------|
-| PLAN_01 | `scripts/run_pipeline.py` | `public.vod` + `public.watch_history` | `data/recommendations_popular_YYYYMMDD.parquet` | 수 분 |
+| PLAN_01 | `scripts/run_pipeline.py` | `public.vod` + `public.watch_history` | `data/popular_top20_by_genre_YYYYMMDD.parquet` | 수 분 |
 | PLAN_02 | `scripts/export_to_db.py` | parquet 파일 | `serving.popular_recommendation` | 수 분 |
 
 ---
@@ -114,10 +114,10 @@ python Normal_Recommendation/scripts/run_pipeline.py
 
 ---
 
-## ⚠️ 전제 조건 (실행 전 필수)
+## 전제 조건
 
-1. **Database_Design 마이그레이션 완료** — `vod` 테이블에 `tmdb_vote_average`, `tmdb_vote_count`, `tmdb_popularity` 컬럼 추가 필요
-2. **RAG 파이프라인 수정 완료** — TMDB API 응답에서 3개 필드 수집 후 vod 테이블 적재 필요
+1. **Database_Design 마이그레이션 완료** ✅ — `vod` 테이블에 `tmdb_vote_average`, `tmdb_vote_count`, `tmdb_popularity` 컬럼 추가
+2. **TMDB 평점 수집 완료** ✅ — 169,581건 중 126,168건 (74%) 적재
 
 ---
 
@@ -149,7 +149,7 @@ Normal_Recommendation/
 
 | 항목 | 내용 |
 |------|------|
-| vod 테이블 | 166,159건 (`full_asset_id`, `genre`, `ct_cl`, `tmdb_vote_average`, `tmdb_vote_count`, `release_date`, `series_nm`) |
+| vod 테이블 | 169,581건 (`full_asset_id`, `genre`, `ct_cl`, `tmdb_vote_average`, `tmdb_vote_count`, `release_date`, `series_nm`) |
 | watch_history 테이블 | `vod_id_fk`, `strt_dt`, `completion_rate`, `satisfaction` |
 | 대상 장르 | 영화 / 드라마 / 예능 / 애니 고정 4개 |
 | 추천 대상 유저 | Cold Start 유저 (시청 이력 없음) |
@@ -163,15 +163,15 @@ Normal_Recommendation/
 ## 진행 체크리스트
 
 ### 전제 조건
-- [ ] Database_Design: vod 테이블에 `tmdb_vote_average`, `tmdb_vote_count` 컬럼 추가
-- [ ] RAG: TMDB API 3개 필드 수집 후 vod 테이블 적재
+- [x] Database_Design: vod 테이블에 `tmdb_vote_average`, `tmdb_vote_count` 컬럼 추가
+- [x] TMDB 평점 수집 완료 — 169,581건 중 126,168건 (74%) 적재
 
 ### PLAN_01: 인기 VOD 집계 및 추천 결과 생성
 - [x] `src/popularity.py` 구현 (2단계 cold/warm/blend 인기 점수 계산)
 - [x] `src/db.py` 구현 (DB 연결 + load_watch_stats)
 - [x] `config/recommend_config.yaml` 작성 (warm_threshold, 가중치, top_n)
 - [x] `scripts/run_pipeline.py` 구현 (실행 스크립트)
-- [ ] 전제 조건 완료 후 parquet 저장 확인
+- [x] 전제 조건 완료 후 parquet 저장 확인 (popular_top20_by_genre_20260319.parquet, 80건)
 
 ### PLAN_02: DB 적재
 - [x] `scripts/export_to_db.py` 구현
