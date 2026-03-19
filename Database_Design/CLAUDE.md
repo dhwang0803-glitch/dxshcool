@@ -55,8 +55,7 @@ import sqlalchemy        # ORM (선택)
 | `public.detected_object_yolo` | YOLO bbox 탐지 결과 (Object_Detection 적재) |
 | `public.detected_object_clip` | CLIP zero-shot 개념 태깅 (Object_Detection 적재) |
 | `public.detected_object_stt` | Whisper STT 키워드 추출 (Object_Detection 적재) |
-| `public.tv_schedule` | EPG 방송 편성표 (Shopping_Ad 매칭) |
-| `public.homeshopping_product` | 홈쇼핑 상품 카탈로그 (Shopping_Ad 적재) |
+| `public.seasonal_market` | 제철장터 채널 편성표 (Shopping_Ad 매칭) |
 
 ### Gold 계층 (serving 스키마)
 

@@ -250,7 +250,7 @@ def load_existing_classifications() -> dict[str, str]:
                 g = row.get('correct_genre') or row.get('genre', '')
                 g = g.strip()
                 # CT_CL 오분류 표시된 항목 제외
-                if 'CT_CL' in g or 'TV 드라마' in g:
+                if 'CT_CL' in g or 'TV드라마' in g:
                     continue
                 g = GENRE_REMAP.get(g, g)
                 if g in set(GENRES):

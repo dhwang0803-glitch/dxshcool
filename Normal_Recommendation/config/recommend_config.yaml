@@ -1,0 +1,9 @@
+popularity:
+  rating_weight: 0.6    # rating 가중치
+  recency_weight: 0.4   # 최신성(release_date) 가중치
+  top_n: 20             # 장르별 추천 개수
+
+export:
+  recommendation_type: "POPULAR"
+  ttl_days: 7
+  output_dir: "Normal_Recommendation/data"

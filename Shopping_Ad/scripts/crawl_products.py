@@ -1,9 +1,8 @@
-"""홈쇼핑 편성표 크롤링 메인 스크립트.
+"""제철장터 편성표 크롤링 메인 스크립트.
 
 Usage:
-    python Shopping_Ad/scripts/crawl_products.py                    # 오늘 날짜 전체 채널
+    python Shopping_Ad/scripts/crawl_products.py                    # 오늘 날짜
     python Shopping_Ad/scripts/crawl_products.py --date 2026-03-17  # 특정 날짜
-    python Shopping_Ad/scripts/crawl_products.py --channel SK스토아   # 특정 채널
     python Shopping_Ad/scripts/crawl_products.py --dry-run           # DB 적재 없이 출력만
 """
 
@@ -22,7 +21,6 @@ sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT.parent))
 
 from Shopping_Ad.src.crawlers import ALL_CRAWLERS
-from Shopping_Ad.src.normalizer import normalize
 from Shopping_Ad.src.db_writer import get_conn, upsert_products
 
 logging.basicConfig(
@@ -31,28 +29,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 채널명 → 크롤러 클래스 매핑
-CRAWLER_MAP = {cls.channel_name: cls for cls in ALL_CRAWLERS}
-
 
 async def crawl_all(
     target_date: str,
-    channel_filter: str | None = None,
     dry_run: bool = False,
 ) -> dict[str, int]:
-    """전체 또는 특정 채널 크롤링 → 정규화 → DB 적재.
+    """제철장터 크롤링 → DB 적재.
 
     Returns:
         채널별 적재 건수 dict.
     """
-    crawlers = ALL_CRAWLERS
-    if channel_filter:
-        cls = CRAWLER_MAP.get(channel_filter)
-        if cls is None:
-            logger.error("알 수 없는 채널: %s (가능: %s)", channel_filter, list(CRAWLER_MAP.keys()))
-            return {}
-        crawlers = [cls]
-
     from playwright.async_api import async_playwright
 
     stats: dict[str, int] = {}
@@ -68,7 +54,7 @@ async def crawl_all(
             ),
         )
 
-        for crawler_cls in crawlers:
+        for crawler_cls in ALL_CRAWLERS:
             crawler = crawler_cls()
             page = await context.new_page()
             page.set_default_timeout(crawler.timeout_ms)
@@ -82,20 +68,14 @@ async def crawl_all(
             finally:
                 await page.close()
 
-            # 정규화 적용
-            for p in products:
-                p["normalized_name"] = normalize(p.get("raw_name", ""))
-
             logger.info("[%s] %d건 크롤링 완료", crawler.channel_name, len(products))
 
             if dry_run:
                 for p in products[:5]:
                     logger.info(
-                        "  [DRY-RUN] %s | %s → %s | %s원",
+                        "  [DRY-RUN] %s | %s",
                         p.get("start_time", "??:??"),
-                        p.get("raw_name", ""),
-                        p.get("normalized_name", ""),
-                        p.get("price", "-"),
+                        p.get("product_name", ""),
                     )
                 if len(products) > 5:
                     logger.info("  ... 외 %d건", len(products) - 5)
@@ -114,20 +94,18 @@ async def crawl_all(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="홈쇼핑 편성표 크롤링 파이프라인")
+    parser = argparse.ArgumentParser(description="제철장터 편성표 크롤링 파이프라인")
     parser.add_argument("--date", type=str, default=None, help="크롤링 대상 날짜 (YYYY-MM-DD)")
-    parser.add_argument("--channel", type=str, default=None, help="특정 채널만 크롤링")
     parser.add_argument("--dry-run", action="store_true", help="DB 적재 없이 출력만")
     args = parser.parse_args()
 
     target_date = args.date or date.today().isoformat()
 
     logger.info("=" * 60)
-    logger.info("홈쇼핑 크롤링 시작: date=%s, channel=%s, dry_run=%s",
-                target_date, args.channel or "전체", args.dry_run)
+    logger.info("제철장터 크롤링 시작: date=%s, dry_run=%s", target_date, args.dry_run)
     logger.info("=" * 60)
 
-    stats = asyncio.run(crawl_all(target_date, args.channel, args.dry_run))
+    stats = asyncio.run(crawl_all(target_date, args.dry_run))
 
     logger.info("=" * 60)
     logger.info("크롤링 결과 요약:")

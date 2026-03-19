@@ -3,7 +3,7 @@ TMDB → vod 테이블 신규 VOD 수집 스크립트
 
 대상: 2025-01-01 ~ 2026-03-18 한국 개봉/방영 콘텐츠
   - 영화: 한국 극장 개봉 전체 (해외 포함), 다큐/단편 제외, VC>=5, runtime>=60
-  - TV 드라마: origin_country=KR, genre=18
+  - TV드라마: origin_country=KR, genre=18
   - TV 예능: origin_country=KR, genre=10764|10767
   - 애니메이션: origin_country=KR, genre=16 (영화+TV)
 
@@ -357,8 +357,8 @@ def main():
             print(f"  영화 {i+1}/{len(movies)}...")
         time.sleep(0.03)
 
-    # ─── 2. TV 드라마 ───
-    print("[2/4] TV 드라마 discover...")
+    # ─── 2. TV드라마 ───
+    print("[2/4] TV드라마 discover...")
     dramas = discover_tv(18, "드라마")
     print(f"  드라마 discover: {len(dramas)}건 (시리즈)")
     for i, d in enumerate(dramas):
