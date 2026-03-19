@@ -258,12 +258,14 @@ def main():
                 kws = set(r["keyword"] for r in stt_in_range)
                 signals.append(f"STT: {', '.join(kws)}")
 
-            # CLIP 체크
+            # CLIP 체크 (가중치 +2, 시각 증거)
             clip_in_range = [r for r in clip_records
                              if t_start <= r["frame_ts"] < t_end]
+            clip_has_tour = False
             if clip_in_range:
-                score += 1
+                score += 2
                 cats = set(r["ad_category"] for r in clip_in_range)
+                clip_has_tour = "관광지" in cats
                 signals.append(f"CLIP: {', '.join(list(cats)[:2])}")
 
             # OCR 체크
@@ -282,6 +284,10 @@ def main():
                                  (1 if ocr_in_range else 0)
                 if score >= 3 and n_signal_types >= 2:
                     trigger = "🔥 TRIGGER"
+                elif clip_has_tour and score >= 2 and n_signal_types == 1:
+                    # 관광지 B-roll 예외: BGM만 있는 풍경 구간
+                    # CLIP 관광지 고신뢰 단독 허용
+                    trigger = "🏔️ TRIGGER (관광지 단독)"
                 elif score >= 3 and n_signal_types == 1:
                     trigger = "⚠️ 단독 (교차검증 미충족)"
                 else:
@@ -292,23 +298,23 @@ def main():
                     print(f"    {s}")
 
                 # ── TRIGGER 프레임 이미지 저장 ──
-                if args.save_frames and score >= 3 and n_signal_types >= 2:
+                is_trigger = (score >= 3 and n_signal_types >= 2) or \
+                             (clip_has_tour and score >= 2 and n_signal_types == 1)
+                if args.save_frames and is_trigger:
                     trigger_count += 1
                     # 구간 중앙 타임스탬프에 가장 가까운 프레임 선택
                     mid_ts = (t_start + t_end) / 2
                     best_idx = min(range(len(timestamps)),
                                    key=lambda i: abs(timestamps[i] - mid_ts))
                     frame = frames[best_idx].copy()
-
-                    # PIL로 한글 텍스트 오버레이
-                    img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-                    draw = ImageDraw.Draw(img, "RGBA")
                     h, w = frame.shape[:2]
 
-                    # 반투명 검정 배경
-                    draw.rectangle([(0, 0), (w, 80)], fill=(0, 0, 0, 180))
+                    # 검정 배경 바 (cv2로 — 확실하게)
+                    cv2.rectangle(frame, (0, 0), (w, 80), (0, 0, 0), -1)
 
-                    # 폰트 (Windows 맑은고딕, 없으면 기본)
+                    # PIL로 한글 텍스트 렌더링
+                    img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                    draw = ImageDraw.Draw(img)
                     try:
                         font_lg = ImageFont.truetype("malgun.ttf", 22)
                         font_sm = ImageFont.truetype("malgun.ttf", 16)
@@ -322,11 +328,13 @@ def main():
                     sig_text = " | ".join(signals)
                     draw.text((10, 42), sig_text[:100], fill=(255, 255, 255), font=font_sm)
 
-                    frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+                    out_frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
 
                     time_str = f"{int(t_start)//60:02d}m{int(t_start)%60:02d}s"
                     fname = f"trigger_{t_start:04d}_{time_str}_score{score}.jpg"
-                    cv2.imwrite(str(snap_dir / fname), frame)
+                    save_path = snap_dir / fname
+                    # cv2.imwrite는 한글 경로 실패 → PIL로 직접 저장
+                    img.save(str(save_path), quality=90)
 
         if args.save_frames and trigger_count > 0:
             print(f"\n  📸 TRIGGER 프레임 {trigger_count}장 저장 → {snap_dir}")

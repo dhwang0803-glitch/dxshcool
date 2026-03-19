@@ -26,11 +26,12 @@ class KeywordMapper:
         for category, keywords in config.items():
             for keyword, meta in keywords.items():
                 all_keywords.append(keyword)
-                # 한국어 조사("을/를/이/가/은/는/의/에/로/와/과/도") 허용,
-                # 그 외 한글이 이어지면 매칭 거부 ("오리지널"에서 "오리" 차단)
+                # 한국어 경계 매칭:
+                # - 앞쪽: 한글이 바로 앞에 있으면 매칭 거부 ("거라면"에서 "라면" 차단)
+                # - 뒤쪽: 조사 허용, 그 외 한글 이어지면 거부 ("오리지널"에서 "오리" 차단)
                 esc = re.escape(keyword)
                 pattern = re.compile(
-                    rf"{esc}(?=[을를이가은는의에로와과도서까지만]|[^가-힣]|$)"
+                    rf"(?<![가-힣]){esc}(?=[을를이가은는의에로와과도서까지만]|[^가-힣]|$)"
                 )
                 self._keyword_map[keyword] = {
                     "ad_category": category,
