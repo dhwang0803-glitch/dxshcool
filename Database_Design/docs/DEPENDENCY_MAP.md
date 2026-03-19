@@ -23,17 +23,21 @@
 | `public.detected_object_clip` | `Object_Detection` | `Shopping_Ad`(읽기) |
 | `public.detected_object_stt` | `Object_Detection` | `Shopping_Ad`(읽기) |
 | `public.seasonal_market` | `Shopping_Ad` | `Shopping_Ad`(읽기) |
+| `public.vod_tag` | `Database_Design`(초기 적재) | `Hybrid_Layer`(읽기) |
+| `public.user_preference` | `Hybrid_Layer` | `Hybrid_Layer`(읽기), `API_Server`(읽기) |
 
 ### Gold 계층 (serving 스키마)
 
 | 테이블/MV | 생산 브랜치 | 소비 브랜치 |
 |-----------|------------|------------|
-| `serving.vod_recommendation` | `CF_Engine`, `Vector_Search` | `API_Server`(읽기) |
+| `serving.vod_recommendation` | `CF_Engine`, `Vector_Search` | `Hybrid_Layer`(읽기), `API_Server`(읽기) |
 | `serving.mv_vod_watch_stats` | `Database_Design`(cron REFRESH) | `API_Server`(읽기) |
 | `serving.mv_age_grp_vod_stats` | `Database_Design`(cron REFRESH) | `API_Server`(읽기) |
 | `serving.mv_daily_watch_stats` | `Database_Design`(cron REFRESH) | `API_Server`(읽기) |
 | `serving.shopping_ad` | `Shopping_Ad` | `API_Server`(읽기) |
 | `serving.popular_recommendation` | `CF_Engine`, `Vector_Search` | `API_Server`(읽기) |
+| `serving.hybrid_recommendation` | `Hybrid_Layer` | `API_Server`(읽기) |
+| `serving.tag_recommendation` | `Hybrid_Layer` | `API_Server`(읽기) |
 
 ---
 
@@ -111,6 +115,18 @@
 | 쓰기 | `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | - | 유저 기반: `'VISUAL_SIMILARITY'` |
 | 쓰기 | `serving.vod_recommendation` | `source_vod_id`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | VARCHAR(64)/VARCHAR(64)/SMALLINT/REAL/VARCHAR(32) | 콘텐츠 기반: `'CONTENT_BASED'` |
 | 쓰기 | `serving.popular_recommendation` | `genre`, `rank`, `vod_id_fk`, `score`, `recommendation_type` | VARCHAR(64)/SMALLINT/VARCHAR(64)/REAL/VARCHAR(32) | `'POPULAR'` 장르별 Top-N |
+
+### Hybrid_Layer
+
+| 방향 | 테이블 | 컬럼 | 타입 | 비고 |
+|------|--------|------|------|------|
+| 읽기 | `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `score`, `recommendation_type` | - | CF top 20 + Vector top 20 후보 |
+| 읽기 | `public.vod_tag` | `vod_id_fk`, `tag_category`, `tag_value`, `confidence` | VARCHAR/VARCHAR/VARCHAR/REAL | 후보 VOD 태그 조회 |
+| 읽기 | `public.user_preference` | `user_id_fk`, `tag_category`, `tag_value`, `affinity` | VARCHAR/VARCHAR/VARCHAR/REAL | 유저 선호 태그 조회 |
+| 읽기 | `public.watch_history` | `user_id_fk`, `vod_id_fk`, `completion_rate` | - | user_preference 집계 입력 |
+| 쓰기 | `public.user_preference` | `user_id_fk`, `tag_category`, `tag_value`, `affinity`, `watch_count`, `avg_completion` | - | ON CONFLICT UPSERT |
+| 쓰기 | `serving.hybrid_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `explanation_tags`, `source_engines` | - | 최종 설명 가능 추천 |
+| 쓰기 | `serving.tag_recommendation` | `user_id_fk`, `tag_category`, `tag_value`, `tag_rank`, `tag_affinity`, `vod_id_fk`, `vod_rank`, `vod_score` | - | 선호 태그별 VOD 선반 (top 5 × top 10) |
 
 ### Object_Detection
 

@@ -59,6 +59,7 @@ pip install git+https://github.com/openai/CLIP.git
 |--------|------|
 | `CF_Engine` | 행렬 분해 기반 협업 필터링 추천 엔진 |
 | `Vector_Search` | 벡터 유사도 검색 엔진 (콘텐츠 기반 + 임베딩 기반) |
+| `Hybrid_Layer` | CF + Vector 후보 리랭킹 + 설명 가능한 추천 생성 (vod_tag × user_preference) |
 
 ### Phase 3 — 영상 AI (로컬 연산 → VPC thin serving)
 
