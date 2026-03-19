@@ -5,10 +5,10 @@
 ## 모듈 역할
 
 Cold Start 유저 및 비개인화 추천 대응을 위한 **일반 추천 엔진**.
-시청 이력이 없는 신규 유저에게 장르별 인기 VOD를 추천하고,
+시청 이력이 없는 신규 유저에게 CT_CL별 인기 VOD를 추천하고,
 결과를 DB에 저장하여 API_Server가 실시간으로 서빙할 수 있게 한다.
 
-**추천 대상 장르 (고정 4개)**: 영화 / 드라마 / 예능 / 애니 — 각 Top-20
+**추천 대상 CT_CL (고정 4개)**: 영화 / TV드라마 / TV애니메이션 / TV 연예/오락 — 각 Top-20
 
 ## 파일 위치 규칙 (MANDATORY)
 
@@ -46,7 +46,7 @@ from dotenv import load_dotenv
 vod 테이블 (rating, release_date) 로드
     → 시리즈 기준 그룹핑 (에피소드 → 시리즈 단위로 집약)
     → 인기 점수 계산: rating + 최신성 가중치(release_date)
-    → 장르별(영화/드라마/예능/애니) Top-20 생성
+    → CT_CL별(영화/TV드라마/TV애니메이션/TV 연예/오락) Top-20 생성
     → parquet 저장 → 조장에게 전달 → DB 적재
 ```
 
@@ -62,7 +62,7 @@ score = w_rating * norm(rating) + w_recency * recency_score(release_date)
 |---------|-------|------|
 | `w_rating` | 0.6 | rating 가중치 |
 | `w_recency` | 0.4 | 최신성 가중치 |
-| `top_n` | 20 | 장르별 추천 개수 |
+| `top_n` | 20 | CT_CL별 추천 개수 |
 
 ### 최신성 점수 (recency_score)
 
@@ -94,4 +94,4 @@ score = w_rating * norm(rating) + w_recency * recency_score(release_date)
 
 | 테이블 | 컬럼 | 비고 |
 |--------|------|------|
-| `serving.popular_recommendation` | `genre`, `rank`, `vod_id_fk`, `score`, `recommendation_type`, `expires_at` | UNIQUE(genre, rank), TTL=7일 |
+| `serving.popular_recommendation` | `ct_cl`, `rank`, `vod_id_fk`, `score`, `recommendation_type`, `expires_at` | UNIQUE(ct_cl, rank), TTL=7일 |
