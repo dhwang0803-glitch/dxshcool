@@ -1,4 +1,4 @@
-"""Playwright 기반 홈쇼핑 크롤러 베이스 클래스."""
+"""Playwright 기반 제철장터 크롤러 베이스 클래스."""
 
 from __future__ import annotations
 
@@ -28,8 +28,7 @@ class BaseCrawler(ABC):
 
         Returns:
             list of dict with keys:
-                channel, broadcast_date, start_time, end_time,
-                raw_name, price, product_url, image_url, program_name
+                channel, broadcast_date, start_time, end_time, product_name
         """
 
     async def run(self, target_date: str | None = None) -> list[dict]:

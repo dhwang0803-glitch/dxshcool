@@ -48,7 +48,7 @@ import sqlalchemy        # ORM (선택)
 | `user_embedding` | 사용자 행동 벡터 512차원 (pgvector) |
 | `watch_history` | 시청 이력 (CF_Engine 입력) |
 | `detected_objects` | 사물인식 결과 (Shopping_Ad 입력) |
-| `tv_schedule` | TV 실시간 시간표 (EPG) |
+| `seasonal_market` | 제철장터 채널 편성표 (Shopping_Ad 크롤링) |
 
 ## 인터페이스
 
