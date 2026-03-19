@@ -19,6 +19,7 @@ import yaml
 import pandas as pd
 import cv2
 import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
@@ -140,6 +141,9 @@ def main():
         # 프레임 추출
         try:
             frames, timestamps = extract_frames(str(video_path), fps=args.fps)
+            if not frames:
+                print(f"  [ERROR] 프레임 0개 — 건너뜀")
+                continue
             print(f"  프레임: {len(frames)}개 ({format_time(timestamps[-1])} 길이)")
         except Exception as e:
             print(f"  [ERROR] 프레임 추출 실패: {e}")
@@ -296,21 +300,32 @@ def main():
                                    key=lambda i: abs(timestamps[i] - mid_ts))
                     frame = frames[best_idx].copy()
 
-                    # 상단에 정보 오버레이
+                    # PIL로 한글 텍스트 오버레이
+                    img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                    draw = ImageDraw.Draw(img, "RGBA")
                     h, w = frame.shape[:2]
-                    overlay = frame.copy()
-                    cv2.rectangle(overlay, (0, 0), (w, 90), (0, 0, 0), -1)
-                    cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
+
+                    # 반투명 검정 배경
+                    draw.rectangle([(0, 0), (w, 80)], fill=(0, 0, 0, 180))
+
+                    # 폰트 (Windows 맑은고딕, 없으면 기본)
+                    try:
+                        font_lg = ImageFont.truetype("malgun.ttf", 22)
+                        font_sm = ImageFont.truetype("malgun.ttf", 16)
+                    except OSError:
+                        font_lg = ImageFont.load_default()
+                        font_sm = ImageFont.load_default()
 
                     label_text = f"[{format_time(t_start)}~{format_time(t_end)}] score={score} [{n_signal_types}sig]"
-                    cv2.putText(frame, label_text, (10, 30),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-                    sig_text = " | ".join(signals)
-                    # 긴 텍스트는 잘라서 표시
-                    cv2.putText(frame, sig_text[:80], (10, 65),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
+                    draw.text((10, 8), label_text, fill=(0, 255, 255), font=font_lg)
 
-                    fname = f"trigger_{t_start:04d}_{format_time(t_start)}_score{score}.jpg"
+                    sig_text = " | ".join(signals)
+                    draw.text((10, 42), sig_text[:100], fill=(255, 255, 255), font=font_sm)
+
+                    frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+
+                    time_str = f"{int(t_start)//60:02d}m{int(t_start)%60:02d}s"
+                    fname = f"trigger_{t_start:04d}_{time_str}_score{score}.jpg"
                     cv2.imwrite(str(snap_dir / fname), frame)
 
         if args.save_frames and trigger_count > 0:
