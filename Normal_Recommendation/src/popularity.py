@@ -9,7 +9,7 @@ from datetime import date
 
 import pandas as pd
 
-TARGET_GENRES = ["영화", "드라마", "예능", "애니"]
+TARGET_GENRES = ["영화", "TV드라마", "TV 연예/오락", "TV애니메이션"]
 
 # ── 파라미터 기본값 (recommend_config.yaml과 동기화) ───────────────────
 WARM_THRESHOLD      = 10   # 시청 이력 >= 10건이면 warm stage
@@ -42,6 +42,8 @@ def aggregate_by_series(df: pd.DataFrame) -> pd.DataFrame:
     has_series = df[df["series_nm"].notna()].copy()
     if has_series.empty:
         return no_series.reset_index(drop=True)
+
+    has_series["release_date"] = pd.to_datetime(has_series["release_date"], errors="coerce")
 
     agg = has_series.groupby("series_nm").agg(
         full_asset_id=("full_asset_id", "first"),
@@ -184,26 +186,19 @@ def get_top_n_by_genre(df: pd.DataFrame, top_n: int = 20) -> pd.DataFrame:
     고정 4개 장르(영화/드라마/예능/애니)별 Top-N VOD 추출.
     슬래시(/) 구분 다중 장르는 explode로 각 장르에 개별 등록.
     """
-    exploded = (
-        df.assign(genre=df["genre"].str.split("/"))
-        .explode("genre")
-    )
-    exploded["genre"] = exploded["genre"].str.strip()
-    exploded = exploded[exploded["genre"].isin(TARGET_GENRES)]
+    filtered = df[df["ct_cl"].isin(TARGET_GENRES)].copy()
 
     result = (
-        exploded
+        filtered
         .sort_values("score", ascending=False)
-        .groupby("genre", group_keys=False)
+        .groupby("ct_cl", group_keys=False)
         .head(top_n)
     )
     result = result.copy()
-    result["rank"] = result.groupby("genre").cumcount() + 1
-    result = result.rename(columns={"full_asset_id": "vod_id_fk"})
+    result["rank"] = result.groupby("ct_cl").cumcount() + 1
+    result = result.rename(columns={"full_asset_id": "vod_id_fk", "ct_cl": "category_value"})
 
-    return result[["genre", "vod_id_fk", "rank", "score"]].rename(
-        columns={"genre": "category_value"}
-    )
+    return result[["category_value", "vod_id_fk", "rank", "score"]]
 
 
 def build_recommendations(df: pd.DataFrame, top_n: int = 20) -> pd.DataFrame:
