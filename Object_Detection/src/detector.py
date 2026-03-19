@@ -6,7 +6,7 @@ from pathlib import Path
 from ultralytics import YOLO
 
 _CONFIG_DIR = Path(__file__).parent.parent / "config"
-_FOOD_NAMES_PATH = _CONFIG_DIR / "food_class_names.yaml"
+_FOOD_NAMES_PATH = _CONFIG_DIR / "food_menu_names.yaml"
 
 
 def _load_food_names() -> dict[int, str] | None:
@@ -27,7 +27,7 @@ class Detector:
         # 파인튜닝 모델이면 한국어 라벨로 오버라이드
         food_names = _load_food_names()
         if food_names:
-            self.model.names = food_names
+            self.model.model.names = food_names
 
     def infer(self, frames: list, timestamps: list) -> list:
         """
