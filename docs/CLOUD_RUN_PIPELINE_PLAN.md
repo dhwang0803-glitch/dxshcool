@@ -38,7 +38,7 @@
 | # | 브랜치 | 스크립트 | 용도 | 주기 | 리소스 | DB | 비고 |
 |---|--------|---------|------|------|--------|-----|------|
 | 1 | Database_Design | `db_maintenance.py` | MV 3개 REFRESH CONCURRENTLY + 파티션 자동 생성 (2주 선행) | 매일 자정 | 중량 | R/W | 운영 필수, DEFAULT 파티션 이상 감지 포함 |
-| 2 | Shopping_Ad | `crawl_products.py` | 홈쇼핑 6채널 EPG 크롤링 → `homeshopping_product` UPSERT | 매일 자정 | 중량 | W | Playwright 브라우저 자동화, 6채널 병렬 |
+| ~~2~~ | ~~Shopping_Ad~~ | ~~`crawl_products.py`~~ | ~~홈쇼핑 6채널 EPG 크롤링~~ | ~~매일 자정~~ | — | — | **제거**: 홈쇼핑 연동 폐기, 지자체 광고 + 제철장터 연계로 전환 (2026-03-19) |
 | 3 | CF_Engine | `train.py` | ALS 행렬분해 학습 → `serving.vod_recommendation` 적재 | 주 1회 | 중량 | R/W | 242K 유저 × 166K VOD, alpha=40, factors=128 |
 | 4 | CF_Engine | `full_eval.py` | NDCG/MRR/HitRate 종합 평가 리포트 생성 | 주 1회 | 중량 | R | train.py 직후 순차 실행 |
 | 5 | Normal_Recommendation | `run_pipeline.py` | 장르별(영화/드라마/예능/애니) 인기 Top-20 → `serving.popular_recommendation` | 주 1회 | 경량 | R/W | TTL 7일, rating 60% + 최신성 40% |
@@ -90,13 +90,13 @@
 
 ## 3. Cloud Run Job 구성안 (초안)
 
-정기 실행 12개 중 Cloud Run 적합한 것만 **주기별 3개 Job**으로 묶는다.
+정기 실행 11개 중 Cloud Run 적합한 것만 **주기별 3개 Job**으로 묶는다.
 
 ### 3.1 Job 구성
 
 | Cloud Run Job | 주기 | Cron (KST) | 포함 스크립트 | 순서 | 리소스 | 예상 실행시간 |
 |---------------|------|------------|-------------|------|--------|-------------|
-| `daily-maintenance` | 매일 | 00:00 | `db_maintenance.py` → `crawl_products.py` | 순차 | 2 vCPU / 4GB | ~10분 |
+| `daily-maintenance` | 매일 | 00:00 | `db_maintenance.py` | 단독 | 2 vCPU / 4GB | ~5분 |
 | `weekly-recommend` | 매주 일 | 02:00 | `run_embed.py` → `train.py` → `full_eval.py` → VS `run_pipeline.py` → VS `export_to_db.py` → NR `run_pipeline.py` | 순차 | 2 vCPU / 8GB | ~1시간 |
 | `monthly-ingest` | 매월 1일 | 03:00 | `fill_tmdb_ratings.py` → `run_bulk_meta.py` → `run_full_pipeline.py` (Poster) | 순차 | 2 vCPU / 4GB | ~2시간 |
 
@@ -113,7 +113,6 @@
 ```
 [매일 00:00] daily-maintenance
   db_maintenance.py         ← MV REFRESH + 파티션 생성
-  crawl_products.py         ← 홈쇼핑 EPG 수집
 
 [매주 일 02:00] weekly-recommend
   User_Embedding/run_embed.py       ← 사용자 벡터 재계산 (선행 필수)
@@ -133,12 +132,12 @@
 
 | Job | vCPU 소비 (월) | 메모리 소비 (월) | 무료 한도 |
 |-----|--------------|----------------|----------|
-| daily-maintenance | 30일 × 600초 × 2 = 36,000초 | 30일 × 600초 × 4GiB = 72,000 GiB초 | |
+| daily-maintenance | 30일 × 300초 × 2 = 18,000초 | 30일 × 300초 × 4GiB = 36,000 GiB초 | |
 | weekly-recommend | 4주 × 3,600초 × 2 = 28,800초 | 4주 × 3,600초 × 8GiB = 115,200 GiB초 | |
 | monthly-ingest | 1회 × 7,200초 × 2 = 14,400초 | 1회 × 7,200초 × 4GiB = 28,800 GiB초 | |
-| **합계** | **79,200초** | **216,000 GiB초** | vCPU 360K초 / 메모리 180K GiB초 |
+| **합계** | **61,200초** | **180,000 GiB초** | vCPU 360K초 / 메모리 180K GiB초 |
 
-> 메모리가 무료 한도(180K)를 약간 초과할 수 있음 — weekly-recommend의 메모리를 4GB로 낮추거나, 실행시간 단축으로 조정 가능.
+> crawl_products.py 제거로 무료 한도 내 수렴. weekly-recommend 메모리를 4GB로 낮추면 추가 여유 확보 가능.
 
 ---
 
@@ -150,8 +149,6 @@
 # Dockerfile (예시)
 FROM python:3.12-slim
 RUN apt-get update && apt-get install -y libpq-dev
-# Playwright (Shopping_Ad용)
-RUN pip install playwright && playwright install chromium --with-deps
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 COPY . /app
@@ -183,10 +180,48 @@ WORKDIR /app
 
 - [ ] Cloud Run Job별 Dockerfile 분리 vs 단일 이미지
 - [ ] weekly-recommend 메모리 최적화 (무료 한도 초과 가능성)
-- [ ] Shopping_Ad Phase 2 완성 후 daily Job에 매칭 로직 추가
+- [ ] Shopping_Ad 지자체 광고 생성 파이프라인 설계 (축제 리스트 수집 → 생성형 AI 팝업 제작 → OCI 저장 → serving 적재)
+- [ ] 제철장터 채널 연계 로직 설계 (음식 인식 → 제철장터 채널 이동/시청예약)
+- [ ] `homeshopping_product` 테이블 → 지역상품 카탈로그 전환 여부 결정
 - [ ] entrypoint.sh 분기 방식 vs 개별 Job 생성 방식
 - [ ] CI/CD 연동 (코드 push 시 자동 이미지 빌드)
 - [ ] 로깅/알림 체계 (Cloud Logging → Slack 알림)
 - [ ] Oracle VPC 방화벽 규칙 설정 (Cloud Run IP 허용)
 - [ ] genre_classify_full.py Ollama를 Cloud Run에서 실행 가능한지 검토
 - [ ] batch_embed.py GPU 대안 (Cloud Run GPU 지원 여부)
+- [ ] 증분 처리(Incremental Processing) 전략 섹션 추가 — 아래 상세 참조
+
+---
+
+## 6. 증분 처리 전략 (TODO)
+
+> Cloud Run은 **실행 시간 = 비용**이므로, 매 실행 시 전체 데이터를 재처리하면 비용·시간 낭비가 크다.
+> 각 정기 실행 스크립트가 **기존 데이터와 대조 후 신규/변경분만 처리**하도록 설계해야 한다.
+
+### 6.1 현황 (2026-03-19 기준)
+
+| 스크립트 | 현재 증분 처리 | 메커니즘 |
+|---------|--------------|---------|
+| `db_maintenance.py` | PARTIAL | 파티션 EXISTS 체크 (MV는 전체 REFRESH — PG 한계) |
+| ~~`crawl_products.py`~~ | — | **제거** (홈쇼핑 연동 폐기) |
+| `train.py` (CF) | N/A | ML 모델 특성상 전체 재학습 불가피 |
+| `full_eval.py` (CF) | N/A | 평가 전용, DB 적재 없음 |
+| `run_pipeline.py` (NR) | 확인 필요 | |
+| `run_pipeline.py` (VS) | NO | 전체 임베딩 재계산 |
+| `export_to_db.py` (VS) | NO | 전체 교체 |
+| `run_embed.py` | PARTIAL | UPSERT이나 전체 유저 대상 재계산 |
+| `fill_tmdb_ratings.py` | YES | `WHERE tmdb_vote_average IS NULL` |
+| `run_bulk_meta.py` | YES | series_cache.json 체크포인트 + 스테이지 resume |
+| `run_full_pipeline.py` (Poster) | PARTIAL | 크롤링은 전체, manifest/OCI는 dedup |
+
+### 6.2 스크립트 확정 후 적용할 사항
+
+각 스크립트 완성 시 아래 항목을 반영할 것:
+
+1. **DB 직접 접근 분기**: Cloud Run Job(DB 권한 있음) vs 로컬(parquet 출력)으로 실행 경로 분기
+2. **증분 필터링 패턴 통일**: 신규/변경 데이터 감지 방식을 스크립트별로 명시
+   - SQL 기반: `WHERE col IS NULL`, `WHERE updated_at > last_run`
+   - 체크포인트 기반: JSON/CSV 상태 파일로 처리 완료 건 추적
+   - UPSERT 기반: `ON CONFLICT DO UPDATE` (전량 재계산이지만 멱등)
+3. **크롤링 대상 필터**: 크롤링 스크립트(`run_full_pipeline` 등)의 대상 범위 확정 후 증분 로직 설계
+4. **비용 영향 추정**: 증분 처리 적용 전후 예상 실행시간 비교 → 섹션 3.4 비용 예상 갱신

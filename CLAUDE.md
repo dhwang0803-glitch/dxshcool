@@ -65,7 +65,7 @@ pip install git+https://github.com/openai/CLIP.git
 | 브랜치 | 역할 | 주요 경로 |
 |--------|------|-----------|
 | `Object_Detection` | YOLOv8 배치 사전 분석 → `vod_detected_object.parquet` (로컬 전용) | `Object_Detection/src/`, `Object_Detection/scripts/` |
-| `Shopping_Ad` | VOD 세부장르 기반 트리거 포인트 추출 + 매일 자정 홈쇼핑 tv_schedule 매칭 → `serving.shopping_ad` (VPC 적재) | `Shopping_Ad/src/`, `Shopping_Ad/scripts/` |
+| `Shopping_Ad` | VOD 장면 인식 기반 지자체 광고 팝업 + 제철장터 채널 연계 → `serving.shopping_ad` (VPC 적재) | `Shopping_Ad/src/`, `Shopping_Ad/scripts/` |
 
 ### Phase 4 — 서비스 레이어
 

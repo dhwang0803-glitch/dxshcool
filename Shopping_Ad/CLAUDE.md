@@ -6,26 +6,24 @@
 
 ## 모듈 역할
 
-**VOD 세부장르 기반 트리거 포인트 추출 + 홈쇼핑 tv_schedule 매칭 → 광고 팝업 적재**
+**VOD 장면 인식 기반 지자체 광고 팝업 + 제철장터 채널 연계**
 
-VOD_Embedding의 세부장르 분류 결과와 Object_Detection의 사물인식 parquet을 소비하여,
-장르별 조건에 맞는 장면(time_sec)을 트리거 포인트로 추출하고
-매일 자정 수집한 tv_schedule(홈쇼핑 상품·판매시간)과 매칭하여
-`serving.shopping_ad`에 적재한다.
-시청자가 VOD를 재생하면 API_Server가 트리거 포인트 도달 시점에 팝업을 발화한다.
+> **2026-03-19 방향 전환**: 홈쇼핑 연동 폐기 → 지자체 광고 + 제철장터 연계로 전환.
 
-> **비즈니스 로직 소유**: 세부장르별 트리거 조건, 사물 → 상품 카테고리 매핑(`product_object_mapping`)은
-> 탐지가 아닌 비즈니스 로직이므로 이 브랜치가 소유한다.
+Object_Detection의 사물인식 결과(CLIP/STT/YOLO)를 소비하여,
+**관광지/지역** 인식 시 지자체 광고 팝업을, **음식** 인식 시 제철장터 채널 연계를 트리거한다.
+
+| 인식 대상 | 광고 액션 | 예시 |
+|----------|---------|------|
+| 관광지/지역 (진주, 여수 등) | 지자체 광고 팝업 (생성형 AI 제작, OCI 저장) | 진주 동물축제 광고 등 |
+| 음식 (삼겹살, 한우 등) | 제철장터 채널 상품 연계 (채널 이동/시청예약) | 한우 축제, 김치 축제 등 |
+
+> **비즈니스 로직 소유**: 인식 결과 → 광고 카테고리 매핑, 트리거 조건은 이 브랜치가 소유한다.
 
 ### 데이터 플로우
 
 ```
 ━━━ 배치 처리 (사전 계산) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-[VOD_Embedding]
-  vod_embedding 결과 → 예능 VOD 세부장르 분류
-  세부장르: 여행 / 먹방·음식 / 토크쇼
-  → public.vod.genre 컬럼 (또는 별도 분류 테이블)
 
 [Object_Detection]
   vod_detected_object.parquet   ← YOLO bbox 탐지 결과
@@ -33,25 +31,26 @@ VOD_Embedding의 세부장르 분류 결과와 Object_Detection의 사물인식 
   vod_stt_concept.parquet       ← Whisper STT 키워드
 
 [Shopping_Ad — 트리거 포인트 추출]
-  세부장르별 조건 적용:
-    먹방·음식 → 음식 인서트 컷 / 출연자 식사 장면 (time_sec)
-    여행      → 지역 음식·특산품 등장 장면 (time_sec)
-    토크쇼    → 상품 언급 STT 키워드 구간 (time_sec)
-  → trigger_point 후보 목록 (vod_id + time_sec + genre + ad_category)
-  → serving.shopping_ad 에 적재 (product 정보는 미확정 상태)
+  인식 대상별 조건 적용:
+    관광지/지역 → STT 지역명 + CLIP 지역 개념 → 지자체 광고 팝업
+    음식        → YOLO 음식 bbox + CLIP 음식 개념 → 제철장터 채널 연계
+  → trigger_point 후보 (vod_id + time_sec + ad_category + ad_action_type)
+  → serving.shopping_ad 적재
 
-━━━ 매일 자정 (tv_schedule 갱신) ━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━ 광고 소재 생성 (MVP: 수동/반자동) ━━━━━━━━━━━━━━━━━━━━━
 
-  홈쇼핑 채널 편성 API 수집
-  → tv_schedule 갱신 (상품명, 카테고리, 방송 시작·종료 시간, 채널)
-  → ad_category 기준으로 serving.shopping_ad 의 product 정보 업데이트
+  축제 리스트 수집 (예: 3~4월 지역 축제)
+  → 생성형 AI로 팝업 광고 이미지 제작
+  → OCI Object Storage 업로드
+  → serving 테이블에 광고 이미지 URL 적재
 
 ━━━ 실시간 (시청자 재생 시작) ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   시청자 VOD 재생 시작
   → API_Server: 해당 vod_id 의 serving.shopping_ad 조회
   → 재생 중 trigger_ts(time_sec) 도달 순간
-  → 매칭된 홈쇼핑 상품 팝업 발화
+  → 관광지/지역: 지자체 광고 팝업 표시
+  → 음식: 제철장터 채널 이동/시청예약 안내
 ```
 
 ---
@@ -109,20 +108,19 @@ pip install pandas pyarrow psycopg2-binary pyyaml requests
 
 | 테이블 | 위치 | 설명 |
 |--------|------|------|
-| `tv_schedule` | 로컬 DB | 홈쇼핑 채널 상품 편성표 (상품명, 카테고리, 판매 시작·종료 시간, 채널) — **매일 자정 갱신** |
-| `homeshopping_product` | 로컬 DB/CSV | 홈쇼핑 상품 카탈로그 (상품명, 카테고리, 가격) — 이 브랜치가 수집·보유 |
 | `product_object_mapping` | 로컬 (yaml/CSV) | YOLO 클래스 / CLIP 개념 → 광고 카테고리 매핑 |
-| `serving.shopping_ad` | **VPC** | 트리거 포인트 + 매칭 상품 (API_Server 직접 조회) |
+| `serving.shopping_ad` | **VPC** | 트리거 포인트 + 광고 액션 (API_Server 직접 조회) |
+| ~~`tv_schedule`~~ | — | **제거**: 홈쇼핑 연동 폐기 (2026-03-19) |
+| ~~`homeshopping_product`~~ | — | **미정**: 지역상품 카탈로그로 전환 여부 검토 중 |
 
 ---
 
-## 세부장르별 트리거 조건
+## 인식 대상별 트리거 조건
 
-| 세부장르 | 트리거 장면 | 탐지 신호 |
-|---------|-----------|---------|
-| 먹방·음식 | 음식 인서트 컷, 출연자 식사 장면 | YOLO(`food`, `bowl` 등) + CLIP(음식 개념) |
-| 여행 | 지역 음식·특산품 등장 장면 | CLIP(지역 음식 개념) + STT(지역명) |
-| 토크쇼 | 상품·브랜드 언급 구간 | STT 키워드 우선 |
+| 인식 대상 | 트리거 장면 | 탐지 신호 | 광고 액션 |
+|----------|-----------|---------|---------|
+| 관광지/지역 | 지역명 언급, 지역 풍경 장면 | STT(지역명) + CLIP(지역 개념) | 지자체 광고 팝업 |
+| 음식 | 음식 등장, 식사 장면, 음식명 언급 | YOLO(`food` 등) + CLIP(음식 개념) + STT(음식명) | 제철장터 채널 연계 |
 
 **중복 제거 규칙**
 - 동일 `vod_id` + 동일 `ad_category`: 신뢰도 상위 1건만
@@ -132,12 +130,26 @@ pip install pandas pyarrow psycopg2-binary pyyaml requests
 
 ## 팝업 메시지 스펙
 
+### 지자체 광고 팝업 (관광지/지역 인식 시)
 ```json
 {
-  "trigger_label": "소파",
-  "product_name": "시몬스 3인용 패브릭 소파",
-  "channel": "GS샵",
-  "price": "299,000원",
+  "ad_type": "local_gov",
+  "trigger_label": "진주",
+  "ad_title": "진주 동물축제",
+  "ad_image_url": "https://objectstorage.../jinju_festival.png",
+  "signal_source": "stt",
+  "score": 0.85,
+  "actions": ["광고 보기"]
+}
+```
+
+### 제철장터 채널 연계 (음식 인식 시)
+```json
+{
+  "ad_type": "seasonal_market",
+  "trigger_label": "삼겹살",
+  "product_name": "제철장터 한우 특가",
+  "channel": "제철장터",
   "signal_source": "clip",
   "score": 0.82,
   "actions": ["채널이동", "시청예약"]
@@ -149,18 +161,17 @@ pip install pandas pyarrow psycopg2-binary pyyaml requests
 ## 구현 단계 (PLAN 요약)
 
 ### Phase 1 — 트리거 포인트 추출 (`src/trigger_extractor.py`)
-- 세부장르 분류 결과 + 3종 parquet → 장르별 조건 적용 → `trigger_ts(time_sec)` 목록 생성
-- 산출물: `data/trigger_points.parquet` (vod_id, time_sec, genre, ad_category, score)
-- 완료 기준: `serving.shopping_ad` 스키마 확정 전 로컬 출력만 구현
+- 3종 parquet → 인식 대상별 조건 적용 → `trigger_ts(time_sec)` 목록 생성
+- 산출물: `data/trigger_points.parquet` (vod_id, time_sec, ad_category, ad_action_type, score)
+- 완료 기준: 로컬 출력 확인
 
-### Phase 2 — tv_schedule 수집 (`scripts/run_epg_sync.py`)
-- 매일 자정 홈쇼핑 채널 편성 API 수집 → `tv_schedule` 갱신
-```bash
-python scripts/run_epg_sync.py   # 수동 실행 또는 cron 등록
-```
+### Phase 2 — 광고 소재 생성 (MVP)
+- 축제 리스트 수집 (예: 3~4월 지역 축제)
+- 생성형 AI로 팝업 광고 이미지 제작 → OCI 업로드
+- serving 테이블에 광고 이미지 URL 적재
 
 ### Phase 3 — 매칭 + VPC 적재 (`scripts/run_shopping_ad.py`)
-- trigger_points + tv_schedule 매칭 → serving.shopping_ad 적재
+- trigger_points + 광고 소재 매칭 → serving.shopping_ad 적재
 ```bash
 python scripts/run_shopping_ad.py \
   --triggers  data/trigger_points.parquet \
@@ -188,8 +199,8 @@ python scripts/ingest_to_db.py \
 | `public.detected_object_yolo` | `vod_id_fk`, `frame_ts`, `label`, `confidence`, `bbox` | VARCHAR(64)/REAL/VARCHAR(64)/REAL/REAL[] | YOLO 탐지 DB 조회 |
 | `public.detected_object_clip` | `vod_id_fk`, `frame_ts`, `concept`, `clip_score`, `ad_category`, `context_valid` | VARCHAR(64)/REAL/VARCHAR(200)/REAL/VARCHAR(32)/BOOLEAN | CLIP 개념 DB 조회 |
 | `public.detected_object_stt` | `vod_id_fk`, `start_ts`, `end_ts`, `keyword`, `ad_category`, `ad_hints` | VARCHAR(64)/REAL/REAL/VARCHAR(100)/VARCHAR(32)/TEXT | STT 키워드 DB 조회 |
-| `public.tv_schedule` | `channel`, `broadcast_date`, `start_time`, `end_time`, `program_name`, `genre` | VARCHAR(64)/DATE/TIME/TIME/VARCHAR(300)/VARCHAR(64) | EPG 편성표 매칭 |
-| `public.homeshopping_product` | `id`, `channel`, `broadcast_date`, `start_time`, `normalized_name`, `price`, `product_url`, `image_url` | SERIAL/VARCHAR(32)/DATE/TIME/VARCHAR(200)/INTEGER/TEXT/TEXT | 상품 매칭용 |
+| ~~`public.tv_schedule`~~ | — | — | **제거**: 홈쇼핑 연동 폐기 |
+| ~~`public.homeshopping_product`~~ | — | — | **미정**: 지역상품 카탈로그로 전환 여부 검토 중 |
 
 ### 다운스트림 (쓰기)
 
@@ -201,11 +212,12 @@ python scripts/ingest_to_db.py \
 | `serving.shopping_ad` | `signal_source` | VARCHAR(16) | CHECK IN ('stt','clip','yolo') |
 | `serving.shopping_ad` | `score` | REAL | 0.0~1.0 매칭 신뢰도 |
 | `serving.shopping_ad` | `ad_hints` | TEXT | JSON 배열 (지역 힌트) |
-| `serving.shopping_ad` | `product_id_fk` | INTEGER | FK → homeshopping_product.id (ON DELETE SET NULL) |
-| `serving.shopping_ad` | `product_name`, `product_price`, `product_url`, `image_url` | VARCHAR(200)/INTEGER/TEXT/TEXT | 비정규화 상품 정보 |
-| `serving.shopping_ad` | `channel` | VARCHAR(32) | 홈쇼핑 채널명 |
+| `serving.shopping_ad` | `ad_action_type` | VARCHAR(32) | `'local_gov_popup'` / `'seasonal_market'` |
+| `serving.shopping_ad` | `ad_image_url` | TEXT | 지자체 광고 이미지 URL (OCI) |
+| `serving.shopping_ad` | `product_name` | VARCHAR(200) | 제철장터 상품명 (음식 인식 시) |
+| `serving.shopping_ad` | `channel` | VARCHAR(32) | 연계 채널명 (제철장터 등) |
 | `serving.shopping_ad` | `expires_at` | TIMESTAMPTZ | TTL 30일 (DEFAULT NOW() + 30d) |
-| `public.homeshopping_product` | 전체 컬럼 | 각종 | 홈쇼핑 크롤링 적재 (UNIQUE: channel, broadcast_date, start_time, raw_name) |
+| ~~`public.homeshopping_product`~~ | — | — | **제거**: 홈쇼핑 크롤링 폐기 |
 | `data/trigger_points.parquet` (로컬) | `vod_id`, `time_sec`, `genre`, `ad_category`, `score` | - | Phase 1 중간 검증용 |
 | `data/shopping_ad_candidates.parquet` (로컬) | serving.shopping_ad 컬럼 동일 | - | Phase 3 VPC 적재 전 검증용 |
 
@@ -241,10 +253,10 @@ python scripts/ingest_to_db.py \
 
 | 항목 | 담당 | 현황 |
 |------|------|------|
-| `serving.shopping_ad` 스키마 | Database_Design | 🔲 협의 필요 |
-| `public.vod.genre` 컬럼 추가 | Database_Design + VOD_Embedding | 🔲 세부장르 분류 완료 후 적재 |
-| 홈쇼핑 편성 API 소스 확정 | Shopping_Ad | 🔲 수집 대상 채널·API 확보 필요 |
-| `homeshopping_product` 데이터 수집 | Shopping_Ad | 🔲 상품 카탈로그 확보 필요 |
+| `serving.shopping_ad` 스키마 재설계 | Database_Design | 🔲 지자체 광고 + 제철장터 반영 필요 |
+| 축제 리스트 수집 + 광고 소재 생성 파이프라인 | Shopping_Ad | 🔲 MVP 설계 필요 |
+| 제철장터 채널 연계 방식 확정 | Shopping_Ad | 🔲 채널 이동/시청예약 UX 설계 |
+| `homeshopping_product` → 지역상품 카탈로그 전환 여부 | Shopping_Ad + Database_Design | 🔲 필요성 검토 중 |
 | API_Server `/ad/popup` trigger_ts 기반 발화 연동 | API_Server (PLAN_06) | 🔲 serving.shopping_ad 완료 후 |
 
 ---
