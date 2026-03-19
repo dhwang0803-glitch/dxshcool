@@ -182,7 +182,7 @@ WORKDIR /app
 - [ ] weekly-recommend 메모리 최적화 (무료 한도 초과 가능성)
 - [ ] Shopping_Ad 지자체 광고 생성 파이프라인 설계 (축제 리스트 수집 → 생성형 AI 팝업 제작 → OCI 저장 → serving 적재)
 - [ ] 제철장터 채널 연계 로직 설계 (음식 인식 → 제철장터 채널 이동/시청예약)
-- [ ] `homeshopping_product` 테이블 → 지역상품 카탈로그 전환 여부 결정
+- [x] `homeshopping_product` → `seasonal_market`으로 전환 완료 (제철장터 편성표)
 - [ ] entrypoint.sh 분기 방식 vs 개별 Job 생성 방식
 - [ ] CI/CD 연동 (코드 push 시 자동 이미지 빌드)
 - [ ] 로깅/알림 체계 (Cloud Logging → Slack 알림)

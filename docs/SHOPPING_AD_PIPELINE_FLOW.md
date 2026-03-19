@@ -263,7 +263,7 @@ UI가 영상 재생 중 `currentTime`을 폴링하여 API에서 팝업 데이터
 |------|------|
 | `detected_object_* → vod` | `ON DELETE CASCADE` — VOD 삭제 시 탐지 결과 자동 삭제 |
 | `serving.shopping_ad → vod` | `ON DELETE CASCADE` — VOD 삭제 시 광고 자동 삭제 |
-| ~~`serving.shopping_ad → homeshopping_product`~~ | **제거**: 홈쇼핑 연동 폐기 (2026-03-19) |
+| `seasonal_market` (standalone) | FK 없음 — 편성표 독립 테이블 |
 
 ### 인덱스 전략
 
@@ -284,8 +284,7 @@ UI가 영상 재생 중 `currentTime`을 폴링하여 API에서 팝업 데이터
 | Silver | `detected_object_yolo` | Object_Detection | Shopping_Ad | `schemas/create_detection_tables.sql` |
 | Silver | `detected_object_clip` | Object_Detection | Shopping_Ad | `schemas/create_detection_tables.sql` |
 | Silver | `detected_object_stt` | Object_Detection | Shopping_Ad | `schemas/create_detection_tables.sql` |
-| ~~Silver~~ | ~~`tv_schedule`~~ | — | — | ~~`schemas/create_tv_schedule.sql`~~ — **제거** (홈쇼핑 연동 폐기) |
-| ~~Silver~~ | ~~`homeshopping_product`~~ | — | — | ~~`schemas/create_homeshopping_tables.sql`~~ — **미정** (지역상품 카탈로그 전환 검토 중) |
+| Silver | `seasonal_market` | Shopping_Ad | Shopping_Ad | `schemas/create_homeshopping_tables.sql` |
 | Gold | `serving.shopping_ad` | Shopping_Ad | API_Server | `schemas/create_shopping_ad_serving.sql` |
 
 ### vod 컬럼 추가 (마이그레이션)
@@ -306,7 +305,7 @@ UI가 영상 재생 중 `currentTime`을 폴링하여 API에서 팝업 데이터
 # 0. 환경 변수 로드
 set -a && source .env && set +a
 
-# 1. 기존 파일 (DB 미생성분)
+# 1. 제철장터 편성표 테이블
 PGPASSWORD=$DB_PASSWORD psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME \
   -f Database_Design/schemas/create_homeshopping_tables.sql
 
@@ -314,15 +313,11 @@ PGPASSWORD=$DB_PASSWORD psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME \
 PGPASSWORD=$DB_PASSWORD psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME \
   -f Database_Design/schemas/create_detection_tables.sql
 
-# 3. EPG 편성표
-PGPASSWORD=$DB_PASSWORD psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME \
-  -f Database_Design/schemas/create_tv_schedule.sql
-
-# 4. vod 컬럼 추가 마이그레이션
+# 3. vod 컬럼 추가 마이그레이션
 PGPASSWORD=$DB_PASSWORD psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME \
   -f Database_Design/migrations/20260318_add_trailer_columns_to_vod.sql
 
-# 5. 쇼핑 광고 서빙 테이블 (homeshopping_product FK 참조)
+# 4. 쇼핑 광고 서빙 테이블
 PGPASSWORD=$DB_PASSWORD psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME \
   -f Database_Design/schemas/create_shopping_ad_serving.sql
 ```
@@ -332,14 +327,13 @@ PGPASSWORD=$DB_PASSWORD psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME \
 ```sql
 -- 테이블 생성 확인
 \dt public.detected_object_*
-\dt public.tv_schedule
-\dt public.homeshopping_product
+\dt public.seasonal_market
 \dt serving.shopping_ad
 
 -- 컬럼/타입 검증
 SELECT column_name, data_type, column_default
 FROM information_schema.columns
-WHERE table_name IN ('detected_object_yolo','detected_object_clip','detected_object_stt','tv_schedule','shopping_ad')
+WHERE table_name IN ('detected_object_yolo','detected_object_clip','detected_object_stt','seasonal_market','shopping_ad')
 ORDER BY table_name, ordinal_position;
 
 -- vod 마이그레이션 컬럼 확인
@@ -350,7 +344,7 @@ WHERE table_name = 'vod'
 
 -- 인덱스 확인
 \di public.idx_det_*
-\di public.idx_tv_*
+\di public.idx_sm_*
 \di serving.idx_sa_*
 
 -- FK 무결성 테스트 (에러 발생해야 정상)

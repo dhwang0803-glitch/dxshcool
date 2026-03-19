@@ -73,7 +73,7 @@ Shopping_Ad/
 |-----------|-----------|
 | 멀티모달 신호 통합 매칭 엔진 | `src/matcher.py` |
 | YOLO 클래스 → 상품 카테고리 매핑 | `src/product_mapper.py` |
-| EPG 파서 (tv_schedule 생성) | `src/epg_parser.py` |
+| 제철장터 크롤러 (seasonal_market 수집) | `src/crawlers/lg_hellovision.py` |
 | 팝업 메시지 빌더 | `src/popup_builder.py` |
 | VPC serving 테이블 적재 | `src/serving_writer.py` |
 | 배치 광고 매칭 파이프라인 | `scripts/run_shopping_ad.py` |
@@ -110,8 +110,7 @@ pip install pandas pyarrow psycopg2-binary pyyaml requests
 |--------|------|------|
 | `product_object_mapping` | 로컬 (yaml/CSV) | YOLO 클래스 / CLIP 개념 → 광고 카테고리 매핑 |
 | `serving.shopping_ad` | **VPC** | 트리거 포인트 + 광고 액션 (API_Server 직접 조회) |
-| ~~`tv_schedule`~~ | — | **제거**: 홈쇼핑 연동 폐기 (2026-03-19) |
-| ~~`homeshopping_product`~~ | — | **미정**: 지역상품 카탈로그로 전환 여부 검토 중 |
+| `seasonal_market` | 로컬 DB | 제철장터 채널 편성표 (LG헬로비전 크롤링) |
 
 ---
 
@@ -199,8 +198,7 @@ python scripts/ingest_to_db.py \
 | `public.detected_object_yolo` | `vod_id_fk`, `frame_ts`, `label`, `confidence`, `bbox` | VARCHAR(64)/REAL/VARCHAR(64)/REAL/REAL[] | YOLO 탐지 DB 조회 |
 | `public.detected_object_clip` | `vod_id_fk`, `frame_ts`, `concept`, `clip_score`, `ad_category`, `context_valid` | VARCHAR(64)/REAL/VARCHAR(200)/REAL/VARCHAR(32)/BOOLEAN | CLIP 개념 DB 조회 |
 | `public.detected_object_stt` | `vod_id_fk`, `start_ts`, `end_ts`, `keyword`, `ad_category`, `ad_hints` | VARCHAR(64)/REAL/REAL/VARCHAR(100)/VARCHAR(32)/TEXT | STT 키워드 DB 조회 |
-| ~~`public.tv_schedule`~~ | — | — | **제거**: 홈쇼핑 연동 폐기 |
-| ~~`public.homeshopping_product`~~ | — | — | **미정**: 지역상품 카탈로그로 전환 여부 검토 중 |
+| `public.seasonal_market` | `product_name`, `broadcast_date`, `start_time`, `end_time`, `channel` | VARCHAR(200)/DATE/TIME/TIME/VARCHAR(32) | 제철장터 채널 편성표 (음식 인식 시 매칭) |
 
 ### 다운스트림 (쓰기)
 
@@ -209,7 +207,7 @@ python scripts/ingest_to_db.py \
 | `serving.shopping_ad` | `vod_id_fk` | VARCHAR(64) | FK → vod (ON DELETE CASCADE) |
 | `serving.shopping_ad` | `ts_start`, `ts_end` | REAL | 트리거 구간 (초), CHECK ts_end >= ts_start |
 | `serving.shopping_ad` | `ad_category` | VARCHAR(32) | 한식, 지방특산물, 여행지 등 |
-| `serving.shopping_ad` | `signal_source` | VARCHAR(16) | CHECK IN ('stt','clip','yolo') |
+| `serving.shopping_ad` | `signal_source` | VARCHAR(16) | CHECK IN ('stt','clip','yolo','ocr') |
 | `serving.shopping_ad` | `score` | REAL | 0.0~1.0 매칭 신뢰도 |
 | `serving.shopping_ad` | `ad_hints` | TEXT | JSON 배열 (지역 힌트) |
 | `serving.shopping_ad` | `ad_action_type` | VARCHAR(32) | `'local_gov_popup'` / `'seasonal_market'` |
@@ -217,7 +215,7 @@ python scripts/ingest_to_db.py \
 | `serving.shopping_ad` | `product_name` | VARCHAR(200) | 제철장터 상품명 (음식 인식 시) |
 | `serving.shopping_ad` | `channel` | VARCHAR(32) | 연계 채널명 (제철장터 등) |
 | `serving.shopping_ad` | `expires_at` | TIMESTAMPTZ | TTL 30일 (DEFAULT NOW() + 30d) |
-| ~~`public.homeshopping_product`~~ | — | — | **제거**: 홈쇼핑 크롤링 폐기 |
+| `public.seasonal_market` | `product_name`, `broadcast_date`, `start_time`, `end_time`, `channel` | VARCHAR(200)/DATE/TIME/TIME/VARCHAR(32) | 제철장터 편성표 (UPSERT) |
 | `data/trigger_points.parquet` (로컬) | `vod_id`, `time_sec`, `genre`, `ad_category`, `score` | - | Phase 1 중간 검증용 |
 | `data/shopping_ad_candidates.parquet` (로컬) | serving.shopping_ad 컬럼 동일 | - | Phase 3 VPC 적재 전 검증용 |
 
@@ -228,7 +226,7 @@ python scripts/ingest_to_db.py \
 - VPC: 1 core / 1GB RAM (+3GB swap) / 150GB Storage → **thin serving layer**
 - **모든 매칭 연산은 로컬 머신에서 수행**
 - VPC에는 `serving.shopping_ad` 최종 결과만 적재
-- 로컬 테이블(tv_schedule, homeshopping_product, product_object_mapping)은 VPC 미적재
+- 로컬 테이블(seasonal_market, product_object_mapping)은 VPC 미적재
 
 ---
 
@@ -256,7 +254,7 @@ python scripts/ingest_to_db.py \
 | `serving.shopping_ad` 스키마 재설계 | Database_Design | 🔲 지자체 광고 + 제철장터 반영 필요 |
 | 축제 리스트 수집 + 광고 소재 생성 파이프라인 | Shopping_Ad | 🔲 MVP 설계 필요 |
 | 제철장터 채널 연계 방식 확정 | Shopping_Ad | 🔲 채널 이동/시청예약 UX 설계 |
-| `homeshopping_product` → 지역상품 카탈로그 전환 여부 | Shopping_Ad + Database_Design | 🔲 필요성 검토 중 |
+| `seasonal_market` 크롤링 → DB 적재 파이프라인 | Shopping_Ad | ✅ LG헬로비전 제철장터 크롤러 구현 완료 |
 | API_Server `/ad/popup` trigger_ts 기반 발화 연동 | API_Server (PLAN_06) | 🔲 serving.shopping_ad 완료 후 |
 
 ---

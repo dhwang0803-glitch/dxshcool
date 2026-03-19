@@ -22,8 +22,7 @@
 | `public.detected_object_yolo` | `Object_Detection` | `Shopping_Ad`(읽기) |
 | `public.detected_object_clip` | `Object_Detection` | `Shopping_Ad`(읽기) |
 | `public.detected_object_stt` | `Object_Detection` | `Shopping_Ad`(읽기) |
-| `public.tv_schedule` | *(외부 EPG 적재)* | `Shopping_Ad`(읽기) |
-| `public.homeshopping_product` | `Shopping_Ad` | `Shopping_Ad`(읽기), `API_Server`(읽기) |
+| `public.seasonal_market` | `Shopping_Ad` | `Shopping_Ad`(읽기) |
 
 ### Gold 계층 (serving 스키마)
 
@@ -134,11 +133,10 @@
 | 읽기 | `public.detected_object_yolo` | `vod_id_fk`, `frame_ts`, `label`, `confidence`, `bbox` | VARCHAR(64)/REAL/VARCHAR(64)/REAL/REAL[] | YOLO 탐지 결과 |
 | 읽기 | `public.detected_object_clip` | `vod_id_fk`, `frame_ts`, `concept`, `clip_score`, `ad_category`, `context_valid` | VARCHAR(64)/REAL/VARCHAR(200)/REAL/VARCHAR(32)/BOOLEAN | CLIP 개념 태깅 |
 | 읽기 | `public.detected_object_stt` | `vod_id_fk`, `start_ts`, `end_ts`, `keyword`, `ad_category`, `ad_hints` | VARCHAR(64)/REAL/REAL/VARCHAR(100)/VARCHAR(32)/TEXT | STT 키워드 |
-| 읽기 | `public.tv_schedule` | `channel`, `broadcast_date`, `start_time`, `end_time`, `program_name`, `genre` | VARCHAR(64)/DATE/TIME/TIME/VARCHAR(300)/VARCHAR(64) | EPG 편성표 매칭 |
 | 읽기 | `public.vod` | `full_asset_id`, `asset_nm` | VARCHAR(64)/VARCHAR(255) | VOD 메타데이터 |
-| 읽기 | `public.homeshopping_product` | `id`, `channel`, `broadcast_date`, `start_time`, `normalized_name`, `price`, `product_url`, `image_url` | 각종 | 상품 매칭용 |
-| 쓰기 | `public.homeshopping_product` | `channel`, `broadcast_date`, `start_time`, `end_time`, `raw_name`, `normalized_name`, `price`, `product_url`, `image_url`, `program_name` | 각종 | 홈쇼핑 크롤링 적재 |
-| 쓰기 | `serving.shopping_ad` | `vod_id_fk`, `ts_start`, `ts_end`, `ad_category`, `signal_source`, `score`, `ad_hints`, `product_id_fk`, `product_name`, `product_price`, `product_url`, `image_url`, `channel` | 각종 | 팝업 서빙 데이터 |
+| 읽기 | `public.seasonal_market` | `product_name`, `broadcast_date`, `start_time`, `end_time`, `channel` | VARCHAR(200)/DATE/TIME/TIME/VARCHAR(32) | 제철장터 편성 매칭 |
+| 쓰기 | `public.seasonal_market` | `product_name`, `broadcast_date`, `start_time`, `end_time`, `channel` | 각종 | 제철장터 편성 크롤링 적재 |
+| 쓰기 | `serving.shopping_ad` | `vod_id_fk`, `ts_start`, `ts_end`, `ad_category`, `signal_source`, `score`, `ad_hints`, `ad_action_type`, `ad_image_url`, `product_name`, `channel` | 각종 | 광고 서빙 (지자체 팝업 + 제철장터 연계) |
 
 ### API_Server
 
