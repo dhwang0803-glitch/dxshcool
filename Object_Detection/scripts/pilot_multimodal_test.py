@@ -17,6 +17,8 @@ from collections import defaultdict
 
 import yaml
 import pandas as pd
+import cv2
+import numpy as np
 
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
@@ -74,6 +76,8 @@ def main():
     parser.add_argument("--clip-threshold", type=float, default=0.30)
     parser.add_argument("--whisper-model", type=str, default="small")
     parser.add_argument("--fps", type=float, default=1.0)
+    parser.add_argument("--save-frames", action="store_true",
+                        help="TRIGGER 구간 대표 프레임을 이미지로 저장")
     args = parser.parse_args()
 
     print("=" * 70)
@@ -221,8 +225,14 @@ def main():
         print(f"  멀티시그널 요약 (10초 구간)")
         print(f"  {'─' * 60}")
 
+        # TRIGGER 프레임 저장용 디렉토리
+        if args.save_frames:
+            snap_dir = PROJECT_ROOT / "data" / "trigger_frames" / vod_id
+            snap_dir.mkdir(parents=True, exist_ok=True)
+
         duration = timestamps[-1] if timestamps else 0
         interval = 10  # 10초 단위
+        trigger_count = 0
         for t_start in range(0, int(duration) + 1, interval):
             t_end = t_start + interval
             score = 0
@@ -276,6 +286,35 @@ def main():
                       f"score={score} [{n_signal_types}종] {trigger}")
                 for s in signals:
                     print(f"    {s}")
+
+                # ── TRIGGER 프레임 이미지 저장 ──
+                if args.save_frames and score >= 3 and n_signal_types >= 2:
+                    trigger_count += 1
+                    # 구간 중앙 타임스탬프에 가장 가까운 프레임 선택
+                    mid_ts = (t_start + t_end) / 2
+                    best_idx = min(range(len(timestamps)),
+                                   key=lambda i: abs(timestamps[i] - mid_ts))
+                    frame = frames[best_idx].copy()
+
+                    # 상단에 정보 오버레이
+                    h, w = frame.shape[:2]
+                    overlay = frame.copy()
+                    cv2.rectangle(overlay, (0, 0), (w, 90), (0, 0, 0), -1)
+                    cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
+
+                    label_text = f"[{format_time(t_start)}~{format_time(t_end)}] score={score} [{n_signal_types}sig]"
+                    cv2.putText(frame, label_text, (10, 30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+                    sig_text = " | ".join(signals)
+                    # 긴 텍스트는 잘라서 표시
+                    cv2.putText(frame, sig_text[:80], (10, 65),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
+
+                    fname = f"trigger_{t_start:04d}_{format_time(t_start)}_score{score}.jpg"
+                    cv2.imwrite(str(snap_dir / fname), frame)
+
+        if args.save_frames and trigger_count > 0:
+            print(f"\n  📸 TRIGGER 프레임 {trigger_count}장 저장 → {snap_dir}")
 
         # 결과 저장
         all_results.append({
