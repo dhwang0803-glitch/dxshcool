@@ -17,6 +17,9 @@ from collections import defaultdict
 
 import yaml
 import pandas as pd
+import cv2
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
@@ -74,6 +77,8 @@ def main():
     parser.add_argument("--clip-threshold", type=float, default=0.30)
     parser.add_argument("--whisper-model", type=str, default="small")
     parser.add_argument("--fps", type=float, default=1.0)
+    parser.add_argument("--save-frames", action="store_true",
+                        help="TRIGGER 구간 대표 프레임을 이미지로 저장")
     args = parser.parse_args()
 
     print("=" * 70)
@@ -136,6 +141,9 @@ def main():
         # 프레임 추출
         try:
             frames, timestamps = extract_frames(str(video_path), fps=args.fps)
+            if not frames:
+                print(f"  [ERROR] 프레임 0개 — 건너뜀")
+                continue
             print(f"  프레임: {len(frames)}개 ({format_time(timestamps[-1])} 길이)")
         except Exception as e:
             print(f"  [ERROR] 프레임 추출 실패: {e}")
@@ -221,8 +229,14 @@ def main():
         print(f"  멀티시그널 요약 (10초 구간)")
         print(f"  {'─' * 60}")
 
+        # TRIGGER 프레임 저장용 디렉토리
+        if args.save_frames:
+            snap_dir = PROJECT_ROOT / "data" / "trigger_frames" / vod_id
+            snap_dir.mkdir(parents=True, exist_ok=True)
+
         duration = timestamps[-1] if timestamps else 0
         interval = 10  # 10초 단위
+        trigger_count = 0
         for t_start in range(0, int(duration) + 1, interval):
             t_end = t_start + interval
             score = 0
@@ -244,12 +258,14 @@ def main():
                 kws = set(r["keyword"] for r in stt_in_range)
                 signals.append(f"STT: {', '.join(kws)}")
 
-            # CLIP 체크
+            # CLIP 체크 (가중치 +2, 시각 증거)
             clip_in_range = [r for r in clip_records
                              if t_start <= r["frame_ts"] < t_end]
+            clip_has_tour = False
             if clip_in_range:
-                score += 1
+                score += 2
                 cats = set(r["ad_category"] for r in clip_in_range)
+                clip_has_tour = "관광지" in cats
                 signals.append(f"CLIP: {', '.join(list(cats)[:2])}")
 
             # OCR 체크
@@ -268,6 +284,10 @@ def main():
                                  (1 if ocr_in_range else 0)
                 if score >= 3 and n_signal_types >= 2:
                     trigger = "🔥 TRIGGER"
+                elif clip_has_tour and score >= 2 and n_signal_types == 1:
+                    # 관광지 B-roll 예외: BGM만 있는 풍경 구간
+                    # CLIP 관광지 고신뢰 단독 허용
+                    trigger = "🏔️ TRIGGER (관광지 단독)"
                 elif score >= 3 and n_signal_types == 1:
                     trigger = "⚠️ 단독 (교차검증 미충족)"
                 else:
@@ -276,6 +296,48 @@ def main():
                       f"score={score} [{n_signal_types}종] {trigger}")
                 for s in signals:
                     print(f"    {s}")
+
+                # ── TRIGGER 프레임 이미지 저장 ──
+                is_trigger = (score >= 3 and n_signal_types >= 2) or \
+                             (clip_has_tour and score >= 2 and n_signal_types == 1)
+                if args.save_frames and is_trigger:
+                    trigger_count += 1
+                    # 구간 중앙 타임스탬프에 가장 가까운 프레임 선택
+                    mid_ts = (t_start + t_end) / 2
+                    best_idx = min(range(len(timestamps)),
+                                   key=lambda i: abs(timestamps[i] - mid_ts))
+                    frame = frames[best_idx].copy()
+                    h, w = frame.shape[:2]
+
+                    # 검정 배경 바 (cv2로 — 확실하게)
+                    cv2.rectangle(frame, (0, 0), (w, 80), (0, 0, 0), -1)
+
+                    # PIL로 한글 텍스트 렌더링
+                    img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                    draw = ImageDraw.Draw(img)
+                    try:
+                        font_lg = ImageFont.truetype("malgun.ttf", 22)
+                        font_sm = ImageFont.truetype("malgun.ttf", 16)
+                    except OSError:
+                        font_lg = ImageFont.load_default()
+                        font_sm = ImageFont.load_default()
+
+                    label_text = f"[{format_time(t_start)}~{format_time(t_end)}] score={score} [{n_signal_types}sig]"
+                    draw.text((10, 8), label_text, fill=(0, 255, 255), font=font_lg)
+
+                    sig_text = " | ".join(signals)
+                    draw.text((10, 42), sig_text[:100], fill=(255, 255, 255), font=font_sm)
+
+                    out_frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+
+                    time_str = f"{int(t_start)//60:02d}m{int(t_start)%60:02d}s"
+                    fname = f"trigger_{t_start:04d}_{time_str}_score{score}.jpg"
+                    save_path = snap_dir / fname
+                    # cv2.imwrite는 한글 경로 실패 → PIL로 직접 저장
+                    img.save(str(save_path), quality=90)
+
+        if args.save_frames and trigger_count > 0:
+            print(f"\n  📸 TRIGGER 프레임 {trigger_count}장 저장 → {snap_dir}")
 
         # 결과 저장
         all_results.append({

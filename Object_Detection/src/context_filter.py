@@ -12,10 +12,10 @@ YOLO 탐지 라벨 + CLIP 점수를 교차 검증하여
 from __future__ import annotations
 
 # 음식류 탐지 시 식기류가 함께 있어야 광고 트리거
-FOOD_AD_CATEGORIES = {"지방특산물", "한식", "과일채소"}
+FOOD_AD_CATEGORIES = {"음식"}
 
 # 여행 카테고리 AND 조건 — 서로 다른 그룹에서 최소 N개 히트해야 통과
-TRAVEL_AD_CATEGORIES = {"여행지", "도시_관광"}
+TRAVEL_AD_CATEGORIES = {"관광지"}
 TRAVEL_MIN_GROUPS = 2        # 서로 다른 그룹에서 최소 2그룹 이상 히트 필요
 TRAVEL_MIN_QUERY_HITS = 2    # travel_groups 없을 때 fallback (전체 카테고리 기준)
 
