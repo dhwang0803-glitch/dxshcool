@@ -226,6 +226,35 @@ Vector_Search/
 
 ---
 
+### `Hybrid_Layer` — 설명 가능한 추천 (Explainable Recommendation)
+- CF_Engine + Vector_Search의 추천 후보(각 top 20)를 입력으로 수신
+- `vod_tag`(감독/배우/장르) × `user_preference`(유저 선호 프로필) 매칭
+- 중복 제거 + 태그 기반 리랭킹 → 최종 top 20 + `explanation_tags` 생성
+- `serving.hybrid_recommendation`에 적재 → API_Server가 이 테이블을 서빙
+
+**설명 가능한 추천 예시:**
+```
+"봉준호 감독 작품을 즐겨 보셨어요" (director affinity 0.92)
+"송강호 배우 출연작을 자주 시청하셨네요" (actor affinity 0.85)
+```
+
+**예정 폴더 구조:**
+```
+Hybrid_Layer/
+├── src/
+│   ├── tag_builder.py        ← vod → vod_tag 태그 추출
+│   ├── preference_builder.py ← watch_history × vod_tag → user_preference
+│   └── reranker.py           ← 후보 리랭킹 + explanation 생성
+├── scripts/
+│   ├── build_vod_tags.py         ← Phase 1 실행
+│   ├── build_user_preferences.py ← Phase 2 실행
+│   └── run_hybrid.py             ← Phase 3 리랭킹 + 적재
+├── tests/
+└── config/
+```
+
+---
+
 ## Phase 3 — 영상 AI
 
 > **인프라 제약**: VPC 1 core / 1GB RAM (+3GB swap) / 150GB Storage
