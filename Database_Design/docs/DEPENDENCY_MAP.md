@@ -37,6 +37,7 @@
 | `serving.shopping_ad` | `Shopping_Ad` | `API_Server`(읽기) |
 | `serving.popular_recommendation` | `CF_Engine`, `Vector_Search` | `API_Server`(읽기) |
 | `serving.hybrid_recommendation` | `Hybrid_Layer` | `API_Server`(읽기) |
+| `serving.tag_recommendation` | `Hybrid_Layer` | `API_Server`(읽기) |
 
 ---
 
@@ -125,6 +126,7 @@
 | 읽기 | `public.watch_history` | `user_id_fk`, `vod_id_fk`, `completion_rate` | - | user_preference 집계 입력 |
 | 쓰기 | `public.user_preference` | `user_id_fk`, `tag_category`, `tag_value`, `affinity`, `watch_count`, `avg_completion` | - | ON CONFLICT UPSERT |
 | 쓰기 | `serving.hybrid_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `explanation_tags`, `source_engines` | - | 최종 설명 가능 추천 |
+| 쓰기 | `serving.tag_recommendation` | `user_id_fk`, `tag_category`, `tag_value`, `tag_rank`, `tag_affinity`, `vod_id_fk`, `vod_rank`, `vod_score` | - | 선호 태그별 VOD 선반 (top 5 × top 10) |
 
 ### Object_Detection
 

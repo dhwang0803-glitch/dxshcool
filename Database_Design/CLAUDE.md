@@ -70,6 +70,7 @@ import sqlalchemy        # ORM (선택)
 | `serving.shopping_ad` | 쇼핑 광고 팝업 서빙 (비정규화, TTL 30일) |
 | `serving.popular_recommendation` | 장르별 인기 추천 Top-N (글로벌, TTL 7일) |
 | `serving.hybrid_recommendation` | 설명 가능한 최종 추천 — CF+Vector 리랭킹 (TTL 7일) |
+| `serving.tag_recommendation` | 유저 선호 태그별 VOD 추천 선반 — top 5 태그 × top 10 VOD (TTL 7일) |
 
 ## 인터페이스
 
