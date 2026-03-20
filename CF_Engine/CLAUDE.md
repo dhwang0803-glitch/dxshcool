@@ -6,7 +6,8 @@
 
 시청 이력(watch_history) 기반 **협업 필터링(Collaborative Filtering)** 추천 엔진.
 ALS(Alternating Least Squares) 행렬 분해로 User-Item 잠재 벡터를 학습하고,
-추천 결과를 DB에 저장하여 API_Server가 실시간으로 서빙할 수 있게 한다.
+추천 후보(top 20)를 `serving.vod_recommendation`에 저장한다.
+이후 **Hybrid_Layer**가 Vector_Search 후보와 합쳐 리랭킹 → `serving.hybrid_recommendation` → API_Server 서빙.
 
 ## 파일 위치 규칙 (MANDATORY)
 
@@ -48,10 +49,10 @@ from dotenv import load_dotenv
 watch_history 테이블 로드
     → User-Item 희소 행렬 구성
     → ALS 학습 (factors=128, iterations=20, regularization=0.01)
-    → 유저별 Top-K 추천 생성
-    → [권한에 따라 분기] ─┬─ DB 쓰기 권한 있음 (조장) → serving.vod_recommendation upsert
+    → 유저별 Top-20 추천 생성
+    → [권한에 따라 분기] ─┬─ DB 쓰기 권한 있음 (조장) → serving.vod_recommendation DELETE+INSERT
                           └─ DB 쓰기 권한 없음 (팀원) → data/cf_recommendations_YYYYMMDD.parquet 저장
-    → API_Server /recommend/{user_id} 서빙
+    → Hybrid_Layer가 소비 → 리랭킹 → serving.hybrid_recommendation → API_Server 서빙
 ```
 
 ## ⚠️ DB 쓰기 권한 분리 (MANDATORY)
