@@ -88,15 +88,17 @@ def main():
     # ── 모델 로드 ──
     print("\n[1/5] 모델 로드 중...")
 
-    print("  YOLO v2 (COCO 필터 + 파인튜닝)...")
+    # best.pt 존재 시 파인튜닝, 없으면 COCO fallback
+    food_pt = args.best_pt if Path(args.best_pt).exists() else COCO_PT
+    print(f"  YOLO v2 (COCO 필터 + {'파인튜닝' if food_pt != COCO_PT else 'COCO'})...")
     yolo = DetectorV2(
-        food_model=args.best_pt,
+        food_model=food_pt,
         coco_model=COCO_PT,
         confidence=args.yolo_conf,
         coco_confidence=0.3,
         device="cpu",
     )
-    print(f"  → 파인튜닝 {len(yolo.food_detector.model.names)}종 메뉴")
+    print(f"  → food 모델: {Path(food_pt).name}")
 
     print("  CLIP (multilingual)...")
     clip = ClipScorer("clip-ViT-B-32-multilingual-v1")
@@ -224,6 +226,16 @@ def main():
         if len(ocr_records) > 10:
             print(f"    ... +{len(ocr_records)-10}건")
 
+        # ── 관광지 컨텍스트 사전 스캔 ──
+        # STT에서 한 번이라도 확인된 관광지 키워드 수집
+        # → 이후 OCR 단독 구간에서도 TRIGGER 인정
+        confirmed_tour_kws = set()
+        for r in stt_records:
+            if r["ad_category"] == "관광지":
+                confirmed_tour_kws.add(r["keyword"])
+        if confirmed_tour_kws:
+            print(f"\n  🏔️ STT 확인 관광지: {', '.join(sorted(confirmed_tour_kws))}")
+
         # ── 구간별 멀티시그널 요약 ──
         print(f"\n  {'─' * 60}")
         print(f"  멀티시그널 요약 (10초 구간)")
@@ -282,11 +294,22 @@ def main():
                                  (1 if stt_in_range else 0) + \
                                  (1 if clip_in_range else 0) + \
                                  (1 if ocr_in_range else 0)
+
+                # 관광지 컨텍스트 확인: OCR 단독이지만 STT에서 이미 확인된 관광지
+                ocr_tour_confirmed = False
+                if ocr_in_range and n_signal_types == 1 and confirmed_tour_kws:
+                    ocr_tour_kws = {r["keyword"] for r in ocr_in_range
+                                    if r["ad_category"] == "관광지"}
+                    if ocr_tour_kws & confirmed_tour_kws:
+                        ocr_tour_confirmed = True
+
                 if score >= 3 and n_signal_types >= 2:
                     trigger = "🔥 TRIGGER"
+                elif ocr_tour_confirmed:
+                    # OCR에 관광지 키워드 + STT에서 이미 확인됨 → TRIGGER
+                    trigger = "🏔️ TRIGGER (관광지 컨텍스트)"
                 elif clip_has_tour and score >= 2 and n_signal_types == 1:
                     # 관광지 B-roll 예외: BGM만 있는 풍경 구간
-                    # CLIP 관광지 고신뢰 단독 허용
                     trigger = "🏔️ TRIGGER (관광지 단독)"
                 elif score >= 3 and n_signal_types == 1:
                     trigger = "⚠️ 단독 (교차검증 미충족)"
@@ -299,6 +322,7 @@ def main():
 
                 # ── TRIGGER 프레임 이미지 저장 ──
                 is_trigger = (score >= 3 and n_signal_types >= 2) or \
+                             ocr_tour_confirmed or \
                              (clip_has_tour and score >= 2 and n_signal_types == 1)
                 if args.save_frames and is_trigger:
                     trigger_count += 1
