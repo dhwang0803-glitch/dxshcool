@@ -183,8 +183,8 @@ def calc_popularity_score(
 
 def get_top_n_by_genre(df: pd.DataFrame, top_n: int = 20) -> pd.DataFrame:
     """
-    고정 4개 장르(영화/드라마/예능/애니)별 Top-N VOD 추출.
-    슬래시(/) 구분 다중 장르는 explode로 각 장르에 개별 등록.
+    고정 4개 CT_CL(영화/TV드라마/TV 연예/오락/TV애니메이션)별 Top-N VOD 추출.
+    ct_cl은 단일 값이므로 explode 불필요.
     """
     filtered = df[df["ct_cl"].isin(TARGET_GENRES)].copy()
 
@@ -196,18 +196,18 @@ def get_top_n_by_genre(df: pd.DataFrame, top_n: int = 20) -> pd.DataFrame:
     )
     result = result.copy()
     result["rank"] = result.groupby("ct_cl").cumcount() + 1
-    result = result.rename(columns={"full_asset_id": "vod_id_fk", "ct_cl": "category_value"})
+    result = result.rename(columns={"full_asset_id": "vod_id_fk"})
 
-    return result[["category_value", "vod_id_fk", "rank", "score"]]
+    return result[["ct_cl", "vod_id_fk", "rank", "score"]]
 
 
 def build_recommendations(df: pd.DataFrame, top_n: int = 20) -> pd.DataFrame:
     """
-    장르별 Top-N 추천 결과 생성.
-    출력: category_value, rank, vod_id_fk, score, recommendation_type
+    CT_CL별 Top-N 추천 결과 생성.
+    출력: ct_cl, rank, vod_id_fk, score, recommendation_type
     """
     result = get_top_n_by_genre(df, top_n)
     result = result.copy()
     result["recommendation_type"] = "POPULAR"
 
-    return result[["category_value", "rank", "vod_id_fk", "score", "recommendation_type"]]
+    return result[["ct_cl", "rank", "vod_id_fk", "score", "recommendation_type"]]

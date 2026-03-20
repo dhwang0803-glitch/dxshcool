@@ -1,32 +1,7 @@
-# 홈쇼핑 채널별 크롤링 설정
-# 각 채널 크롤러에서 참조하는 URL 및 기본 설정
+# 제철장터 채널 크롤링 설정
+# 홈쇼핑 크롤러 폐기 (2026-03-19) → LG헬로비전 제철장터만 유지
 
 channels:
-  SK스토아:
-    url: "https://www.skstoa.com/display/schedule/tvSchedule"
-    module: skstoa
-    enabled: true
-
-  롯데OneTV:
-    url: "https://www.lotteimall.com/tvshopping/scheduleAll.lotte"
-    module: lotte
-    enabled: true
-
-  공영방송:
-    url: "https://www.gongyoung.co.kr/tvshopping/selectScheduleSub.do"
-    module: gongyoung
-    enabled: true
-
-  KT알파쇼핑:
-    url: "https://www.kt-alpha.com/display/onair/main.do"
-    module: kt_alpha
-    enabled: true
-
-  CJ온스타일:
-    url: "https://display.cjonstyle.com/p/homeTab/main?hmtabMenuId=T2003"
-    module: cj_onstyle
-    enabled: true
-
   LG헬로비전:
     url: "https://www.lghellovision.net/main/mainScheduleListAjax.do"
     module: lg_hellovision

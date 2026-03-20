@@ -44,7 +44,7 @@ def sample_vod():
     return pd.DataFrame({
         "full_asset_id":     ["V001", "V002", "V003", "V004", "V005"],
         "genre":             ["드라마", "드라마/영화", "영화", "예능", "애니"],
-        "ct_cl":             ["TV드라마", "TV드라마", "영화", "TV연예", "TV애니"],
+        "ct_cl":             ["TV드라마", "TV드라마", "영화", "TV 연예/오락", "TV애니메이션"],
         "release_date":      [
             today - timedelta(days=30),
             today - timedelta(days=365),
@@ -248,7 +248,7 @@ class TestCalcPopularityScore:
 class TestGetTopNByGenre:
     def test_only_target_genres(self, scored_df):
         result = get_top_n_by_genre(scored_df, top_n=5)
-        assert set(result["category_value"].unique()).issubset(set(TARGET_GENRES))
+        assert set(result["ct_cl"].unique()).issubset(set(TARGET_GENRES))
 
     def test_rank_starts_at_one(self, scored_df):
         result = get_top_n_by_genre(scored_df, top_n=5)
@@ -256,14 +256,14 @@ class TestGetTopNByGenre:
 
     def test_top_n_limit(self, scored_df):
         result = get_top_n_by_genre(scored_df, top_n=1)
-        assert (result.groupby("category_value")["vod_id_fk"].count() <= 1).all()
+        assert (result.groupby("ct_cl")["vod_id_fk"].count() <= 1).all()
 
     def test_columns_present(self, scored_df):
         result = get_top_n_by_genre(scored_df, top_n=5)
-        for col in ["category_value", "vod_id_fk", "rank", "score"]:
+        for col in ["ct_cl", "vod_id_fk", "rank", "score"]:
             assert col in result.columns
 
-    def test_multi_genre_exploded(self, scored_df):
+    def test_multi_genre(self, scored_df):
         result = get_top_n_by_genre(scored_df, top_n=5)
         assert len(result) >= 2
 
@@ -277,12 +277,12 @@ class TestBuildRecommendations:
 
     def test_required_columns(self, scored_df):
         result = build_recommendations(scored_df, top_n=5)
-        for col in ["category_value", "rank", "vod_id_fk", "score", "recommendation_type"]:
+        for col in ["ct_cl", "rank", "vod_id_fk", "score", "recommendation_type"]:
             assert col in result.columns
 
     def test_only_target_genres(self, scored_df):
         result = build_recommendations(scored_df, top_n=5)
-        assert set(result["category_value"].unique()).issubset(set(TARGET_GENRES))
+        assert set(result["ct_cl"].unique()).issubset(set(TARGET_GENRES))
 
     def test_rank_starts_at_one(self, scored_df):
         result = build_recommendations(scored_df, top_n=5)
