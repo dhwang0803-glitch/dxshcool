@@ -15,6 +15,8 @@ async def get_recommendations(user_id: str, limit: int = 10) -> dict:
                 FROM serving.vod_recommendation r
                 JOIN public.vod v ON r.vod_id_fk = v.full_asset_id
                 WHERE r.user_id_fk = $1
+                  AND r.recommendation_type = 'HYBRID'
+                  AND (r.expires_at IS NULL OR r.expires_at > NOW())
                 ORDER BY r.rank
                 LIMIT $2
                 """,

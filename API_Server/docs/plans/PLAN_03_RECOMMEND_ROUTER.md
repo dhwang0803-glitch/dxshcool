@@ -2,8 +2,11 @@
 
 **목표**: `GET /recommend/{user_id}` — `serving.vod_recommendation`에서 사전 계산된 추천 결과를 조회하여 반환
 
-> ⚠️ **사전 조건**: `serving.vod_recommendation` 테이블은 CF_Engine 또는 Vector_Search 브랜치가 완료된 후 적재된다.
-> 그 전까지는 `public.vod` 인기 콘텐츠 fallback으로 응답한다.
+> ⚠️ **사전 조건**: `serving.vod_recommendation` 테이블은 Hybrid_Layer가 CF_Engine + Vector_Search 결과를
+> 리랭킹한 후 `recommendation_type = 'HYBRID'`로 적재한다.
+> 그 전까지는 `serving.mv_vod_watch_stats` 인기 콘텐츠 fallback으로 응답한다.
+>
+> **UNIQUE 제약 (2026-03-20 변경)**: `UNIQUE(user_id_fk, vod_id_fk, recommendation_type)` — CF/Vector/Hybrid 타입별 독립 저장.
 
 ---
 
@@ -21,7 +24,7 @@
 ## DB 쿼리 (Primary)
 
 ```sql
--- serving.vod_recommendation 에서 개인화 추천
+-- serving.vod_recommendation 에서 Hybrid 개인화 추천
 SELECT
     r.vod_id_fk      AS asset_id,
     r.rank,
@@ -33,6 +36,7 @@ SELECT
 FROM serving.vod_recommendation r
 JOIN public.vod v ON r.vod_id_fk = v.full_asset_id
 WHERE r.user_id_fk = $1
+  AND r.recommendation_type = 'HYBRID'
 ORDER BY r.rank
 LIMIT $2;
 ```
@@ -69,7 +73,7 @@ class RecommendItem(BaseModel):
     poster_url: str | None
     score: float | None
     rank: int | None
-    recommendation_type: str | None   # 'COLLABORATIVE' | 'VISUAL_SIMILARITY' | 'POPULAR'
+    recommendation_type: str | None   # 'HYBRID' | 'COLLABORATIVE' | 'VISUAL_SIMILARITY' | 'CONTENT_BASED' | 'POPULAR'
 
 class RecommendResponse(BaseModel):
     user_id: str

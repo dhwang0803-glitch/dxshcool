@@ -149,6 +149,7 @@ from dotenv import load_dotenv
 ## 협업 규칙
 
 - `main` 브랜치에 직접 Push 금지 — 반드시 Pull Request
+- Object_Detection parquet 스키마 변경 시 인터페이스 섹션 업데이트
 - PR description 필수 항목:
   1. **변경사항 요약**
   2. **사후영향 평가**

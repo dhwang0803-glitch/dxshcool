@@ -11,8 +11,10 @@
 
 ## 목표
 
+> **2026-03-19 방향 전환**: 홈쇼핑 연동 폐기 → 지자체 광고 팝업 + 제철장터 채널 연계로 전환.
+
 Object_Detection이 생성한 3종 parquet을 소비하여,
-현재 방영 중인 VOD 장면에서 쇼핑 광고 팝업 후보를 생성하고
+VOD 장면에서 **관광지/지역 인식 → 지자체 광고 팝업**, **음식 인식 → 제철장터 채널 연계** 후보를 생성하고
 VPC `serving.shopping_ad` 테이블에 적재한다.
 
 ---
@@ -42,24 +44,30 @@ VPC `serving.shopping_ad` 테이블에 적재한다.
 
 **목표**: 3종 parquet + 상품 카탈로그 → 광고 후보 생성
 
-#### Step 1 — 상품 카탈로그 로드
+#### Step 1 — 광고 소재 및 매핑 로드
 
 ```python
 # config/ad_config.yaml
-catalog:
-  path: data/product_catalog.csv  # 상품명, category, ad_url, thumbnail_url
+local_gov_ads:
+  path: data/festival_ads.csv  # 축제명, 지역, 기간, ad_image_url (OCI)
+seasonal_market:
+  channel_map: data/seasonal_market_map.csv  # 음식명, 제철장터 채널, 상품명
 ```
 
 #### Step 2 — 멀티모달 신호 통합
 
 ```
-[우선순위]
-1. STT 키워드 매칭 (가장 명확한 신호 — 발화 직접 확인)
-   keyword → ad_category → 카탈로그 필터
-2. CLIP 개념 매칭 (context_valid=True만 사용)
-   concept + ad_category → 카탈로그 필터
-3. YOLO bbox 보완 (CLIP 미탐지 구간 보조)
-   label → category 매핑 → 카탈로그 필터
+[인식 대상별 우선순위]
+관광지/지역:
+  1. STT 지역명 매칭 (발화 직접 확인)
+  2. CLIP 지역 개념 매칭 (context_valid=True)
+  → 매칭된 지역의 축제 광고 이미지 URL 연결
+
+음식:
+  1. CLIP 음식 개념 매칭 (context_valid=True)
+  2. YOLO 음식 bbox 보완 (food, bowl 등)
+  3. STT 음식명 키워드 매칭
+  → 제철장터 채널 상품 연계
 ```
 
 #### Step 3 — 중복 제거 + 신뢰도 정렬
@@ -129,9 +137,10 @@ python scripts/ingest_to_db.py \
 
 | 항목 | 담당 | 현황 |
 |------|------|------|
-| `serving.shopping_ad` 스키마 | Database_Design(황대원) | 🔲 협의 필요 |
+| `serving.shopping_ad` 스키마 재설계 | Database_Design(황대원) | 🔲 지자체 광고 + 제철장터 반영 필요 |
 | `vod_stt_concept.parquet` 키워드 확충 | Object_Detection(박아름) ↔ Shopping_Ad | 🔲 카테고리별 50개+ 목표 |
-| 상품 카탈로그 (`product_catalog.csv`) | 팀 공통 | 🔲 데이터 확보 필요 |
+| 축제 리스트 수집 + 광고 소재 생성 파이프라인 | Shopping_Ad | 🔲 MVP 설계 필요 |
+| 제철장터 채널 연계 방식 확정 | Shopping_Ad | 🔲 채널 이동/시청예약 UX 설계 |
 | API_Server WebSocket `/ad/popup` 연동 | API_Server(PLAN_06) | 🔲 serving.shopping_ad 완료 후 |
 
 ---

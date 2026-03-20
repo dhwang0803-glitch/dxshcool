@@ -6,7 +6,8 @@
 
 시청 이력(watch_history) 기반 **협업 필터링(Collaborative Filtering)** 추천 엔진.
 ALS(Alternating Least Squares) 행렬 분해로 User-Item 잠재 벡터를 학습하고,
-추천 결과를 DB에 저장하여 API_Server가 실시간으로 서빙할 수 있게 한다.
+추천 후보(top 20)를 `serving.vod_recommendation`에 저장한다.
+이후 **Hybrid_Layer**가 Vector_Search 후보와 합쳐 리랭킹 → `serving.hybrid_recommendation` → API_Server 서빙.
 
 ## 파일 위치 규칙 (MANDATORY)
 
@@ -48,10 +49,10 @@ from dotenv import load_dotenv
 watch_history 테이블 로드
     → User-Item 희소 행렬 구성
     → ALS 학습 (factors=128, iterations=20, regularization=0.01)
-    → 유저별 Top-K 추천 생성
-    → [권한에 따라 분기] ─┬─ DB 쓰기 권한 있음 (조장) → serving.vod_recommendation upsert
+    → 유저별 Top-20 추천 생성
+    → [권한에 따라 분기] ─┬─ DB 쓰기 권한 있음 (조장) → serving.vod_recommendation DELETE+INSERT
                           └─ DB 쓰기 권한 없음 (팀원) → data/cf_recommendations_YYYYMMDD.parquet 저장
-    → API_Server /recommend/{user_id} 서빙
+    → Hybrid_Layer가 소비 → 리랭킹 → serving.hybrid_recommendation → API_Server 서빙
 ```
 
 ## ⚠️ DB 쓰기 권한 분리 (MANDATORY)
@@ -103,9 +104,10 @@ python scripts/train.py
 
 ### serving.vod_recommendation UNIQUE constraint
 
-- **확인 완료**: `UNIQUE (user_id_fk, vod_id_fk)`
-- recommendation_type 미포함 → 타입별 공존 불가
-- **DELETE+INSERT 패턴 유지** (UPSERT 전환 불필요)
+- **변경 완료 (2026-03-20)**: `UNIQUE (user_id_fk, vod_id_fk, recommendation_type)`
+- recommendation_type 포함 → CF/Vector/Hybrid 타입별 독립 저장 가능
+- Cloud Run Jobs 독립 실행 시 동일 user-vod 쌍 충돌 방지
+- UPSERT(`ON CONFLICT ... DO UPDATE`) 전환 가능 (현재 DELETE+INSERT도 정상 동작)
 
 ## 인터페이스
 
@@ -121,8 +123,8 @@ python scripts/train.py
 
 | 테이블 | 컬럼 | 타입 | 비고 |
 |--------|------|------|------|
-| `serving.vod_recommendation` | `user_id_fk` | VARCHAR | UNIQUE(user_id_fk, vod_id_fk) |
-| `serving.vod_recommendation` | `vod_id_fk` | VARCHAR | UNIQUE(user_id_fk, vod_id_fk) |
+| `serving.vod_recommendation` | `user_id_fk` | VARCHAR | UNIQUE(user_id_fk, vod_id_fk, recommendation_type) |
+| `serving.vod_recommendation` | `vod_id_fk` | VARCHAR | UNIQUE(user_id_fk, vod_id_fk, recommendation_type) |
 | `serving.vod_recommendation` | `rank` | SMALLINT | Top-K 순위 |
 | `serving.vod_recommendation` | `score` | REAL | ALS 추천 점수 |
 | `serving.vod_recommendation` | `recommendation_type` | VARCHAR | 고정값: `'COLLABORATIVE'` |

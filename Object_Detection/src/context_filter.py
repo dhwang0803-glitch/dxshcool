@@ -12,7 +12,12 @@ YOLO 탐지 라벨 + CLIP 점수를 교차 검증하여
 from __future__ import annotations
 
 # 음식류 탐지 시 식기류가 함께 있어야 광고 트리거
-FOOD_AD_CATEGORIES = {"지방특산물", "한식", "과일채소"}
+FOOD_AD_CATEGORIES = {"음식"}
+
+# 여행 카테고리 AND 조건 — 서로 다른 그룹에서 최소 N개 히트해야 통과
+TRAVEL_AD_CATEGORIES = {"관광지"}
+TRAVEL_MIN_GROUPS = 2        # 서로 다른 그룹에서 최소 2그룹 이상 히트 필요
+TRAVEL_MIN_QUERY_HITS = 2    # travel_groups 없을 때 fallback (전체 카테고리 기준)
 
 # YOLO 식기류 라벨 (COCO 80종)
 TABLEWARE_LABELS = {"fork", "knife", "spoon", "bowl", "cup", "dining table", "chopsticks"}
@@ -39,6 +44,8 @@ GLOBAL_NEGATIVE_KEYWORDS = {
     "포스터", "메뉴판", "요리책", "삽화", "그림",
     "모형", "장난감", "샘플",
     "poster", "illustration", "painting", "decorative",
+    # 방송 스튜디오
+    "토크쇼", "스튜디오", "앵커", "세트장", "패널",
 }
 
 # ── 음식/수산물 카테고리 전용 차단 ──────────────────────────────────────
@@ -69,6 +76,9 @@ class ContextFilter:
         yolo_labels: set[str],
         clip_scores: dict[str, float],
         ad_category: str,
+        query_category_map: dict[str, str] | None = None,
+        threshold: float = 0.26,
+        travel_groups: dict | None = None,
     ) -> dict:
         """
         Args:
@@ -89,15 +99,38 @@ class ContextFilter:
             if kw in top_lower:
                 return {"context_valid": False, "context_reason": f"brand_safety:{top_query}"}
         # secondary: top-1이 아니어도 cutoff 이상이면 차단
+        # negative 카테고리 쿼리는 제외 (해당 쿼리 자체가 keyword 포함해 오탐 유발)
         for q, score in clip_scores.items():
+            if query_category_map and query_category_map.get(q) == "negative":
+                continue
             if score >= NEGATIVE_SECONDARY_CUTOFF and any(kw in q.lower() for kw in GLOBAL_NEGATIVE_KEYWORDS):
                 return {"context_valid": False, "context_reason": f"brand_safety_secondary:{q}"}
 
-        # ── 2. 음식 외 카테고리 → global negative secondary check만 추가 적용 ──
+        # ── 2. 여행 카테고리 AND 조건 ─────────────────────────────────────
+        # 그룹 간 AND: 서로 다른 그룹에서 최소 2그룹 히트 필요
+        # (같은 visual cluster — 바다/하늘 — 에서 여러 쿼리 히트해도 1그룹으로 카운트)
+        if ad_category in TRAVEL_AD_CATEGORIES:
+            floor = threshold - 0.04   # 그룹 히트 판정 기준 (threshold보다 낮게)
+            if travel_groups and ad_category in travel_groups:
+                groups = travel_groups[ad_category]
+                groups_hit = sum(
+                    1 for group_qs in groups.values()
+                    if any(clip_scores.get(q, 0.0) >= floor for q in group_qs)
+                )
+                if groups_hit < TRAVEL_MIN_GROUPS:
+                    return {"context_valid": False,
+                            "context_reason": f"travel_cross_group:{groups_hit}groups<{TRAVEL_MIN_GROUPS}"}
+            elif query_category_map:
+                hits = sum(
+                    1 for q, s in clip_scores.items()
+                    if query_category_map.get(q) == ad_category and s >= floor
+                )
+                if hits < TRAVEL_MIN_QUERY_HITS:
+                    return {"context_valid": False,
+                            "context_reason": f"travel_and_condition:{hits}hits<{TRAVEL_MIN_QUERY_HITS}"}
+
+        # ── 3. 음식 외 카테고리 → 통과 (global brand safety는 위에서 이미 체크됨) ──
         if ad_category not in FOOD_AD_CATEGORIES:
-            for q, score in clip_scores.items():
-                if score >= NEGATIVE_SECONDARY_CUTOFF and any(kw in q.lower() for kw in GLOBAL_NEGATIVE_KEYWORDS):
-                    return {"context_valid": False, "context_reason": f"global_secondary:{q}"}
             return {"context_valid": True, "context_reason": "non_food_category"}
 
         # ── 3. 음식 카테고리 전용 negative 차단 ─────────────────────────

@@ -2,7 +2,7 @@
 search_functions.py — 외부 소스 메타데이터 검색
 
 소스 전략 (Wikipedia/IMDB 제거):
-  1. TMDB  (The Movie Database)  — 영화 + TV 드라마 구조적 데이터
+  1. TMDB  (The Movie Database)  — 영화 + TV드라마 구조적 데이터
   2. KMDB  (한국영상자료원)         — 한국 콘텐츠 특화
   3. AI-Hub (문화콘텐츠 스토리 데이터) — 로컬 JSON 데이터셋 (선택)
   4. Ollama exaone3.5            — 최종 LLM 폴백
@@ -192,7 +192,7 @@ def _tmdb_movie_detail(tmdb_id: int) -> Optional[dict]:
 
 
 def _tmdb_tv_detail(tmdb_id: int) -> Optional[dict]:
-    """TMDB TV 드라마 상세 (cast + 첫방영일 + 한국 등급)"""
+    """TMDB TV드라마 상세 (cast + 첫방영일 + 한국 등급)"""
     if not _tmdb_available():
         return None
     try:
