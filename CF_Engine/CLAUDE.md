@@ -103,9 +103,10 @@ python scripts/train.py
 
 ### serving.vod_recommendation UNIQUE constraint
 
-- **확인 완료**: `UNIQUE (user_id_fk, vod_id_fk)`
-- recommendation_type 미포함 → 타입별 공존 불가
-- **DELETE+INSERT 패턴 유지** (UPSERT 전환 불필요)
+- **변경 완료 (2026-03-20)**: `UNIQUE (user_id_fk, vod_id_fk, recommendation_type)`
+- recommendation_type 포함 → CF/Vector/Hybrid 타입별 독립 저장 가능
+- Cloud Run Jobs 독립 실행 시 동일 user-vod 쌍 충돌 방지
+- UPSERT(`ON CONFLICT ... DO UPDATE`) 전환 가능 (현재 DELETE+INSERT도 정상 동작)
 
 ## 인터페이스
 
@@ -121,8 +122,8 @@ python scripts/train.py
 
 | 테이블 | 컬럼 | 타입 | 비고 |
 |--------|------|------|------|
-| `serving.vod_recommendation` | `user_id_fk` | VARCHAR | UNIQUE(user_id_fk, vod_id_fk) |
-| `serving.vod_recommendation` | `vod_id_fk` | VARCHAR | UNIQUE(user_id_fk, vod_id_fk) |
+| `serving.vod_recommendation` | `user_id_fk` | VARCHAR | UNIQUE(user_id_fk, vod_id_fk, recommendation_type) |
+| `serving.vod_recommendation` | `vod_id_fk` | VARCHAR | UNIQUE(user_id_fk, vod_id_fk, recommendation_type) |
 | `serving.vod_recommendation` | `rank` | SMALLINT | Top-K 순위 |
 | `serving.vod_recommendation` | `score` | REAL | ALS 추천 점수 |
 | `serving.vod_recommendation` | `recommendation_type` | VARCHAR | 고정값: `'COLLABORATIVE'` |

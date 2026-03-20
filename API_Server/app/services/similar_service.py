@@ -4,7 +4,7 @@ from app.services.db import get_pool
 async def get_similar_vods(asset_id: str, limit: int = 10) -> dict:
     pool = await get_pool()
 
-    # Primary: serving.vod_recommendation (VISUAL_SIMILARITY)
+    # Primary: serving.vod_recommendation (CONTENT_BASED via source_vod_id)
     try:
         async with pool.acquire() as conn:
             rows = await conn.fetch(

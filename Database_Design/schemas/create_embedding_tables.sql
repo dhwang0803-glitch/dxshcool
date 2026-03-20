@@ -288,12 +288,13 @@ CREATE TABLE serving.vod_recommendation (
 
 -- Partial Unique 인덱스: 유저 기반 / 콘텐츠 기반 분리
 -- PostgreSQL NULL != NULL이므로 단일 UNIQUE로 양쪽 커버 불가 → partial index 사용
+-- recommendation_type 포함: CF/Vector/Hybrid 타입별 독립 저장 허용
 CREATE UNIQUE INDEX uq_vod_rec_user_vod
-    ON serving.vod_recommendation (user_id_fk, vod_id_fk)
+    ON serving.vod_recommendation (user_id_fk, vod_id_fk, recommendation_type)
     WHERE user_id_fk IS NOT NULL;
 
 CREATE UNIQUE INDEX uq_vod_rec_source_vod
-    ON serving.vod_recommendation (source_vod_id, vod_id_fk)
+    ON serving.vod_recommendation (source_vod_id, vod_id_fk, recommendation_type)
     WHERE source_vod_id IS NOT NULL;
 
 -- 커버링 인덱스 (유저 기반)

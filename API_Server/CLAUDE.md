@@ -45,8 +45,8 @@ import uvicorn
 
 | 메서드 | 경로 | 설명 | 소스 |
 |--------|------|------|------|
-| GET | `/recommend/{user_id}` | 개인화 추천 | CF_Engine |
-| GET | `/similar/{asset_id}` | 유사 콘텐츠 | Vector_Search |
+| GET | `/recommend/{user_id}` | 개인화 추천 | Hybrid_Layer (`recommendation_type = 'HYBRID'`) |
+| GET | `/similar/{asset_id}` | 유사 콘텐츠 | Vector_Search (`source_vod_id` + `recommendation_type = 'CONTENT_BASED'`) |
 | WS | `/ad/popup` | 실시간 광고 팝업 (WebSocket) | Shopping_Ad |
 | GET | `/vod/{asset_id}` | VOD 상세 메타데이터 (+is_free, release_year) | DB |
 | POST | `/auth/token` | JWT 발급 (셋톱박스 자동 로그인, 만료 없음) | 자체 |

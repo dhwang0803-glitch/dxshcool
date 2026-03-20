@@ -19,10 +19,10 @@
           public.vod 테이블 → VOD 상세 메타데이터 응답
 
 [PLAN_03] /recommend/{user_id}
-          serving.vod_recommendation → 개인화 추천 결과 응답
+          serving.vod_recommendation (HYBRID) → Hybrid_Layer 리랭킹 개인화 추천 결과 응답
 
 [PLAN_04] /similar/{asset_id}
-          serving.vod_recommendation (VISUAL_SIMILARITY) → 유사 콘텐츠 응답
+          serving.vod_recommendation (source_vod_id + CONTENT_BASED) → VOD→VOD 유사 콘텐츠 응답
 
 [PLAN_05] /auth/token
           JWT 발급 (POST, 만료 없음) / 검증 Depends — 셋톱박스 자동 로그인

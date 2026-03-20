@@ -42,6 +42,8 @@ LIMIT $2;
 > ✅ **해결 (2026-03-20)**: 마이그레이션 `20260316_add_source_vod_id_to_vod_rec.sql`에서
 > `source_vod_id` 컬럼이 추가됨. 콘텐츠 기반 추천은 `source_vod_id` 기준, 유저 기반은 `user_id_fk` 기준.
 > `user_id_fk`는 NULLABLE로 변경되었고, CHECK 제약으로 둘 중 하나 필수 보장.
+>
+> **UNIQUE 제약 (2026-03-20 변경)**: `UNIQUE(source_vod_id, vod_id_fk, recommendation_type)` — 타입별 독립 저장.
 
 ## DB 쿼리 (Fallback — 동일 장르)
 
