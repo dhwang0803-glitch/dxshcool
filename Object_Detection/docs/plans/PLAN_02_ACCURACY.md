@@ -1,3 +1,5 @@
+> ✅ **완료** (Phase 2~3). 최신 플로우 → `docs/MATCHING_FLOW.md`
+
 # PLAN_02 — Object Detection 정확도 고도화 (단계별 실험)
 
 - **브랜치**: Object_Detection
