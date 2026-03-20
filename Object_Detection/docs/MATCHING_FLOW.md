@@ -342,11 +342,20 @@ Step 3: 최종
 ### TRIGGER 판정
 
 ```
+[사전 스캔] STT에서 관광지 키워드 수집 → confirmed_tour_kws (영상 전체 1회)
+  예: STT "순천" 발화 → confirmed_tour_kws = {"순천", "제주"}
+
+[구간별 판정]
 IF score ≥ 3 AND signal_types ≥ 2:
     → 🔥 TRIGGER
 
+ELIF OCR 단독 AND OCR 관광지 키워드 ∈ confirmed_tour_kws:
+    → 🏔️ TRIGGER (관광지 컨텍스트)
+    → STT에서 한번 확인된 지역이 화면에 계속 보이는 경우
+    → test12: 14장→63장 (4.5배 향상)
+
 ELIF CLIP 관광지 AND score ≥ 2 AND signal_types == 1:
-    → 🏔️ TRIGGER (관광지 B-roll 예외)
+    → 🏔️ TRIGGER (관광지 단독)
     → BGM만 있는 풍경 구간용
 
 ELIF score ≥ 3 AND signal_types == 1:
@@ -385,14 +394,15 @@ OCR:  ★★  자막에 지역명/명소명
 ### 여행 먹방 혼합 영상
 
 ```
-풍경 구간: CLIP 관광지 단독 TRIGGER (🏔️)
+풍경 구간: 관광지 컨텍스트 TRIGGER (🏔️) — OCR 지역명 + STT 확인
 식당 구간: YOLO + STT + CLIP + OCR 풀가동 (🔥)
 → 한 VOD에서 ad_category = 음식 + 관광지 멀티라벨 태깅 가능
 ```
 
 **핵심**: 여행 영상에서 YOLO가 0건이어도 문제 없음.
-CLIP 관광지 단독 규칙 + STT/OCR 지역명 매칭이 여행 커버리지를 담당.
-test12(순천 여행)에서 YOLO 13건밖에 안 잡혔지만 STT+OCR로 14 TRIGGER 발생.
+- 관광지 컨텍스트 규칙: STT에서 지역명 한번 확인 → OCR 단독 구간도 TRIGGER
+- test12(순천 여행): 규칙 완화 전 14 → **규칙 완화 후 63 TRIGGER** (4.5배 향상)
+- "순천"이 화면에 계속 보이는 구간이 전부 관광지로 태깅됨
 
 ---
 
