@@ -52,17 +52,25 @@ import sqlalchemy        # ORM (선택)
 | `public.vod_meta_embedding` | VOD 메타데이터 384차원 벡터 (pgvector) |
 | `public.user_embedding` | 사용자 행동 벡터 896차원 (CLIP 512 + META 384, pgvector) |
 | `public.watch_history` | 시청 이력 — 주별 파티셔닝 |
-| `public.detected_objects` | 사물인식 결과 (Shopping_Ad 입력) |
-| `public.tv_schedule` | TV 실시간 시간표 (EPG) |
+| `public.detected_object_yolo` | YOLO bbox 탐지 결과 (Object_Detection 적재) |
+| `public.detected_object_clip` | CLIP zero-shot 개념 태깅 (Object_Detection 적재) |
+| `public.detected_object_stt` | Whisper STT 키워드 추출 (Object_Detection 적재) |
+| `public.seasonal_market` | 제철장터 채널 편성표 (Shopping_Ad 매칭) |
+| `public.vod_tag` | VOD 해석 가능 태그 — 감독/배우/장르 등 (Hybrid_Layer 소비) |
+| `public.user_preference` | 유저별 태그 선호 프로필 (Hybrid_Layer 생산) |
 
 ### Gold 계층 (serving 스키마)
 
 | 테이블/MV | 설명 |
 |-----------|------|
-| `serving.vod_recommendation` | 사용자별 추천 결과 캐시 (TTL 7일) |
+| `serving.vod_recommendation` | 추천 결과 캐시 — 유저 기반(CF/Visual) + 콘텐츠 기반(VOD→VOD) (TTL 7일) |
 | `serving.mv_vod_watch_stats` | VOD별 시청 통계 MV |
 | `serving.mv_age_grp_vod_stats` | 연령대별 선호 VOD MV |
 | `serving.mv_daily_watch_stats` | 일별 시청 통계 MV |
+| `serving.shopping_ad` | 쇼핑 광고 팝업 서빙 (비정규화, TTL 30일) |
+| `serving.popular_recommendation` | 장르별 인기 추천 Top-N (글로벌, TTL 7일) |
+| `serving.hybrid_recommendation` | 설명 가능한 최종 추천 — CF+Vector 리랭킹 (TTL 7일) |
+| `serving.tag_recommendation` | 유저 선호 태그별 VOD 추천 선반 — top 5 태그 × top 10 VOD (TTL 7일) |
 
 ## 인터페이스
 

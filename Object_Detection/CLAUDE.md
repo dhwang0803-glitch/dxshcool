@@ -4,21 +4,49 @@
 
 ## 모듈 역할
 
-**YOLOv8 기반 VOD 배치 사물인식** — VOD 영상 프레임을 로컬에서 일괄 추론하여
-`vod_detected_object.parquet`을 생성한다. Shopping_Ad가 이 파일을 소비한다.
+**VOD 음식/관광지 2종 인식 + 지역명 추출** — 여행·먹방 VOD 트레일러를 로컬에서 분석하여
+음식/관광지 카테고리 + 지역명을 추출한다. Shopping_Ad가 이 산출물을 소비한다.
 
 > ⚠️ **로컬 전용 파이프라인**: VPC 인프라 제약(1 core / 1GB RAM)으로 모든 연산은 로컬에서 수행.
-> VPC에는 `public.detected_objects` 테이블만 적재 예정 (스키마 Database_Design과 협의 후 확정).
+> VPC에는 `detected_object_yolo`, `detected_object_clip`, `detected_object_stt` 3개 테이블에 적재.
+
+### 광고 전략 (2026-03-19 확정)
+
+| 인식 카테고리 | 광고 액션 | 예시 |
+|-------------|----------|------|
+| **관광지/지역** | 지자체 광고 팝업 (관광·축제) | "진주" 인식 → 진주 등불축제 광고 |
+| **음식** | 제철장터 채널 상품 연계 (채널 이동/시청예약) | "삼겹살" 인식 → 제철장터 한우 상품 |
+
+> **대상 VOD**: `genre_detail IN ('여행', '음식_먹방')` — 2,958건 (트레일러 매칭 1,479건)
+> **홈쇼핑 매칭 폐기** — 기획의도: 홈쇼핑 과몰입 수익구조 다각화 → 지역성 연계
 
 ### 데이터 플로우
 
 ```
-VOD 영상 파일
+VOD 트레일러 (여행/음식_먹방 1,479건, 로컬)
     → 프레임 추출 (N fps 샘플링, frame_extractor.py)
-    → YOLOv8 배치 추론 (로컬 GPU/CPU, detector.py)
-    → 신뢰도 필터링 (>= 0.5)
-    → vod_detected_object.parquet 저장 (로컬)
-    → Shopping_Ad가 parquet 소비 → serving.shopping_ad 적재
+    → YOLOv11 배치 추론 (로컬 GPU/CPU, detector.py) — 음식 탐지
+    → CLIP zero-shot 개념 태깅 (clip_scorer.py) — 음식/관광지 장면 분류
+    → Whisper STT 키워드 추출 (stt_scorer.py) — 지역명 + 음식명
+    → OCR 자막 인식 (ocr_scorer.py) — 지역명/음식명 보완
+    → VOD 단위 카테고리 태깅 (음식/관광지 + 지역명)
+    → parquet 저장 (로컬)
+    → Shopping_Ad가 소비:
+        음식 → 제철장터 상품 매칭
+        관광지/지역 → 지자체 광고 소재 매칭
+```
+
+### UI 서빙 아키텍처
+
+```
+[사전 배치 처리 — 1회]
+트레일러 로컬 분석 → VOD별 ad_category + region 태깅 → DB 적재
+
+[실시간 서빙]
+UI 영상 재생
+  → API_Server: VOD의 ad_category/region 조회
+  → 음식 카테고리 → "제철장터에서 OO 판매중" 팝업 (채널 이동/시청예약)
+  → 관광지 카테고리 → "OO 지역 축제 안내" 팝업 (지자체 광고)
 ```
 
 ### 산출물 스키마 (parquet)
@@ -27,7 +55,7 @@ VOD 영상 파일
 |------|------|------|
 | `vod_id` | str | VOD 식별자 (`full_asset_id`) |
 | `frame_ts` | float | 프레임 타임스탬프 (초) |
-| `label` | str | YOLO 클래스명 (COCO 80종) |
+| `label` | str | YOLO 클래스명 (파인튜닝 후: 한식 71종+) |
 | `confidence` | float | 신뢰도 (0.0~1.0, 필터 기준 0.5) |
 | `bbox` | list[float] | [x1, y1, x2, y2] (픽셀 절대좌표) |
 
@@ -115,6 +143,8 @@ python scripts/batch_detect.py --status   # 진행 상황 확인
 python scripts/batch_detect.py --dry-run --limit 5  # 테스트
 ```
 
+> ⚠️ **처리 대상**: `genre_detail IN ('여행', '음식_먹방')` — 2,958건 (트레일러 매칭 1,479건).
+
 ---
 
 ## 인터페이스
@@ -127,25 +157,34 @@ python scripts/batch_detect.py --dry-run --limit 5  # 테스트
 | 소스 | 컬럼/항목 | 타입 | 용도 |
 |------|----------|------|------|
 | 로컬 VOD 영상 파일 | `vod_id`, `file_path` | str | 추론 입력 |
-| `public.vod` | `full_asset_id` | VARCHAR(64) | VOD 식별자 매핑 (선택) |
+| `public.vod` | `full_asset_id` | VARCHAR(64) | VOD 식별자 매핑 |
+| `public.vod` | `youtube_video_id` | VARCHAR(20) | 트레일러 다운로드 |
+| `public.vod` | `duration_sec` | REAL | 영상 길이 (초) |
+| `public.vod` | `trailer_processed` | BOOLEAN | 미처리 VOD 필터 (FALSE/NULL) |
 
 ### 다운스트림 (쓰기)
 
 | 대상 | 컬럼 | 타입 | 비고 |
 |------|------|------|------|
 | `data/vod_detected_object.parquet` (로컬) | `vod_id`, `frame_ts`, `label`, `confidence`, `bbox` | str/float/str/float/list | Shopping_Ad 소비 |
-| `public.detected_objects` (VPC — 예정) | *(스키마 미확정)* | - | Database_Design과 협의 후 확정 |
-
-> `public.detected_objects` VPC 적재는 Database_Design 브랜치에서 스키마 확정 후 진행.
-> 현재 단계는 로컬 parquet 출력만 구현.
+| `data/vod_clip_concept.parquet` (로컬) | `vod_id`, `frame_ts`, `concept`, `clip_score`, `ad_category`, `context_valid` | str/float/str/float/str/bool | Shopping_Ad 소비 |
+| `data/vod_stt_concept.parquet` (로컬) | `vod_id`, `start_ts`, `end_ts`, `transcript`, `keyword`, `ad_category`, `ad_hints` | str/float/float/str/str/str/list | Shopping_Ad 소비 |
+| `public.detected_object_yolo` | `vod_id_fk`, `frame_ts`, `label`, `confidence`, `bbox` | VARCHAR(64)/REAL/VARCHAR(64)/REAL/REAL[] | YOLO bbox 탐지 (ON CONFLICT 미적용, write-once) |
+| `public.detected_object_clip` | `vod_id_fk`, `frame_ts`, `concept`, `clip_score`, `ad_category`, `context_valid`, `context_reason` | VARCHAR(64)/REAL/VARCHAR(200)/REAL/VARCHAR(32)/BOOLEAN/TEXT | CLIP 개념 태깅 |
+| `public.detected_object_stt` | `vod_id_fk`, `start_ts`, `end_ts`, `transcript`, `keyword`, `ad_category`, `ad_hints` | VARCHAR(64)/REAL/REAL/TEXT/VARCHAR(100)/VARCHAR(32)/TEXT | STT 키워드 추출 |
+| `public.vod` | `trailer_processed` | BOOLEAN | 처리 완료 시 TRUE 갱신 |
 
 ---
 
 ## ⚠️ 알려진 이슈 / 현황
 
-- `public.detected_objects` 테이블 스키마 미확정 — Database_Design 담당자와 협의 필요
-- DB 직접 적재 전 parquet → DB 적재 스크립트 (`scripts/ingest_to_db.py`) 별도 구현 예정
+- DB 적재 스크립트 (`scripts/ingest_to_db.py`) 별도 구현 예정 — 스키마 확정 완료 (detected_object_yolo/clip/stt)
 - 모델 파일 (.pt) git 커밋 금지 → `.gitignore`에 등록됨
+- Phase 5 파인튜닝 — Colab A100에서 TS.z01 파일럿 학습 진행 중 (70클래스, train 20,877장)
+  - `phase5_pilot_train.ipynb`: 파일럿 전용 노트북 (data.yaml 자동 복구 포함)
+  - mAP@0.5 ≥ 0.60 합격 시 전체 데이터 학습, 미달 시 z02+ 추가
+- Colab 로컬 디스크 ~80GB 한계 — TS.z02(107GB) 해제 시 Drive 직접 압축 해제 방식 사용 (`phase5_ts_drive_preprocess.ipynb`)
+- YAML 확장 완료 (PR #47): stt_keywords 28→156, clip_queries 121→172, keyword_mapper 한국어 조사 버그 수정
 
 ---
 

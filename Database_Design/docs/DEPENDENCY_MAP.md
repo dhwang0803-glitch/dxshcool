@@ -19,17 +19,25 @@
 | `public.vod_embedding` | `VOD_Embedding` | `User_Embedding`(읽기), `Vector_Search`(읽기), `CF_Engine`(읽기) |
 | `public.vod_meta_embedding` | `VOD_Embedding` | `User_Embedding`(읽기), `Vector_Search`(읽기) |
 | `public.user_embedding` | `User_Embedding` | `CF_Engine`(읽기), `Vector_Search`(읽기) |
-| `public.detected_objects` | `Object_Detection` | `Shopping_Ad`(읽기) |
-| `public.tv_schedule` | *(외부 EPG 적재)* | `Shopping_Ad`(읽기) |
+| `public.detected_object_yolo` | `Object_Detection` | `Shopping_Ad`(읽기) |
+| `public.detected_object_clip` | `Object_Detection` | `Shopping_Ad`(읽기) |
+| `public.detected_object_stt` | `Object_Detection` | `Shopping_Ad`(읽기) |
+| `public.seasonal_market` | `Shopping_Ad` | `Shopping_Ad`(읽기) |
+| `public.vod_tag` | `Database_Design`(초기 적재) | `Hybrid_Layer`(읽기) |
+| `public.user_preference` | `Hybrid_Layer` | `Hybrid_Layer`(읽기), `API_Server`(읽기) |
 
 ### Gold 계층 (serving 스키마)
 
 | 테이블/MV | 생산 브랜치 | 소비 브랜치 |
 |-----------|------------|------------|
-| `serving.vod_recommendation` | `CF_Engine`, `Vector_Search` | `API_Server`(읽기) |
+| `serving.vod_recommendation` | `CF_Engine`, `Vector_Search` | `Hybrid_Layer`(읽기), `API_Server`(읽기) |
 | `serving.mv_vod_watch_stats` | `Database_Design`(cron REFRESH) | `API_Server`(읽기) |
 | `serving.mv_age_grp_vod_stats` | `Database_Design`(cron REFRESH) | `API_Server`(읽기) |
 | `serving.mv_daily_watch_stats` | `Database_Design`(cron REFRESH) | `API_Server`(읽기) |
+| `serving.shopping_ad` | `Shopping_Ad` | `API_Server`(읽기) |
+| `serving.popular_recommendation` | `CF_Engine`, `Vector_Search` | `API_Server`(읽기) |
+| `serving.hybrid_recommendation` | `Hybrid_Layer` | `API_Server`(읽기) |
+| `serving.tag_recommendation` | `Hybrid_Layer` | `API_Server`(읽기) |
 
 ---
 
@@ -95,6 +103,7 @@
 | 읽기 | `public.user_embedding` | `user_id_fk`, `embedding` | VARCHAR/VECTOR(896) | ALS 초기값 |
 | 읽기 | `public.watch_history` | `user_id_fk`, `vod_id_fk`, `satisfaction` | - | 행렬 분해 입력 |
 | 쓰기 | `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | - | `'COLLABORATIVE'` |
+| 쓰기 | `serving.popular_recommendation` | `genre`, `rank`, `vod_id_fk`, `score`, `recommendation_type` | VARCHAR(64)/SMALLINT/VARCHAR(64)/REAL/VARCHAR(32) | `'POPULAR'` 장르별 Top-N |
 
 ### Vector_Search *(미구현)*
 
@@ -103,27 +112,47 @@
 | 읽기 | `public.vod_embedding` | `vod_id_fk`, `embedding` | VECTOR(512) | 콘텐츠 유사도 검색 |
 | 읽기 | `public.vod_meta_embedding` | `vod_id_fk`, `embedding` | VECTOR(384) | |
 | 읽기 | `public.user_embedding` | `user_id_fk`, `embedding` | VECTOR(896) | 개인화 검색 |
-| 쓰기 | `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | - | `'VISUAL_SIMILARITY'` |
+| 쓰기 | `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | - | 유저 기반: `'VISUAL_SIMILARITY'` |
+| 쓰기 | `serving.vod_recommendation` | `source_vod_id`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | VARCHAR(64)/VARCHAR(64)/SMALLINT/REAL/VARCHAR(32) | 콘텐츠 기반: `'CONTENT_BASED'` |
+| 쓰기 | `serving.popular_recommendation` | `genre`, `rank`, `vod_id_fk`, `score`, `recommendation_type` | VARCHAR(64)/SMALLINT/VARCHAR(64)/REAL/VARCHAR(32) | `'POPULAR'` 장르별 Top-N |
+
+### Hybrid_Layer
+
+| 방향 | 테이블 | 컬럼 | 타입 | 비고 |
+|------|--------|------|------|------|
+| 읽기 | `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `score`, `recommendation_type` | - | CF top 20 + Vector top 20 후보 |
+| 읽기 | `public.vod_tag` | `vod_id_fk`, `tag_category`, `tag_value`, `confidence` | VARCHAR/VARCHAR/VARCHAR/REAL | 후보 VOD 태그 조회 |
+| 읽기 | `public.user_preference` | `user_id_fk`, `tag_category`, `tag_value`, `affinity` | VARCHAR/VARCHAR/VARCHAR/REAL | 유저 선호 태그 조회 |
+| 읽기 | `public.watch_history` | `user_id_fk`, `vod_id_fk`, `completion_rate` | - | user_preference 집계 입력 |
+| 쓰기 | `public.user_preference` | `user_id_fk`, `tag_category`, `tag_value`, `affinity`, `watch_count`, `avg_completion` | - | ON CONFLICT UPSERT |
+| 쓰기 | `serving.hybrid_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `explanation_tags`, `source_engines` | - | 최종 설명 가능 추천 |
+| 쓰기 | `serving.tag_recommendation` | `user_id_fk`, `tag_category`, `tag_value`, `tag_rank`, `tag_affinity`, `vod_id_fk`, `vod_rank`, `vod_score` | - | 선호 태그별 VOD 선반 (top 5 × top 10) |
 
 ### Object_Detection
 
 | 방향 | 테이블/파일 | 컬럼 | 타입 | 비고 |
 |------|------------|------|------|------|
 | 읽기 | 로컬 VOD 영상 파일 | `file_path`, `vod_id` | str | 추론 입력 |
-| 읽기 | `public.vod` | `full_asset_id` | VARCHAR(64) | VOD 식별자 매핑 (선택) |
-| 쓰기 | `data/vod_detected_object.parquet` (로컬) | `vod_id` | str | Shopping_Ad 소비 |
-| 쓰기 | `data/vod_detected_object.parquet` (로컬) | `frame_ts` | float | 프레임 타임스탬프(초) |
-| 쓰기 | `data/vod_detected_object.parquet` (로컬) | `label` | str | YOLO COCO 클래스명 |
-| 쓰기 | `data/vod_detected_object.parquet` (로컬) | `confidence` | float | 0.5 이상만 저장 |
-| 쓰기 | `data/vod_detected_object.parquet` (로컬) | `bbox` | list[float] | [x1,y1,x2,y2] 픽셀 좌표 |
-| 쓰기 | `public.detected_objects` (VPC — 예정) | *(스키마 미확정)* | - | Database_Design과 협의 후 확정 |
+| 읽기 | `public.vod` | `full_asset_id`, `youtube_video_id`, `duration_sec`, `trailer_processed` | VARCHAR(64)/VARCHAR(20)/REAL/BOOLEAN | VOD 식별 + 트레일러 상태 |
+| 쓰기 | `data/vod_detected_object.parquet` (로컬) | `vod_id`, `frame_ts`, `label`, `confidence`, `bbox` | str/float/str/float/list | Shopping_Ad 소비 |
+| 쓰기 | `data/vod_clip_concept.parquet` (로컬) | `vod_id`, `frame_ts`, `concept`, `clip_score`, `ad_category`, `context_valid` | str/float/str/float/str/bool | Shopping_Ad 소비 |
+| 쓰기 | `data/vod_stt_concept.parquet` (로컬) | `vod_id`, `start_ts`, `end_ts`, `transcript`, `keyword`, `ad_category`, `ad_hints` | str/float/float/str/str/str/list | Shopping_Ad 소비 |
+| 쓰기 | `public.detected_object_yolo` | `vod_id_fk`, `frame_ts`, `label`, `confidence`, `bbox` | VARCHAR(64)/REAL/VARCHAR(64)/REAL/REAL[] | YOLO bbox 탐지 결과 |
+| 쓰기 | `public.detected_object_clip` | `vod_id_fk`, `frame_ts`, `concept`, `clip_score`, `ad_category`, `context_valid`, `context_reason` | VARCHAR(64)/REAL/VARCHAR(200)/REAL/VARCHAR(32)/BOOLEAN/TEXT | CLIP 개념 태깅 |
+| 쓰기 | `public.detected_object_stt` | `vod_id_fk`, `start_ts`, `end_ts`, `transcript`, `keyword`, `ad_category`, `ad_hints` | VARCHAR(64)/REAL/REAL/TEXT/VARCHAR(100)/VARCHAR(32)/TEXT | STT 키워드 추출 |
+| 쓰기 | `public.vod` | `trailer_processed` | BOOLEAN | 처리 완료 시 TRUE 갱신 |
 
-### Shopping_Ad *(미구현)*
+### Shopping_Ad
 
 | 방향 | 테이블 | 컬럼 | 타입 | 비고 |
 |------|--------|------|------|------|
-| 읽기 | `public.detected_objects` | *(스키마 미확정)* | - | |
-| 읽기 | `public.tv_schedule` | *(스키마 미확정)* | - | |
+| 읽기 | `public.detected_object_yolo` | `vod_id_fk`, `frame_ts`, `label`, `confidence`, `bbox` | VARCHAR(64)/REAL/VARCHAR(64)/REAL/REAL[] | YOLO 탐지 결과 |
+| 읽기 | `public.detected_object_clip` | `vod_id_fk`, `frame_ts`, `concept`, `clip_score`, `ad_category`, `context_valid` | VARCHAR(64)/REAL/VARCHAR(200)/REAL/VARCHAR(32)/BOOLEAN | CLIP 개념 태깅 |
+| 읽기 | `public.detected_object_stt` | `vod_id_fk`, `start_ts`, `end_ts`, `keyword`, `ad_category`, `ad_hints` | VARCHAR(64)/REAL/REAL/VARCHAR(100)/VARCHAR(32)/TEXT | STT 키워드 |
+| 읽기 | `public.vod` | `full_asset_id`, `asset_nm` | VARCHAR(64)/VARCHAR(255) | VOD 메타데이터 |
+| 읽기 | `public.seasonal_market` | `product_name`, `broadcast_date`, `start_time`, `end_time`, `channel` | VARCHAR(200)/DATE/TIME/TIME/VARCHAR(32) | 제철장터 편성 매칭 |
+| 쓰기 | `public.seasonal_market` | `product_name`, `broadcast_date`, `start_time`, `end_time`, `channel` | 각종 | 제철장터 편성 크롤링 적재 |
+| 쓰기 | `serving.shopping_ad` | `vod_id_fk`, `ts_start`, `ts_end`, `ad_category`, `signal_source`, `score`, `ad_hints`, `ad_action_type`, `ad_image_url`, `product_name`, `channel` | 각종 | 광고 서빙 (지자체 팝업 + 제철장터 연계) |
 
 ### API_Server
 

@@ -5,7 +5,7 @@ TDD Red 단계: 구현 전 먼저 작성
 테스트 대상:
   - src/context_filter.py  (ContextFilter)
   - clip_scorer.to_records() 에 ad_category 컬럼 추가
-  - clip_queries.yaml 구조 검증
+  - clip_queries_ko.yaml 구조 검증
 """
 import pytest
 import sys
@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-CONFIG_PATH = Path(__file__).parent.parent / "config" / "clip_queries.yaml"
+CONFIG_PATH = Path(__file__).parent.parent / "config" / "clip_queries_ko.yaml"
 
 
 # ─────────────────────────────────────────
@@ -203,3 +203,32 @@ def test_P3_11_validate_returns_required_keys():
     )
     assert "context_valid" in result
     assert "context_reason" in result
+
+
+def test_P3_12_global_negative_blocks_non_food():
+    """Brand Safety(애니/재난)는 홈쇼핑 등 비음식 카테고리도 차단"""
+    from context_filter import ContextFilter
+    cf = ContextFilter()
+    result = cf.validate(
+        yolo_labels=set(),
+        clip_scores={"만화 애니메이션 캐릭터 음식": 0.35, "가전제품 전자기기 TV": 0.28},
+        ad_category="홈쇼핑",
+    )
+    assert result["context_valid"] is False
+    assert "brand_safety" in result["context_reason"]
+
+
+def test_P3_13_secondary_negative_check():
+    """top-1이 아닌 negative 쿼리도 cutoff 이상이면 차단"""
+    from context_filter import ContextFilter
+    cf = ContextFilter()
+    result = cf.validate(
+        yolo_labels=set(),
+        clip_scores={
+            "굴비 먹는 식사 장면": 0.28,   # top-1 (positive)
+            "낚시 낚싯대 강 물가": 0.23,   # 2nd (negative, cutoff 0.22 이상)
+        },
+        ad_category="지방특산물",
+    )
+    assert result["context_valid"] is False
+    assert "secondary" in result["context_reason"]

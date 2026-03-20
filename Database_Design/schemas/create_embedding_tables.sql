@@ -13,8 +13,9 @@
 --   외부 벡터 DB 없음 → 단일 PostgreSQL로 운영
 --
 -- 인덱스 설계:
---   vod_embedding  IVF_FLAT lists=100  → sqrt(10,000 VOD)
---   user_embedding IVF_FLAT lists=500  → sqrt(242,702 user) ≈ 493 → 500
+--   vod_embedding       IVF_FLAT lists=400  → sqrt(146,390 VOD) ≈ 383 → 400
+--   vod_meta_embedding  IVF_FLAT lists=400  → sqrt(166,159 VOD) ≈ 408 → 400
+--   user_embedding      IVF_FLAT lists=500  → sqrt(225,259 user) ≈ 475 → 500
 --   probes=10  → 검색 정확도 ~95%
 --
 -- 실행 전제: create_tables.sql, create_indexes.sql 완료 후 실행
@@ -92,14 +93,14 @@ CREATE TABLE vod_embedding (
 
 -- =============================================================
 -- 벡터 유사도 검색 인덱스 (IVF_FLAT, 코사인 유사도)
--- lists = 100 : sqrt(10,000) — 최대 10K VOD 기준 최적값
--- 검색 시: SET ivfflat.probes = 10; (10% 탐색, 정확도~95%)
+-- lists = 400 : sqrt(146,390 VOD) ≈ 383 → 400
+-- 검색 시: SET ivfflat.probes = 10; (정확도~95%)
 -- 주의: 데이터 INSERT 완료 후 생성해야 인덱스 품질이 좋음
 -- =============================================================
 CREATE INDEX idx_vod_emb_ivfflat
     ON vod_embedding
     USING ivfflat (embedding vector_cosine_ops)
-    WITH (lists = 100);
+    WITH (lists = 400);
 
 -- 보조 인덱스
 CREATE INDEX idx_vod_emb_type    ON vod_embedding (embedding_type);
@@ -249,17 +250,19 @@ CREATE SCHEMA IF NOT EXISTS serving;
 
 CREATE TABLE serving.vod_recommendation (
     recommendation_id   BIGINT          GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    user_id_fk          VARCHAR(64)     NOT NULL,
+    user_id_fk          VARCHAR(64),                -- 유저 기반 추천 시 사용. 콘텐츠 기반은 NULL.
     vod_id_fk           VARCHAR(64)     NOT NULL,
+    source_vod_id       VARCHAR(64),                -- 콘텐츠 기반 추천 시 기준 VOD. 유저 기반은 NULL.
 
     -- 추천 순위 및 점수
-    rank                SMALLINT        NOT NULL,   -- 해당 사용자에게 몇 번째 추천인지
+    rank                SMALLINT        NOT NULL,   -- 몇 번째 추천인지
     score               REAL            NOT NULL,   -- 코사인 유사도 (0~1)
 
     -- 추천 방식
     recommendation_type VARCHAR(32)     NOT NULL DEFAULT 'VISUAL_SIMILARITY',
-    -- VISUAL_SIMILARITY : CLIP 임베딩 코사인 유사도 기반
-    -- COLLABORATIVE     : 협업 필터링 (행렬분해)
+    -- VISUAL_SIMILARITY : CLIP 임베딩 코사인 유사도 기반 (유저 기반)
+    -- COLLABORATIVE     : 협업 필터링 / 행렬분해 (유저 기반)
+    -- CONTENT_BASED     : VOD→VOD 콘텐츠 유사도 (콘텐츠 기반)
     -- HYBRID            : 복합
 
     -- TTL 관리
@@ -271,28 +274,49 @@ CREATE TABLE serving.vod_recommendation (
         FOREIGN KEY (user_id_fk) REFERENCES public."user"(sha2_hash) ON DELETE CASCADE,
     CONSTRAINT fk_vod_rec_vod
         FOREIGN KEY (vod_id_fk) REFERENCES public.vod(full_asset_id) ON DELETE CASCADE,
-    CONSTRAINT uq_vod_rec_user_vod
-        UNIQUE (user_id_fk, vod_id_fk),
+    CONSTRAINT fk_vod_rec_source_vod
+        FOREIGN KEY (source_vod_id) REFERENCES public.vod(full_asset_id) ON DELETE CASCADE,
+    CONSTRAINT chk_rec_user_or_source
+        CHECK (user_id_fk IS NOT NULL OR source_vod_id IS NOT NULL),
     CONSTRAINT chk_rec_score
         CHECK (score >= 0 AND score <= 1),
     CONSTRAINT chk_rec_rank
         CHECK (rank >= 1),
     CONSTRAINT chk_rec_type
-        CHECK (recommendation_type IN ('VISUAL_SIMILARITY', 'COLLABORATIVE', 'HYBRID'))
+        CHECK (recommendation_type IN ('VISUAL_SIMILARITY', 'COLLABORATIVE', 'HYBRID', 'CONTENT_BASED'))
 );
 
--- 인덱스
--- 커버링 인덱스: API 반환 컬럼(vod_id_fk, score, recommendation_type, expires_at)을
--- INCLUDE에 포함 → heap fetch 없이 인덱스만으로 쿼리 완결
+-- Partial Unique 인덱스: 유저 기반 / 콘텐츠 기반 분리
+-- PostgreSQL NULL != NULL이므로 단일 UNIQUE로 양쪽 커버 불가 → partial index 사용
+CREATE UNIQUE INDEX uq_vod_rec_user_vod
+    ON serving.vod_recommendation (user_id_fk, vod_id_fk)
+    WHERE user_id_fk IS NOT NULL;
+
+CREATE UNIQUE INDEX uq_vod_rec_source_vod
+    ON serving.vod_recommendation (source_vod_id, vod_id_fk)
+    WHERE source_vod_id IS NOT NULL;
+
+-- 커버링 인덱스 (유저 기반)
 -- 패턴: WHERE user_id_fk = $1 ORDER BY rank LIMIT N
 CREATE INDEX idx_vod_rec_user_covering
     ON serving.vod_recommendation (user_id_fk, rank)
-    INCLUDE (vod_id_fk, score, recommendation_type, expires_at);
+    INCLUDE (vod_id_fk, score, recommendation_type, source_vod_id, expires_at)
+    WHERE user_id_fk IS NOT NULL;
+
+-- 커버링 인덱스 (콘텐츠 기반)
+-- 패턴: WHERE source_vod_id = $1 ORDER BY rank LIMIT N
+CREATE INDEX idx_vod_rec_source_covering
+    ON serving.vod_recommendation (source_vod_id, rank)
+    INCLUDE (vod_id_fk, score, recommendation_type, expires_at)
+    WHERE source_vod_id IS NOT NULL;
+
 CREATE INDEX idx_vod_rec_expires ON serving.vod_recommendation (expires_at);  -- TTL 만료 삭제용
 
 -- 코멘트
 COMMENT ON TABLE serving.vod_recommendation IS
-    '[Gold/Serving] 사용자별 추천 결과 캐시. 추천 엔진이 로컬에서 계산 후 결과만 저장. TTL 7일.';
+    '[Gold/Serving] 추천 결과 캐시. 유저 기반(CF/Visual) + 콘텐츠 기반(VOD→VOD) 모두 저장. TTL 7일.';
+COMMENT ON COLUMN serving.vod_recommendation.source_vod_id IS
+    '콘텐츠 기반 추천 시 기준 VOD. 유저 기반 추천에서는 NULL.';
 COMMENT ON COLUMN serving.vod_recommendation.expires_at IS
     'TTL 만료 시각. db_maintenance.py 자정 실행 시 만료된 레코드 삭제.';
 

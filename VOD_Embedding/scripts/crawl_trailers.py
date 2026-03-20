@@ -137,6 +137,13 @@ def normalize_title(name: str) -> str:
     """숫자↔한글 경계에 공백 삽입 (검색 정확도 향상)"""
     name = _re.sub(r'(\d)([가-힣])', r'\1 \2', name)
     name = _re.sub(r'([가-힣])(\d)', r'\1 \2', name)
+    # 영문↔한글 경계에 공백 삽입
+    name = _re.sub(r'([A-Za-z])([가-힣])', r'\1 \2', name)
+    name = _re.sub(r'([가-힣])([A-Za-z])', r'\1 \2', name)
+    # 하이픈(-) → 공백
+    name = _re.sub(r'\s*-\s*', ' ', name)
+    # 연속 공백 → 단일 공백
+    name = _re.sub(r' {2,}', ' ', name)
     return name.strip()
 
 
