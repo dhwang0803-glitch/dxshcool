@@ -1,3 +1,6 @@
+> ⚠️ **OUTDATED (2026-03-19)**: 홈쇼핑 전략 → 제철장터+지자체 2종으로 전략 변경됨.
+> 현재: Visit Korea 축제 크롤링 + region 매칭 방식으로 전환.
+
 # PLAN_01 — Shopping_Ad 파이프라인 구현
 
 - **브랜치**: Shopping_Ad
