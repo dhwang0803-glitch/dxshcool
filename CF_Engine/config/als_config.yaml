@@ -5,7 +5,7 @@ model:
   alpha: 40
 
 recommend:
-  top_k: 10
+  top_k: 20
   # DB CHECK 제약 허용값: 'VISUAL_SIMILARITY' | 'COLLABORATIVE' | 'HYBRID'
   # (Database_Design/schemas/create_embedding_tables.sql chk_rec_type 참조)
   recommendation_type: "COLLABORATIVE"
@@ -13,7 +13,3 @@ recommend:
 db:
   batch_size: 1000
 
-content_boost:
-  enabled: true
-  # 동일 감독 or 동일 배우를 min_count편 이상 시청한 유저에게만 적용
-  min_count: 3

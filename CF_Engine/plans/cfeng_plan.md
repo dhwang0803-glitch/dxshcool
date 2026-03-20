@@ -64,7 +64,7 @@ watch_history 테이블 로드
 | iterations | 20 |
 | regularization | 0.01 |
 | alpha | 40 |
-| top_k | 10 |
+| top_k | 20 |
 | recommendation_type | `"COLLABORATIVE"` |
 | batch_size | 1,000 |
 
@@ -110,7 +110,7 @@ watch_history 테이블 로드
 | # | 작업 | 상태 |
 |---|------|------|
 | Step 3 | score_cutoff_analysis --users 5000 재실행 (전체 기준 k 지점 확정) | ✅ 완료 (2026-03-18) |
-| Step 5 | 배우/감독 기반 추천 (`src/content_recommender.py`) | ✅ 완료 (2026-03-18) |
+| Step 5 | 배우/감독 기반 추천 (`src/content_recommender.py`) | ❌ 폐기 (2026-03-20) — ROADMAP 기준 Hybrid_Layer로 이관 |
 | Step 6 | 추천 결과 적절성·정확도 평가 스크립트 작성 + 리포트 | 🔲 예정 |
 
 ### Step 3 결과 — 5000명 샘플 (2026-03-18 확정, 품질 필터 ON)
@@ -128,38 +128,78 @@ watch_history 테이블 로드
 > **폴백 전략 확정**: 1~2위 고품질 필터 ON + 3~10위 저품질 인기 VOD 폴백
 > 리포트: `docs/score_cutoff_report_20260318_151010.md`
 
+### Step 7 — ROADMAP 변경사항 반영 (2026-03-20 확인)
+
+#### 배경
+
+`docs/ROADMAP.md` + PR #56 (Hybrid_Layer 설계) 병합 이후 CF_Engine에 수정이 필요한 항목이 확인됨.
+
+#### 수정 필요 항목
+
+| # | 항목 | 내용 | 우선순위 | 상태 |
+|---|------|------|----------|------|
+| 1 | **content_boost(Step 5) 폐기** | ROADMAP 기준 Hybrid_Layer로 이관. 코드 제거 완료 | ★★★ 높음 | ✅ 완료 (2026-03-20) |
+| 2 | **top_k 10 → 20** | Hybrid_Layer가 "CF top 20 + Vector top 20" 기대. 현재 top_k=10이라 후보 부족 | ★★★ 높음 | ✅ 완료 (2026-03-20) |
+| 3 | **CLAUDE.md / cfeng_plan.md 서빙 구조 업데이트** | CF_Engine은 최종 서빙 엔진이 아닌 Hybrid_Layer의 입력 후보 생산자로 변경 | ★★ 중간 | ✅ 완료 (2026-03-20) |
+| 4 | **serving.vod_recommendation UNIQUE 제약 이슈** | 현재 UNIQUE(user_id_fk, vod_id_fk) — recommendation_type 미포함. CF/Vector 공존 불가 → Hybrid_Layer가 두 엔진 결과 동시에 읽지 못할 수 있음 | ★★★ 높음 | ❌ 조장(DB) 협의 필요 |
+
+#### 서빙 구조 변경 (Before → After)
+
+```
+# Before (기존)
+CF_Engine → serving.vod_recommendation → API_Server /recommend/{user_id}
+
+# After (Hybrid_Layer 도입 후)
+CF_Engine  → serving.vod_recommendation ─┐
+                                          ├→ Hybrid_Layer 리랭킹 → serving.hybrid_recommendation → API_Server
+Vector_Search → serving.vod_recommendation ─┘
+```
+
+#### 조장 협의 필요 사항
+
+- `serving.vod_recommendation` UNIQUE 제약에 `recommendation_type` 포함 여부
+  - 현재: `UNIQUE(user_id_fk, vod_id_fk)`
+  - 제안: `UNIQUE(user_id_fk, vod_id_fk, recommendation_type)` → CF/Vector 공존 가능
+
+---
+
 ### Step 6 — 추천 결과 적절성·정확도 평가 (예정)
 
 #### 목적
 
-ALS + content_boost 파이프라인이 실제 데이터 기준으로 **얼마나 적절하고 정확한 추천**을 하는지 정량·정성 평가.
+ALS 파이프라인이 실제 데이터 기준으로 **얼마나 적절하고 정확한 추천**을 하는지 정량·정성 평가.
+
+> content_boost(Step 5) 폐기로 관련 평가 항목 제거. ALS 단독 평가로 범위 축소.
 
 #### 평가 항목
 
 | 구분 | 항목 | 방법 |
 |------|------|------|
 | **정확도** | NDCG@K, MRR, HitRate@K | `evaluate.py` 기존 지표 활용 |
-| **content_boost 적절성** | boost된 VOD가 실제로 해당 감독/배우 작품인지 | 샘플 유저 추출 후 검증 |
-| **content_boost 전/후 비교** | boost 적용 전/후 지표 변화 | ALS 단독 vs ALS+boost 비교 |
-| **다양성** | Coverage 변화 | boost 전/후 Coverage 비교 |
+| **다양성** | Coverage | 필터 ON/OFF 비교 |
 | **정성 평가** | 샘플 유저 추천 목록 육안 검증 | 시청 이력 vs 추천 결과 비교 |
 
 #### 구현 파일 (예정)
 
 | 파일 | 내용 |
 |------|------|
-| `scripts/eval_content_boost.py` | content_boost 전/후 지표 비교 + 적절성 검증 |
-| `docs/eval_content_boost_report.md` | 평가 결과 리포트 |
+| `scripts/eval_als.py` | ALS 최종 평가 + 리포트 생성 |
+| `docs/eval_als_report.md` | 평가 결과 리포트 |
 
 #### 실행 방법 (예정)
 
 ```bash
-python scripts/eval_content_boost.py --users 1000 --filter-quality
+python scripts/eval_als.py --users 1000 --filter-quality
 ```
 
 ---
 
-### Step 5 — 배우/감독 기반 추천 후처리 상세 (확정)
+### Step 5 — 배우/감독 기반 추천 후처리 ~~(확정)~~ → ❌ 폐기 (2026-03-20)
+
+> **폐기 사유**: ROADMAP 기준 감독/배우 선호 기반 후처리는 Hybrid_Layer의 `user_preference` × `vod_tag` 리랭킹으로 대체됨.
+> CF_Engine은 순수 ALS 추천 후보 생산에만 집중. `src/content_recommender.py` 및 관련 코드 제거 완료.
+
+~~### Step 5 — 배우/감독 기반 추천 후처리 상세 (확정)~~
 
 - ALS Top-K 결과에 **후처리로 1~2개 추가**하는 방식
 - `recommendation_type`: **COLLABORATIVE 유지** (DB 스키마 변경 없음)
