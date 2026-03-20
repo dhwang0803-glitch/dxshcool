@@ -5,7 +5,7 @@ from datetime import date
 
 import pandas as pd
 
-TARGET_GENRES = ["영화", "드라마", "예능", "애니"]
+TARGET_CT_CL = ["영화", "TV드라마", "TV애니메이션", "TV 연예/오락"]
 
 
 def load_vod_data(conn) -> pd.DataFrame:
@@ -77,42 +77,33 @@ def _minmax_norm(series: pd.Series) -> pd.Series:
     return (series - mn) / (mx - mn)
 
 
-def get_top_n_by_genre(df: pd.DataFrame, top_n: int = 20) -> pd.DataFrame:
+def get_top_n_by_ct_cl(df: pd.DataFrame, top_n: int = 20) -> pd.DataFrame:
     """
-    고정 4개 장르(영화/드라마/예능/애니)별 Top-N VOD 추출.
-    슬래시(/) 구분 다중 장르는 explode로 각 장르에 개별 등록.
+    고정 4개 CT_CL(영화/TV드라마/TV애니메이션/TV 연예/오락)별 Top-N VOD 추출.
+    ct_cl은 단일 값이므로 explode 불필요.
     """
-    exploded = (
-        df.assign(genre=df["genre"].str.split("/"))
-        .explode("genre")
-    )
-    exploded["genre"] = exploded["genre"].str.strip()
-
-    # 고정 4개 장르만 필터
-    exploded = exploded[exploded["genre"].isin(TARGET_GENRES)]
+    filtered = df[df["ct_cl"].isin(TARGET_CT_CL)].copy()
 
     result = (
-        exploded
+        filtered
         .sort_values("score", ascending=False)
-        .groupby("genre", group_keys=False)
+        .groupby("ct_cl", group_keys=False)
         .head(top_n)
     )
     result = result.copy()
-    result["rank"] = result.groupby("genre").cumcount() + 1
+    result["rank"] = result.groupby("ct_cl").cumcount() + 1
     result = result.rename(columns={"full_asset_id": "vod_id_fk"})
 
-    return result[["genre", "vod_id_fk", "rank", "score"]].rename(
-        columns={"genre": "category_value"}
-    )
+    return result[["ct_cl", "vod_id_fk", "rank", "score"]]
 
 
 def build_recommendations(df: pd.DataFrame, top_n: int = 20) -> pd.DataFrame:
     """
-    장르별 Top-N 추천 결과 생성.
-    출력: genre, rank, vod_id_fk, score, recommendation_type
+    CT_CL별 Top-N 추천 결과 생성.
+    출력: ct_cl, rank, vod_id_fk, score, recommendation_type
     """
-    result = get_top_n_by_genre(df, top_n)
+    result = get_top_n_by_ct_cl(df, top_n)
     result = result.copy()
     result["recommendation_type"] = "POPULAR"
 
-    return result[["category_value", "rank", "vod_id_fk", "score", "recommendation_type"]]
+    return result[["ct_cl", "rank", "vod_id_fk", "score", "recommendation_type"]]

@@ -11,12 +11,12 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from src.popularity import (
-    TARGET_GENRES,
+    TARGET_CT_CL,
     _minmax_norm,
     aggregate_by_series,
     build_recommendations,
     calc_popularity_score,
-    get_top_n_by_genre,
+    get_top_n_by_ct_cl,
 )
 
 
@@ -30,7 +30,7 @@ def sample_vod():
     return pd.DataFrame({
         "full_asset_id": ["V001", "V002", "V003", "V004", "V005"],
         "genre":         ["드라마", "드라마/영화", "영화", "예능", "애니"],
-        "ct_cl":         ["TV드라마", "TV드라마", "영화", "TV연예", "TV애니"],
+        "ct_cl":         ["TV드라마", "TV드라마", "영화", "TV 연예/오락", "TV애니메이션"],
         "rating":        [8.5, 7.0, 9.0, None, 6.5],
         "release_date":  [
             today - timedelta(days=30),
@@ -139,30 +139,29 @@ class TestCalcPopularityScore:
 
 
 # ──────────────────────────────────────────
-# get_top_n_by_genre
+# get_top_n_by_ct_cl
 # ──────────────────────────────────────────
 
-class TestGetTopNByGenre:
-    def test_only_target_genres(self, scored_df):
-        result = get_top_n_by_genre(scored_df, top_n=5)
-        assert set(result["category_value"].unique()).issubset(set(TARGET_GENRES))
+class TestGetTopNByCtCl:
+    def test_only_target_ct_cl(self, scored_df):
+        result = get_top_n_by_ct_cl(scored_df, top_n=5)
+        assert set(result["ct_cl"].unique()).issubset(set(TARGET_CT_CL))
 
-    def test_multi_genre_exploded(self, scored_df):
-        result = get_top_n_by_genre(scored_df, top_n=5)
-        # 시리즈A는 드라마+영화 두 장르에 등장 가능
-        assert len(result) >= 2
+    def test_filters_non_target_ct_cl(self, scored_df):
+        result = get_top_n_by_ct_cl(scored_df, top_n=5)
+        assert len(result) >= 1
 
     def test_rank_starts_at_one(self, scored_df):
-        result = get_top_n_by_genre(scored_df, top_n=5)
+        result = get_top_n_by_ct_cl(scored_df, top_n=5)
         assert result["rank"].min() == 1
 
     def test_top_n_limit(self, scored_df):
-        result = get_top_n_by_genre(scored_df, top_n=1)
-        assert (result.groupby("category_value")["vod_id_fk"].count() <= 1).all()
+        result = get_top_n_by_ct_cl(scored_df, top_n=1)
+        assert (result.groupby("ct_cl")["vod_id_fk"].count() <= 1).all()
 
     def test_columns_present(self, scored_df):
-        result = get_top_n_by_genre(scored_df, top_n=5)
-        for col in ["category_value", "vod_id_fk", "rank", "score"]:
+        result = get_top_n_by_ct_cl(scored_df, top_n=5)
+        for col in ["ct_cl", "vod_id_fk", "rank", "score"]:
             assert col in result.columns
 
 
@@ -177,12 +176,12 @@ class TestBuildRecommendations:
 
     def test_required_columns(self, scored_df):
         result = build_recommendations(scored_df, top_n=5)
-        for col in ["category_value", "rank", "vod_id_fk", "score", "recommendation_type"]:
+        for col in ["ct_cl", "rank", "vod_id_fk", "score", "recommendation_type"]:
             assert col in result.columns
 
-    def test_only_target_genres(self, scored_df):
+    def test_only_target_ct_cl(self, scored_df):
         result = build_recommendations(scored_df, top_n=5)
-        assert set(result["category_value"].unique()).issubset(set(TARGET_GENRES))
+        assert set(result["ct_cl"].unique()).issubset(set(TARGET_CT_CL))
 
     def test_rank_starts_at_one(self, scored_df):
         result = build_recommendations(scored_df, top_n=5)

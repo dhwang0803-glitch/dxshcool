@@ -25,7 +25,7 @@ DELETE_SQL = """
 
 INSERT_SQL = """
     INSERT INTO serving.popular_recommendation
-        (genre, rank, vod_id_fk, score, recommendation_type, expires_at)
+        (ct_cl, rank, vod_id_fk, score, recommendation_type, expires_at)
     VALUES (%s, %s, %s, %s, %s, %s)
 """
 
@@ -39,7 +39,7 @@ def export(df: pd.DataFrame, conn=None, dry_run: bool = False) -> None:
 
     rows = [
         (
-            row["category_value"],
+            row["ct_cl"],
             int(row["rank"]),
             row["vod_id_fk"],
             float(row["score"]),

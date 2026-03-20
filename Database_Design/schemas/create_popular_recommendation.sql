@@ -16,7 +16,7 @@
 
 CREATE TABLE serving.popular_recommendation (
     popular_rec_id      BIGINT          GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    genre               VARCHAR(64)     NOT NULL,
+    ct_cl               VARCHAR(64)     NOT NULL,
     rank                SMALLINT        NOT NULL,
     vod_id_fk           VARCHAR(64)     NOT NULL REFERENCES vod(full_asset_id) ON DELETE CASCADE,
     score               REAL            NOT NULL,
@@ -26,15 +26,15 @@ CREATE TABLE serving.popular_recommendation (
     updated_at          TIMESTAMPTZ     DEFAULT NOW(),
     expires_at          TIMESTAMPTZ     DEFAULT NOW() + INTERVAL '7 days',
 
-    CONSTRAINT uq_popular_genre_rank UNIQUE (genre, rank),
+    CONSTRAINT uq_popular_ct_cl_rank UNIQUE (ct_cl, rank),
     CONSTRAINT chk_popular_score     CHECK (score >= 0 AND score <= 1),
     CONSTRAINT chk_popular_rank      CHECK (rank >= 1),
     CONSTRAINT chk_popular_type      CHECK (recommendation_type IN ('POPULAR', 'TRENDING'))
 );
 
--- API 쿼리 패턴: WHERE genre = $1 ORDER BY rank LIMIT N
-CREATE INDEX idx_popular_rec_genre_rank
-    ON serving.popular_recommendation (genre, rank)
+-- API 쿼리 패턴: WHERE ct_cl = $1 ORDER BY rank LIMIT N
+CREATE INDEX idx_popular_rec_ct_cl_rank
+    ON serving.popular_recommendation (ct_cl, rank)
     INCLUDE (vod_id_fk, score, recommendation_type, expires_at);
 
 -- TTL 만료 삭제용
@@ -48,9 +48,9 @@ CREATE TRIGGER trg_popular_rec_updated_at
     EXECUTE FUNCTION update_updated_at_column();
 
 COMMENT ON TABLE serving.popular_recommendation IS
-    '[Gold/Serving] 장르별 인기 추천 결과. 글로벌(비개인화) 랭킹. 주 1회 갱신, TTL 7일.';
-COMMENT ON COLUMN serving.popular_recommendation.genre IS
-    '개별 장르명 (영화, 드라마, 예능 등). 복합장르 VOD는 각 장르에 별도 행으로 저장.';
+    '[Gold/Serving] CT_CL별 인기 추천 결과. 글로벌(비개인화) 랭킹. 주 1회 갱신, TTL 7일.';
+COMMENT ON COLUMN serving.popular_recommendation.ct_cl IS
+    'vod.ct_cl 값 (영화, TV드라마, TV애니메이션, TV 연예/오락 등). 고정 4개 카테고리 기준.';
 COMMENT ON COLUMN serving.popular_recommendation.rank IS
     '장르 내 순위 (1부터 시작)';
 COMMENT ON COLUMN serving.popular_recommendation.vod_id_fk IS
