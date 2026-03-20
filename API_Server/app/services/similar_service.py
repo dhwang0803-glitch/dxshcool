@@ -13,8 +13,9 @@ async def get_similar_vods(asset_id: str, limit: int = 10) -> dict:
                        v.asset_nm AS title, v.genre, v.poster_url
                 FROM serving.vod_recommendation r
                 JOIN public.vod v ON r.vod_id_fk = v.full_asset_id
-                WHERE r.user_id_fk = $1
-                  AND r.recommendation_type = 'VISUAL_SIMILARITY'
+                WHERE r.source_vod_id = $1
+                  AND r.recommendation_type IN ('VISUAL_SIMILARITY', 'CONTENT_BASED')
+                  AND (r.expires_at IS NULL OR r.expires_at > NOW())
                 ORDER BY r.rank
                 LIMIT $2
                 """,

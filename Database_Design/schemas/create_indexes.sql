@@ -69,6 +69,13 @@ CREATE INDEX idx_vod_smry_gin
 CREATE INDEX idx_vod_series_nm
     ON vod (series_nm);
 
+-- 시리즈명 커버링 인덱스 (API_Server 시리즈 상세/홈 섹션 조회 최적화)
+-- series_nm으로 조회 시 full_asset_id, asset_nm, ct_cl, poster_url을
+-- 인덱스 온리 스캔으로 반환 — heap fetch 불필요
+CREATE INDEX idx_vod_series_nm_cover
+    ON vod (series_nm)
+    INCLUDE (full_asset_id, asset_nm, ct_cl, poster_url);
+
 -- poster_url 미수집 대상 조회용 부분 인덱스
 -- Poster_Collection 파이프라인: SELECT DISTINCT series_nm FROM vod WHERE poster_url IS NULL
 CREATE INDEX idx_vod_poster_url_null

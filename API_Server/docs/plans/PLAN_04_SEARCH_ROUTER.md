@@ -32,15 +32,16 @@ SELECT
     v.poster_url
 FROM serving.vod_recommendation r
 JOIN public.vod v ON r.vod_id_fk = v.full_asset_id
-WHERE r.user_id_fk = $1               -- asset_id를 user_id_fk 자리에 저장하는 설계
-  AND r.recommendation_type = 'VISUAL_SIMILARITY'
+WHERE r.source_vod_id = $1             -- 콘텐츠 기반 추천의 기준 VOD (마이그레이션 20260316 반영)
+  AND r.recommendation_type IN ('VISUAL_SIMILARITY', 'CONTENT_BASED')
+  AND (r.expires_at IS NULL OR r.expires_at > NOW())
 ORDER BY r.rank
 LIMIT $2;
 ```
 
-> ⚠️ `serving.vod_recommendation` 스키마 상 `user_id_fk` 컬럼을 기준 VOD asset_id로 사용하는지
-> 또는 별도 컬럼이 필요한지 **Vector_Search 브랜치와 협의 필요**.
-> 협의 결과에 따라 이 쿼리를 수정한다.
+> ✅ **해결 (2026-03-20)**: 마이그레이션 `20260316_add_source_vod_id_to_vod_rec.sql`에서
+> `source_vod_id` 컬럼이 추가됨. 콘텐츠 기반 추천은 `source_vod_id` 기준, 유저 기반은 `user_id_fk` 기준.
+> `user_id_fk`는 NULLABLE로 변경되었고, CHECK 제약으로 둘 중 하나 필수 보장.
 
 ## DB 쿼리 (Fallback — 동일 장르)
 
@@ -78,7 +79,7 @@ class SimilarVodResponse(BaseModel):
 
 ---
 
-## 서비스: `app/services/search_service.py`
+## 서비스: `app/services/similar_service.py`
 
 ```python
 from app.services.db import get_pool
@@ -122,11 +123,11 @@ async def get_similar_vods(asset_id: str, limit: int = 10) -> dict:
 
 ---
 
-## 라우터: `app/routers/search.py`
+## 라우터: `app/routers/similar.py`
 
 ```python
 from fastapi import APIRouter, HTTPException, Query
-from app.services.search_service import get_similar_vods
+from app.services.similar_service import get_similar_vods
 from app.models.recommend import SimilarVodResponse
 
 router = APIRouter()
@@ -167,11 +168,11 @@ curl http://localhost:8000/similar/{asset_id}?limit=5
 
 ---
 
-## Vector_Search 브랜치 협의 사항
+## Vector_Search 브랜치 협의 사항 — ✅ 해결 완료 (2026-03-20)
 
-- `serving.vod_recommendation`에서 유사 콘텐츠 저장 방식 확인 필요
-- `recommendation_type = 'VISUAL_SIMILARITY'` 컬럼값 통일
-- 기준 VOD asset_id 저장 컬럼 확인 (현재는 `user_id_fk` 컬럼 임시 사용 가정)
+- ~~`serving.vod_recommendation`에서 유사 콘텐츠 저장 방식 확인 필요~~ → `source_vod_id` 컬럼 추가됨
+- ~~`recommendation_type = 'VISUAL_SIMILARITY'` 컬럼값 통일~~ → `VISUAL_SIMILARITY` + `CONTENT_BASED` 허용
+- ~~기준 VOD asset_id 저장 컬럼 확인~~ → `source_vod_id` VARCHAR(64) FK → `public.vod(full_asset_id)`
 
 ---
 

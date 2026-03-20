@@ -25,10 +25,11 @@
           serving.vod_recommendation (VISUAL_SIMILARITY) → 유사 콘텐츠 응답
 
 [PLAN_05] /auth/token
-          JWT 발급 (POST) / 검증 Depends
-```
+          JWT 발급 (POST, 만료 없음) / 검증 Depends — 셋톱박스 자동 로그인
 
-> `/ad/popup` (WebSocket) — Shopping_Ad 브랜치 완료 후 PLAN_06으로 추가 예정
+[PLAN_06] /ad/popup (WebSocket) — Shopping_Ad 연동, 지역광고 + 제철장터 팝업
+[PLAN_07] /home, /series, /user, /purchases, /wishlist — 신규 16개 엔드포인트 (구현 완료)
+```
 
 ---
 
@@ -39,7 +40,7 @@
 | PLAN_01 | `app/main.py`, `app/services/db.py`, `config/settings.yaml` | 환경변수 (.env) | FastAPI 앱 + DB 풀 |
 | PLAN_02 | `app/routers/vod.py`, `app/services/vod_service.py`, `app/models/vod.py` | `public.vod` | `VodDetailResponse` JSON |
 | PLAN_03 | `app/routers/recommend.py`, `app/services/recommend_service.py`, `app/models/recommend.py` | `serving.vod_recommendation` | `RecommendResponse` JSON |
-| PLAN_04 | `app/routers/search.py`, `app/services/search_service.py` | `serving.vod_recommendation` | `SimilarVodResponse` JSON |
+| PLAN_04 | `app/routers/similar.py`, `app/services/similar_service.py` | `serving.vod_recommendation` (source_vod_id) | `SimilarVodResponse` JSON |
 | PLAN_05 | `app/routers/auth.py`, `app/models/auth.py` | `public."user"` | JWT access_token |
 
 ---
@@ -65,24 +66,39 @@ API_Server/
 │   ├── routers/
 │   │   ├── vod.py                 ← PLAN_02: GET /vod/{asset_id}
 │   │   ├── recommend.py           ← PLAN_03: GET /recommend/{user_id}
-│   │   ├── search.py              ← PLAN_04: GET /similar/{asset_id}
-│   │   └── auth.py                ← PLAN_05: POST /auth/token
+│   │   ├── similar.py             ← PLAN_04: GET /similar/{asset_id}
+│   │   ├── auth.py                ← PLAN_05: POST /auth/token
+│   │   ├── home.py                ← PLAN_07: GET /home/banner, /home/sections
+│   │   ├── series.py              ← PLAN_07: /series/{series_nm}/* (5개)
+│   │   ├── user.py                ← PLAN_07: /user/me/* (6개)
+│   │   ├── purchase.py            ← PLAN_07: POST /purchases
+│   │   └── wishlist.py            ← PLAN_07: POST/DELETE /wishlist
 │   ├── services/
 │   │   ├── db.py                  ← asyncpg 풀 생성/종료 (PLAN_01)
 │   │   ├── vod_service.py         ← VOD 조회 로직 (PLAN_02)
 │   │   ├── recommend_service.py   ← 추천 조회 로직 (PLAN_03)
-│   │   └── search_service.py      ← 유사 콘텐츠 조회 로직 (PLAN_04)
+│   │   ├── similar_service.py     ← 유사 콘텐츠 조회 로직 (PLAN_04)
+│   │   ├── home_service.py        ← 홈 배너/섹션 (PLAN_07)
+│   │   ├── series_service.py      ← 시리즈 에피소드/진행/구매 (PLAN_07)
+│   │   ├── user_service.py        ← 유저 프로필/내역 (PLAN_07)
+│   │   ├── purchase_service.py    ← 포인트 구매 트랜잭션 (PLAN_07)
+│   │   └── wishlist_service.py    ← 찜 추가/해제 (PLAN_07)
 │   └── models/
 │       ├── vod.py                 ← VodDetailResponse Pydantic 스키마
-│       ├── recommend.py           ← RecommendResponse Pydantic 스키마
-│       └── auth.py                ← TokenRequest / TokenResponse Pydantic 스키마
+│       ├── recommend.py           ← RecommendResponse + SimilarVodResponse Pydantic 스키마
+│       ├── auth.py                ← TokenRequest / TokenResponse Pydantic 스키마
+│       ├── home.py                ← BannerResponse, SectionsResponse
+│       ├── series.py              ← EpisodesResponse, ProgressResponse, PurchaseCheckResponse
+│       ├── user.py                ← UserProfileResponse (coupon 제거), WatchingResponse, PointsResponse 등
+│       ├── purchase.py            ← PurchaseRequest/Response
+│       └── wishlist.py            ← WishlistAddRequest/Response, WishlistRemoveResponse
 ├── tests/
 │   ├── test_vod.py
 │   ├── test_recommend.py
-│   ├── test_search.py
+│   ├── test_similar.py
 │   └── test_auth.py
 ├── config/
-│   └── settings.yaml              ← 포트, CORS 허용 오리진, JWT 만료시간 등
+│   └── settings.yaml              ← 포트, CORS 허용 오리진 등 (JWT 만료 없음)
 └── docs/
     └── plans/
         ├── PLAN_00_MASTER.md      ← 이 파일
@@ -139,13 +155,15 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
 
 ## 진행 체크리스트
 
-- [ ] PLAN_01: `app/main.py` + `app/services/db.py` + `config/settings.yaml`
-- [ ] PLAN_02: `/vod/{asset_id}` 라우터 + 서비스 + Pydantic 모델
-- [ ] PLAN_03: `/recommend/{user_id}` 라우터 + 서비스 + Pydantic 모델
-- [ ] PLAN_04: `/similar/{asset_id}` 라우터 + 서비스
-- [ ] PLAN_05: `/auth/token` 라우터 + JWT 유틸
+- [x] PLAN_01: `app/main.py` + `app/services/db.py` — 완료 (asyncpg 풀)
+- [x] PLAN_02: `/vod/{asset_id}` — 완료 (is_free, release_year 추가)
+- [x] PLAN_03: `/recommend/{user_id}` — 완료 (TTL 필터 추가)
+- [x] PLAN_04: `/similar/{asset_id}` — 완료 (source_vod_id 버그 수정, search→similar 리네임)
+- [x] PLAN_05: `/auth/token` — 완료 (셋톱박스 자동 로그인, 만료 없음)
+- [ ] PLAN_06: `/ad/popup` WebSocket — Shopping_Ad 연동 대기
+- [x] PLAN_07: 신규 16개 엔드포인트 — 전부 구현 완료
 - [ ] pytest 전체 통과
-- [ ] VPC 환경에서 파이럿 테스트
+- [ ] VPC 환경에서 통합 테스트
 
 ---
 
