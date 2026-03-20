@@ -142,7 +142,7 @@ from dotenv import load_dotenv
 | festival_matcher (관광지→축제) | ✅ 완료 | E2E 7/17 매칭 검증 |
 | 제철장터 매칭 (음식→상품) | 🔲 예정 | ad_hints 기반 |
 | serving.shopping_ad 적재 | 🔲 예정 | DB 테이블 생성 대기 (조장) |
-| 생성형 AI 팝업 (축제 없는 지역) | 🔲 예정 | 조장 계획 |
+| 축제 없는 지역 일반 관광 팝업 | 🔲 예정 | 외부 축제 DB 추가 수집 시 확장 |
 
 ---
 
