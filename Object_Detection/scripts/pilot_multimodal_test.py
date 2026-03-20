@@ -88,15 +88,17 @@ def main():
     # ── 모델 로드 ──
     print("\n[1/5] 모델 로드 중...")
 
-    print("  YOLO v2 (COCO 필터 + 파인튜닝)...")
+    # best.pt 존재 시 파인튜닝, 없으면 COCO fallback
+    food_pt = args.best_pt if Path(args.best_pt).exists() else COCO_PT
+    print(f"  YOLO v2 (COCO 필터 + {'파인튜닝' if food_pt != COCO_PT else 'COCO'})...")
     yolo = DetectorV2(
-        food_model=args.best_pt,
+        food_model=food_pt,
         coco_model=COCO_PT,
         confidence=args.yolo_conf,
         coco_confidence=0.3,
         device="cpu",
     )
-    print(f"  → 파인튜닝 {len(yolo.food_detector.model.names)}종 메뉴")
+    print(f"  → food 모델: {Path(food_pt).name}")
 
     print("  CLIP (multilingual)...")
     clip = ClipScorer("clip-ViT-B-32-multilingual-v1")
