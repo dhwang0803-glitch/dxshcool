@@ -1,3 +1,6 @@
+> ✅ **완료**. best.pt 기본값 확정 (mAP@0.5=0.990, COCO대비 45배 탐지 향상).
+> 최신 → `docs/MATCHING_FLOW.md`
+
 # PLAN_05 — YOLOv11 파인튜닝 (한식 탐지 고도화)
 
 - **브랜치**: Object_Detection
@@ -5,7 +8,6 @@
 - **작성일**: 2026-03-16
 - **작성자**: 박아름
 - **선행 조건**: Phase 4 완료 (51/51 PASS), PR #31 MERGED ✅, Shopping_Ad 연동 완료
-- **참조**: 조장(황대원) 제안 (YoLov11_파인튜닝.txt), `docs/reports/phase5_yolo_finetune_plan.md`
 - **업데이트**: 2026-03-16 — 조장 Ollama 제안 반영, 4가지 접근 방식 비교 및 구현 우선순위 재정의
 
 ---
