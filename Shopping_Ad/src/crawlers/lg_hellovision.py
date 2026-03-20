@@ -93,11 +93,7 @@ class LGHellovisionCrawler(BaseCrawler):
                 "broadcast_date": target_date,
                 "start_time": start_time,
                 "end_time": end_time,
-                "raw_name": subtitle,
-                "price": None,
-                "product_url": None,
-                "image_url": None,
-                "program_name": title,
+                "product_name": subtitle,
             })
 
         return results

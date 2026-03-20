@@ -84,22 +84,23 @@ def load_parquet(parquet_path: Path) -> list[dict]:
     return records
 
 
-def run_pipeline(cfg: dict) -> tuple[list[dict], tuple]:
+def run_pipeline(cfg: dict) -> tuple:
     """DB 로드 → ALS 학습 → 추천 생성 → 레코드 변환. (mat shape 반환)"""
     m = cfg["model"]
     r = cfg["recommend"]
 
     conn = get_conn()
     log.info("DB 접속 완료")
-
     mat, user_enc, item_enc, user_dec, item_dec = load_matrix(conn, alpha=m["alpha"])
+    conn.close()
+
     model = train(mat, factors=m["factors"], iterations=m["iterations"],
                   regularization=m["regularization"])
     user_ids, item_indices, scores = recommend_all(model, mat, top_k=r["top_k"])
     records = build_records(user_ids, item_indices, scores,
                             user_dec, item_dec,
                             recommendation_type=r["recommendation_type"])
-    conn.close()
+
     return records, mat.shape
 
 

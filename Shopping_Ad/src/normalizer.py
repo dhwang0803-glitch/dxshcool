@@ -1,4 +1,4 @@
-"""홈쇼핑 상품명 정규화 모듈."""
+"""제철장터 상품명 정규화 모듈."""
 
 from __future__ import annotations
 

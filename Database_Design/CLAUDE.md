@@ -55,8 +55,13 @@ import sqlalchemy        # ORM (선택)
 | `public.detected_object_yolo` | YOLO bbox 탐지 결과 (Object_Detection 적재) |
 | `public.detected_object_clip` | CLIP zero-shot 개념 태깅 (Object_Detection 적재) |
 | `public.detected_object_stt` | Whisper STT 키워드 추출 (Object_Detection 적재) |
-| `public.tv_schedule` | EPG 방송 편성표 (Shopping_Ad 매칭) |
-| `public.homeshopping_product` | 홈쇼핑 상품 카탈로그 (Shopping_Ad 적재) |
+| `public.seasonal_market` | 제철장터 채널 편성표 (Shopping_Ad 매칭) |
+| `public.vod_tag` | VOD 해석 가능 태그 — 감독/배우/장르 등 (Hybrid_Layer 소비) |
+| `public.user_preference` | 유저별 태그 선호 프로필 (Hybrid_Layer 생산) |
+| `public.wishlist` | 유저 찜 목록 — 시리즈 단위 (API_Server 읽기/쓰기) |
+| `public.episode_progress` | 에피소드별 시청 진행률 — API 응답 전용, 정수 0~100% (API_Server 읽기/쓰기) |
+| `public.purchase_history` | 포인트 기반 구매/대여 내역 — 시리즈 단위 (API_Server 읽기/쓰기) |
+| `public.point_history` | 포인트 적립/사용 내역 — point_balance 실시간 집계 (API_Server 읽기/쓰기) |
 
 ### Gold 계층 (serving 스키마)
 
@@ -68,6 +73,8 @@ import sqlalchemy        # ORM (선택)
 | `serving.mv_daily_watch_stats` | 일별 시청 통계 MV |
 | `serving.shopping_ad` | 쇼핑 광고 팝업 서빙 (비정규화, TTL 30일) |
 | `serving.popular_recommendation` | 장르별 인기 추천 Top-N (글로벌, TTL 7일) |
+| `serving.hybrid_recommendation` | 설명 가능한 최종 추천 — CF+Vector 리랭킹 (TTL 7일) |
+| `serving.tag_recommendation` | 유저 선호 태그별 VOD 추천 선반 — top 5 태그 × top 10 VOD (TTL 7일) |
 
 ## 인터페이스
 

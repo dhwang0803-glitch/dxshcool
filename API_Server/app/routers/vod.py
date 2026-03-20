@@ -21,6 +21,7 @@ async def vod_detail(asset_id: str):
         cast_guest=vod["cast_guest"],
         summary=vod["smry"],
         rating=vod["rating"],
-        release_date=vod["release_date"],
+        release_year=vod["release_date"].year if vod["release_date"] else None,
         poster_url=vod["poster_url"],
+        is_free=vod.get("asset_prod") == "FOD",
     )
