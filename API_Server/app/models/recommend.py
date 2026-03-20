@@ -8,7 +8,7 @@ class RecommendItem(BaseModel):
     poster_url: str | None
     score: float | None
     rank: int | None
-    recommendation_type: str | None  # 'COLLABORATIVE' | 'VISUAL_SIMILARITY' | 'POPULAR'
+    recommendation_type: str | None  # 'HYBRID' | 'COLLABORATIVE' | 'VISUAL_SIMILARITY' | 'CONTENT_BASED' | 'POPULAR'
 
 
 class RecommendResponse(BaseModel):

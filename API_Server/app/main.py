@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import auth, recommend, search, vod
+from app.routers import auth, home, purchase, recommend, series, similar, user, vod, wishlist
 from app.services.db import close_pool, create_pool
 
 
@@ -28,9 +28,14 @@ app.add_middleware(
 )
 
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
+app.include_router(home.router, prefix="/home", tags=["home"])
 app.include_router(vod.router, prefix="/vod", tags=["vod"])
+app.include_router(series.router, prefix="/series", tags=["series"])
+app.include_router(user.router, prefix="/user", tags=["user"])
+app.include_router(purchase.router, prefix="/purchases", tags=["purchase"])
+app.include_router(wishlist.router, prefix="/wishlist", tags=["wishlist"])
 app.include_router(recommend.router, prefix="/recommend", tags=["recommend"])
-app.include_router(search.router, prefix="/similar", tags=["search"])
+app.include_router(similar.router, prefix="/similar", tags=["similar"])
 
 
 @app.get("/health")

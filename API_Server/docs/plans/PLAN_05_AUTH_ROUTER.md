@@ -1,10 +1,10 @@
 # PLAN_05: JWT 인증 엔드포인트
 
-**목표**: `POST /auth/token` — user_id 기반 JWT 발급 / Bearer 토큰 검증 Depends 제공
+**목표**: `POST /auth/token` — user_id(sha2_hash) 기반 JWT 발급 / Bearer 토큰 검증 Depends 제공
 
-> **범위 주의**: 이 프로젝트는 실제 인증 서버가 아니다.
-> 팀 내부 데모·테스트용으로 user_id가 `public."user"` 테이블에 존재하는지만 확인 후 JWT를 발급한다.
-> 패스워드 해싱, OAuth 등은 이 브랜치 범위 밖이다.
+> **인증 방식 (2026-03-20 확정)**: IPTV 셋톱박스 자동 로그인.
+> 셋톱박스 전원 ON → 등록된 sha2_hash로 `/auth/token` 자동 호출 → **만료 없는** JWT 발급.
+> 비밀번호, OAuth, refresh token, 비로그인 시나리오 모두 불필요.
 
 ---
 
@@ -56,15 +56,12 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 SECRET_KEY = os.getenv("JWT_SECRET_KEY")   # 기본값 없음 — 보안 규칙
 ALGORITHM = "HS256"
-EXPIRE_MINUTES = 60
 
 security = HTTPBearer()
 
 def create_access_token(user_id: str) -> str:
-    payload = {
-        "sub": user_id,
-        "exp": datetime.utcnow() + timedelta(minutes=EXPIRE_MINUTES),
-    }
+    """셋톱박스 자동 로그인 — 만료 없는 토큰 발급."""
+    payload = {"sub": user_id}
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 def get_current_user(
@@ -114,7 +111,6 @@ async def issue_token(request: TokenRequest):
 |------|-----------|------|
 | `user_id` 미존재 | 404 | `User not found` |
 | `JWT_SECRET_KEY` 환경변수 없음 | 500 | 앱 기동 시 환경변수 체크로 방지 |
-| 만료된 토큰 | 401 | `Invalid or expired token` |
 | 변조된 토큰 | 401 | `Invalid or expired token` |
 
 ---

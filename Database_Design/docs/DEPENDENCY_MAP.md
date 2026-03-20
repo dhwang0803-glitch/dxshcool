@@ -25,6 +25,10 @@
 | `public.seasonal_market` | `Shopping_Ad` | `Shopping_Ad`(읽기) |
 | `public.vod_tag` | `Database_Design`(초기 적재) | `Hybrid_Layer`(읽기) |
 | `public.user_preference` | `Hybrid_Layer` | `Hybrid_Layer`(읽기), `API_Server`(읽기) |
+| `public.wishlist` | `API_Server` | `API_Server`(읽기/쓰기) |
+| `public.episode_progress` | `API_Server` | `API_Server`(읽기/쓰기) |
+| `public.purchase_history` | `API_Server` | `API_Server`(읽기/쓰기) |
+| `public.point_history` | `API_Server` | `API_Server`(읽기/쓰기) |
 
 ### Gold 계층 (serving 스키마)
 
@@ -102,7 +106,7 @@
 |------|--------|------|------|------|
 | 읽기 | `public.user_embedding` | `user_id_fk`, `embedding` | VARCHAR/VECTOR(896) | ALS 초기값 |
 | 읽기 | `public.watch_history` | `user_id_fk`, `vod_id_fk`, `satisfaction` | - | 행렬 분해 입력 |
-| 쓰기 | `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | - | `'COLLABORATIVE'` |
+| 쓰기 | `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | - | `'COLLABORATIVE'`, UNIQUE(user_id_fk, vod_id_fk, recommendation_type) |
 | 쓰기 | `serving.popular_recommendation` | `ct_cl`, `rank`, `vod_id_fk`, `score`, `recommendation_type` | VARCHAR(64)/SMALLINT/VARCHAR(64)/REAL/VARCHAR(32) | `'POPULAR'` CT_CL별 Top-N |
 
 ### Vector_Search *(미구현)*
@@ -112,7 +116,7 @@
 | 읽기 | `public.vod_embedding` | `vod_id_fk`, `embedding` | VECTOR(512) | 콘텐츠 유사도 검색 |
 | 읽기 | `public.vod_meta_embedding` | `vod_id_fk`, `embedding` | VECTOR(384) | |
 | 읽기 | `public.user_embedding` | `user_id_fk`, `embedding` | VECTOR(896) | 개인화 검색 |
-| 쓰기 | `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | - | 유저 기반: `'VISUAL_SIMILARITY'` |
+| 쓰기 | `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | - | 유저 기반: `'VISUAL_SIMILARITY'`, UNIQUE(user_id_fk, vod_id_fk, recommendation_type) |
 | 쓰기 | `serving.vod_recommendation` | `source_vod_id`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | VARCHAR(64)/VARCHAR(64)/SMALLINT/REAL/VARCHAR(32) | 콘텐츠 기반: `'CONTENT_BASED'` |
 | 쓰기 | `serving.popular_recommendation` | `ct_cl`, `rank`, `vod_id_fk`, `score`, `recommendation_type` | VARCHAR(64)/SMALLINT/VARCHAR(64)/REAL/VARCHAR(32) | `'POPULAR'` CT_CL별 Top-N |
 
@@ -158,12 +162,19 @@
 
 | 방향 | 테이블 | 컬럼 | 타입 | 비고 |
 |------|--------|------|------|------|
-| 읽기 | `public.vod` | `full_asset_id`, `asset_nm`, `genre`, `director`, `cast_lead`, `smry`, `poster_url`, `release_date`, `rating` | 각종 VARCHAR/TEXT | `/vod/{asset_id}` 상세 응답 |
+| 읽기 | `public.vod` | `full_asset_id`, `asset_nm`, `genre`, `ct_cl`, `director`, `cast_lead`, `smry`, `poster_url`, `release_date`, `rating`, `series_nm`, `asset_prod` | 각종 VARCHAR/TEXT | VOD 상세/시리즈 조회. `release_date` → `release_year`(연도 int) 변환. `asset_prod='FOD'` → `is_free=true`. `series_nm` 커버링 인덱스 활용 |
 | 읽기 | `public."user"` | `sha2_hash` | VARCHAR | 사용자 존재 여부 확인 (PK) |
-| 읽기 | `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | VARCHAR/REAL | `/recommend/{user_id}` |
+| 읽기 | `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type`, `expires_at` | VARCHAR/REAL/TIMESTAMPTZ | `/recommend/{user_id}` — `WHERE recommendation_type = 'HYBRID'`, UNIQUE(user_id_fk, vod_id_fk, recommendation_type) |
+| 읽기 | `serving.vod_recommendation` | `source_vod_id`, `vod_id_fk`, `rank`, `score`, `recommendation_type`, `expires_at` | VARCHAR/REAL/TIMESTAMPTZ | `/similar/{asset_id}` — `WHERE source_vod_id = $1 AND recommendation_type = 'CONTENT_BASED'` |
+| 읽기 | `serving.popular_recommendation` | `ct_cl`, `rank`, `vod_id_fk`, `score`, `recommendation_type`, `expires_at` | VARCHAR(64)/SMALLINT/REAL/VARCHAR(32)/TIMESTAMPTZ | CT_CL별 인기 추천 Top-N |
+| 읽기 | `serving.shopping_ad` | `vod_id_fk`, `ts_start`, `ts_end`, `ad_category`, `score`, `ad_hints`, `product_name`, `product_price`, `product_url`, `image_url`, `channel` | 각종 | 쇼핑 광고 팝업 서빙 |
 | 읽기 | `serving.mv_vod_watch_stats` | *(스키마 확인 필요)* | - | 인기 콘텐츠 배너 |
 | 읽기 | `serving.mv_age_grp_vod_stats` | *(스키마 확인 필요)* | - | 연령대별 추천 |
 | 읽기 | `serving.mv_daily_watch_stats` | *(스키마 확인 필요)* | - | 통계 대시보드 |
+| 읽기/쓰기 | `public.wishlist` | `user_id_fk`, `series_nm`, `created_at` | VARCHAR(64)/VARCHAR(255)/TIMESTAMPTZ | 찜 추가/해제/목록 조회. PK=(user_id_fk, series_nm) |
+| 읽기/쓰기 | `public.episode_progress` | `user_id_fk`, `vod_id_fk`, `series_nm`, `completion_rate`, `watched_at` | VARCHAR(64)/VARCHAR(64)/VARCHAR(255)/SMALLINT/TIMESTAMPTZ | 에피소드 진행률. PK=(user_id_fk, vod_id_fk). ON CONFLICT UPDATE |
+| 읽기/쓰기 | `public.purchase_history` | `purchase_id`, `user_id_fk`, `series_nm`, `option_type`, `points_used`, `purchased_at`, `expires_at` | BIGINT/VARCHAR(64)/VARCHAR(255)/VARCHAR(16)/INTEGER/TIMESTAMPTZ/TIMESTAMPTZ | 구매/대여 기록 |
+| 읽기/쓰기 | `public.point_history` | `point_history_id`, `user_id_fk`, `type`, `amount`, `description`, `related_purchase_id`, `created_at` | BIGINT/VARCHAR(64)/VARCHAR(8)/INTEGER/VARCHAR(256)/BIGINT/TIMESTAMPTZ | 포인트 적립/사용. point_balance 실시간 집계 |
 
 ---
 

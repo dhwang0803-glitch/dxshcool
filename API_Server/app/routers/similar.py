@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query
 
 from app.models.recommend import SimilarVodResponse, SimilarVodItem
-from app.services.search_service import get_similar_vods
+from app.services.similar_service import get_similar_vods
 
 router = APIRouter()
 
