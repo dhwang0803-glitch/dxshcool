@@ -37,9 +37,9 @@ STATUS_FILE = DATA_DIR / "yt_backfill_status.json"
 BATCH_COMMIT = 200          # N건마다 DB COMMIT + 상태 저장
 REQUEST_DELAY_MIN = 0.1     # 워커당 최소 대기 (초) — 쿠키 인증 시 축소 가능
 REQUEST_DELAY_MAX = 0.3     # 워커당 최대 대기 (초)
-DURATION_MIN_SEC = 10
+DURATION_MIN_SEC = 180      # 3분 미만 트레일러/티저 제외
 DURATION_MAX_SEC = 1800     # 30분 (에피소드 전체 허용)
-MAX_RESULTS = 3
+MAX_RESULTS = 5             # 후보 늘려서 본편 잡을 확률 향상
 
 EXCLUDE_CT_CL = {"우리동네", "미분류"}
 
@@ -169,8 +169,8 @@ def search_youtube(vod_id: str, asset_nm: str, ct_cl: str,
         if not valid:
             continue
 
-        # 최단 우선 (에피소드 검색이므로 트레일러 키워드 가점 불필요)
-        best = min(valid, key=lambda e: e.get("duration") or 9999)
+        # 최장 우선 — 본편/하이라이트가 Object Detection에 유리
+        best = max(valid, key=lambda e: e.get("duration") or 0)
         return {
             "status": "success",
             "youtube_video_id": best.get("id", ""),
