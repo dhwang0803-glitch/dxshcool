@@ -50,7 +50,7 @@ CREATE TRIGGER trg_popular_rec_updated_at
 COMMENT ON TABLE serving.popular_recommendation IS
     '[Gold/Serving] CT_CL별 인기 추천 결과. 글로벌(비개인화) 랭킹. 주 1회 갱신, TTL 7일.';
 COMMENT ON COLUMN serving.popular_recommendation.ct_cl IS
-    '개별 CT_CL값 (영화, 드라마, 예능 등). 복합 CT_CL VOD는 각 CT_CL에 별도 행으로 저장.';
+    'vod.ct_cl 값 (영화, TV드라마, TV애니메이션, TV 연예/오락 등). 고정 4개 카테고리 기준.';
 COMMENT ON COLUMN serving.popular_recommendation.rank IS
     'CT_CL 내 순위 (1부터 시작)';
 COMMENT ON COLUMN serving.popular_recommendation.vod_id_fk IS
