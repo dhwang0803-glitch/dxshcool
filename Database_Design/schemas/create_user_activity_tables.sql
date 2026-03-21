@@ -139,9 +139,8 @@ COMMENT ON COLUMN public.purchase_history.expires_at IS
 
 -- =============================================================
 -- [4] point_history — 포인트 적립/사용 내역
---     point_balance는 이 테이블에서 실시간 집계:
---     SUM(CASE WHEN type='earn' THEN amount ELSE -amount END)
---     Redis 캐시 레이어 도입 검토 중 (추후 논의).
+--     point_balance는 user.point_balance 캐시 컬럼 + DB 트리거로 O(1) 조회.
+--     INSERT 시 트리거가 user.point_balance 자동 갱신 + NOTIFY user_activity.
 -- =============================================================
 
 CREATE TABLE public.point_history (
@@ -161,12 +160,11 @@ CREATE TABLE public.point_history (
 CREATE INDEX idx_point_history_user_date
     ON public.point_history (user_id_fk, created_at DESC);
 
--- 포인트 잔액 집계: SELECT SUM(CASE WHEN type='earn' THEN amount ELSE -amount END)
---                   FROM point_history WHERE user_id_fk = $1
--- 위 쿼리에 user_id_fk 인덱스 활용. 대량 데이터 시 Redis 캐시 도입 예정.
+-- 포인트 잔액: user.point_balance 캐시 컬럼에서 O(1) PK 조회.
+-- INSERT 시 fn_update_point_balance() 트리거가 자동 갱신.
 
 COMMENT ON TABLE public.point_history IS
-    '포인트 적립/사용 내역. point_balance = SUM(earn) - SUM(use). Redis 캐시 검토 중.';
+    '포인트 적립/사용 내역. INSERT 트리거가 user.point_balance 자동 갱신.';
 COMMENT ON COLUMN public.point_history.point_history_id IS
     '자동 생성 내역 ID';
 COMMENT ON COLUMN public.point_history.user_id_fk IS
@@ -181,3 +179,100 @@ COMMENT ON COLUMN public.point_history.related_purchase_id IS
     'FK → purchase_history.purchase_id. 구매 차감인 경우 연결. 적립은 NULL.';
 COMMENT ON COLUMN public.point_history.created_at IS
     '내역 생성 시각';
+
+
+-- =============================================================
+-- [5] watch_reservation — 시청예약
+--     유저가 채널/프로그램/시각을 지정하여 시청예약 등록.
+--     API_Server background task(30초 주기)가 alert_at 도래 시
+--     notified=TRUE 갱신 + WebSocket 알림 push.
+-- =============================================================
+
+CREATE TABLE public.watch_reservation (
+    reservation_id  SERIAL          PRIMARY KEY,
+    user_id_fk      VARCHAR(64)     NOT NULL REFERENCES "user"(sha2_hash) ON DELETE CASCADE,
+    channel         INTEGER         NOT NULL,
+    program_name    VARCHAR(255)    NOT NULL,
+    alert_at        TIMESTAMPTZ     NOT NULL,
+    notified        BOOLEAN         DEFAULT FALSE,
+    created_at      TIMESTAMPTZ     DEFAULT NOW()
+);
+
+-- 미알림 예약 조회 (30초 주기 background task):
+-- WHERE alert_at <= NOW() AND notified = FALSE
+CREATE INDEX idx_reservation_alert
+    ON public.watch_reservation (alert_at)
+    WHERE notified = FALSE;
+
+-- 유저별 예약 목록: WHERE user_id_fk = $1 AND notified = FALSE ORDER BY alert_at ASC
+CREATE INDEX idx_reservation_user
+    ON public.watch_reservation (user_id_fk, alert_at ASC)
+    WHERE notified = FALSE;
+
+COMMENT ON TABLE public.watch_reservation IS
+    '시청예약. 채널+시각 지정. background task가 도래 시 WebSocket 알림.';
+COMMENT ON COLUMN public.watch_reservation.reservation_id IS
+    '자동 생성 예약 ID';
+COMMENT ON COLUMN public.watch_reservation.user_id_fk IS
+    'FK → "user".sha2_hash (ON DELETE CASCADE)';
+COMMENT ON COLUMN public.watch_reservation.channel IS
+    '채널 번호';
+COMMENT ON COLUMN public.watch_reservation.program_name IS
+    '프로그램명';
+COMMENT ON COLUMN public.watch_reservation.alert_at IS
+    '알림 발송 시각 (프로그램 시작 시각)';
+COMMENT ON COLUMN public.watch_reservation.notified IS
+    '알림 전송 완료 여부. TRUE 후 UI에서 숨김.';
+COMMENT ON COLUMN public.watch_reservation.created_at IS
+    '예약 생성 시각';
+
+
+-- =============================================================
+-- [6] user.point_balance 캐시 컬럼 + 트리거
+--     point_history INSERT 시 자동으로 user.point_balance 갱신.
+--     O(N) SUM 집계 → O(1) PK 조회로 최적화.
+-- =============================================================
+
+-- 컬럼 추가 (create_tables.sql의 user 테이블에 반영 필요)
+-- ALTER TABLE public."user" ADD COLUMN point_balance INTEGER NOT NULL DEFAULT 0;
+
+-- 트리거 함수: point_history INSERT 시 user.point_balance 갱신
+CREATE OR REPLACE FUNCTION fn_update_point_balance()
+RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE public."user"
+    SET point_balance = point_balance +
+        CASE WHEN NEW.type = 'earn' THEN NEW.amount ELSE -NEW.amount END
+    WHERE sha2_hash = NEW.user_id_fk;
+
+    PERFORM pg_notify('user_activity',
+        json_build_object('user_id', NEW.user_id_fk, 'event', 'point_change')::text);
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_point_balance
+    AFTER INSERT ON public.point_history
+    FOR EACH ROW EXECUTE FUNCTION fn_update_point_balance();
+
+-- 트리거 함수: wishlist/purchase INSERT/DELETE 시 NOTIFY
+CREATE OR REPLACE FUNCTION fn_notify_user_activity()
+RETURNS TRIGGER AS $$
+BEGIN
+    PERFORM pg_notify('user_activity',
+        json_build_object(
+            'user_id', COALESCE(NEW.user_id_fk, OLD.user_id_fk),
+            'event', TG_TABLE_NAME || '_' || LOWER(TG_OP)
+        )::text);
+    RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_wishlist_notify
+    AFTER INSERT OR DELETE ON public.wishlist
+    FOR EACH ROW EXECUTE FUNCTION fn_notify_user_activity();
+
+CREATE TRIGGER trg_purchase_notify
+    AFTER INSERT ON public.purchase_history
+    FOR EACH ROW EXECUTE FUNCTION fn_notify_user_activity();
