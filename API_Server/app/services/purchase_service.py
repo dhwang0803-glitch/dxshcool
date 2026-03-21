@@ -1,6 +1,5 @@
-from datetime import timedelta
-
 from app.services.db import get_pool
+from app.services.exceptions import INSUFFICIENT_POINTS
 
 
 async def create_purchase(
@@ -25,7 +24,7 @@ async def create_purchase(
             balance = int(balance_row["balance"])
 
             if balance < points_used:
-                raise ValueError(f"포인트 부족: 잔액 {balance}P, 필요 {points_used}P")
+                raise INSUFFICIENT_POINTS(balance, points_used)
 
             # 2) expires_at 계산
             expires_at = None

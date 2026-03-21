@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from app.models.series import (
     EpisodesResponse,
@@ -10,6 +10,11 @@ from app.models.series import (
 )
 from app.routers.auth import get_current_user
 from app.services import series_service
+from app.services.exceptions import (
+    EPISODE_NOT_FOUND,
+    INVALID_COMPLETION_RATE,
+    SERIES_NOT_FOUND,
+)
 
 router = APIRouter()
 
@@ -19,7 +24,7 @@ async def series_episodes(series_nm: str):
     """시리즈 에피소드 목록 (DISTINCT ON 중복 제거)."""
     episodes = await series_service.get_episodes(series_nm)
     if not episodes:
-        raise HTTPException(status_code=404, detail="시리즈를 찾을 수 없습니다")
+        raise SERIES_NOT_FOUND()
     return EpisodesResponse(
         series_nm=series_nm, episodes=episodes, total=len(episodes)
     )
@@ -50,12 +55,12 @@ async def update_progress(
 ):
     """에피소드 시청 진행률 기록 (UPSERT)."""
     if body.completion_rate < 0 or body.completion_rate > 100:
-        raise HTTPException(status_code=400, detail="completion_rate는 0~100 범위")
+        raise INVALID_COMPLETION_RATE()
     result = await series_service.update_episode_progress(
         current_user, series_nm, asset_nm, body.completion_rate
     )
     if not result:
-        raise HTTPException(status_code=404, detail="에피소드를 찾을 수 없습니다")
+        raise EPISODE_NOT_FOUND()
     return ProgressUpdateResponse(**result)
 
 
@@ -80,5 +85,5 @@ async def purchase_options(series_nm: str):
     """구매 옵션 조회 — FOD는 무료(빈 옵션)."""
     data = await series_service.get_purchase_options(series_nm)
     if not data["options"] and not data["is_free"]:
-        raise HTTPException(status_code=404, detail="시리즈를 찾을 수 없습니다")
+        raise SERIES_NOT_FOUND()
     return PurchaseOptionsResponse(**data)

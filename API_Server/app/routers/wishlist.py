@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from app.models.wishlist import (
     WishlistAddRequest,
@@ -7,6 +7,7 @@ from app.models.wishlist import (
 )
 from app.routers.auth import get_current_user
 from app.services import wishlist_service
+from app.services.exceptions import WISHLIST_NOT_FOUND
 
 router = APIRouter()
 
@@ -29,5 +30,5 @@ async def remove_wishlist(
     """찜 해제."""
     result = await wishlist_service.remove_wishlist(current_user, series_nm)
     if not result:
-        raise HTTPException(status_code=404, detail="찜 목록에 없는 시리즈입니다")
+        raise WISHLIST_NOT_FOUND()
     return WishlistRemoveResponse(**result)

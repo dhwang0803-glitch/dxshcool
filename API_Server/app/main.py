@@ -1,10 +1,12 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
-from app.routers import auth, home, purchase, recommend, series, similar, user, vod, wishlist
+from app.routers import ad, auth, home, purchase, recommend, series, similar, user, vod, wishlist
 from app.services.db import close_pool, create_pool
+from app.services.exceptions import APIError
 
 
 @asynccontextmanager
@@ -20,6 +22,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+@app.exception_handler(APIError)
+async def api_error_handler(request: Request, exc: APIError):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": {"code": exc.code, "message": exc.message}},
+    )
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
@@ -27,6 +37,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(ad.router, prefix="/ad", tags=["ad"])
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(home.router, prefix="/home", tags=["home"])
 app.include_router(vod.router, prefix="/vod", tags=["vod"])

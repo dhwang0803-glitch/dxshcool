@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from app.models.purchase import PurchaseRequest, PurchaseResponse
 from app.routers.auth import get_current_user
 from app.services import purchase_service
+from app.services.exceptions import INVALID_OPTION_TYPE, INVALID_POINTS_AMOUNT
 
 router = APIRouter()
 
@@ -14,15 +15,11 @@ async def create_purchase(
 ):
     """포인트 차감 + purchase_history + point_history 트랜잭션."""
     if body.option_type not in ("rental", "permanent"):
-        raise HTTPException(status_code=400, detail="option_type: rental 또는 permanent")
+        raise INVALID_OPTION_TYPE()
     if body.points_used <= 0:
-        raise HTTPException(status_code=400, detail="points_used는 양수여야 합니다")
+        raise INVALID_POINTS_AMOUNT()
 
-    try:
-        result = await purchase_service.create_purchase(
-            current_user, body.series_nm, body.option_type, body.points_used
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=402, detail=str(e))
-
+    result = await purchase_service.create_purchase(
+        current_user, body.series_nm, body.option_type, body.points_used
+    )
     return PurchaseResponse(**result)
