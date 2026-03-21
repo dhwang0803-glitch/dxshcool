@@ -1,0 +1,21 @@
+# Hybrid_Layer 설정
+# β: 원본 엔진 스코어 vs 태그 매칭 스코어 가중치
+# top_n: hybrid_recommendation 최종 추천 개수
+
+reranking:
+  beta: 0.6                    # hybrid_score = β × original_score + (1-β) × tag_overlap_score
+  top_n: 10                    # 최종 추천 개수 (배너 3단 Hybrid 영역)
+  top_k_tags: 3                # tag_overlap_score 계산 시 상위 k개 태그 사용
+
+tag_recommendation:
+  top_tags: 5                  # 유저별 선호 태그 개수
+  vods_per_tag: 10             # 태그별 추천 VOD 개수
+
+user_preference:
+  min_watch_count: 2           # user_preference 최소 시청 횟수 (DDL CHECK 제약)
+
+ttl:
+  days: 7                     # 추천 결과 TTL (일)
+
+batch:
+  user_chunk_size: 1000        # 유저 배치 처리 단위

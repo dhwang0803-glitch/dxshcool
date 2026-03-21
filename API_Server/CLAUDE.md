@@ -45,12 +45,12 @@ import uvicorn
 
 | 메서드 | 경로 | 설명 | 소스 |
 |--------|------|------|------|
-| GET | `/recommend/{user_id}` | 개인화 추천 | Hybrid_Layer (`recommendation_type = 'HYBRID'`) |
+| GET | `/recommend/{user_id}` | 개인화 추천 (top_vod + patterns 태그 그룹핑) | hybrid_recommendation + tag_recommendation |
 | GET | `/similar/{asset_id}` | 유사 콘텐츠 | Vector_Search (`source_vod_id` + `recommendation_type = 'CONTENT_BASED'`) |
 | WS | `/ad/popup` | 실시간 광고 팝업 (WebSocket) | Shopping_Ad |
 | GET | `/vod/{asset_id}` | VOD 상세 메타데이터 (+is_free, release_year) | DB |
 | POST | `/auth/token` | JWT 발급 (셋톱박스 자동 로그인, 만료 없음) | 자체 |
-| GET | `/home/banner` | 히어로 배너 top 5 | hybrid_recommendation / popular |
+| GET | `/home/banner` | 히어로 배너 3단 (personalized 5 + popular 5 + hybrid 10, JWT 선택적) | personalized_banner + popular_recommendation + hybrid_recommendation |
 | GET | `/home/sections` | CT_CL별 인기 20선 | popular_recommendation |
 | GET | `/series/{id}/episodes` | 에피소드 목록 (중복 제거) | vod |
 | GET | `/series/{id}/progress` | 시청 진행 현황 | episode_progress |
@@ -100,7 +100,10 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 | `public.point_history` | `user_id_fk`, `amount`, `reason`, `created_at` | VARCHAR/INT/VARCHAR/TIMESTAMPTZ | 포인트 내역 조회 |
 | `public.wishlist` | `user_id_fk`, `series_nm` | VARCHAR/VARCHAR | 찜 목록 조회 |
 | `public.watch_reservation` | `reservation_id`, `user_id_fk`, `channel`, `program_name`, `alert_at`, `notified` | SERIAL/VARCHAR/INT/VARCHAR/TIMESTAMPTZ/BOOLEAN | 시청예약 조회·알림 체크 (30초 주기) |
-| `serving.vod_recommendation` | `user_id_fk`, `source_vod_id`, `vod_id_fk`, `rank`, `score`, `recommendation_type`, `expires_at` | VARCHAR/REAL/INT/VARCHAR/TIMESTAMPTZ | `/recommend` (user_id_fk 기준) + `/similar` (source_vod_id 기준). TTL 필터 적용 |
+| `serving.vod_recommendation` | `source_vod_id`, `vod_id_fk`, `rank`, `score`, `recommendation_type`, `expires_at` | VARCHAR/REAL/INT/VARCHAR/TIMESTAMPTZ | `/similar` (source_vod_id 기준). TTL 필터 적용 |
+| `serving.hybrid_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `explanation_tags`, `source_engines`, `expires_at` | VARCHAR/REAL/SMALLINT/JSONB/VARCHAR[]/TIMESTAMPTZ | `/recommend` top_vod + `/home/banner` 3단. TTL 필터 적용 |
+| `serving.tag_recommendation` | `user_id_fk`, `tag_category`, `tag_value`, `tag_rank`, `tag_affinity`, `vod_id_fk`, `vod_rank`, `vod_score`, `expires_at` | 각종 | `/recommend` patterns 그룹핑 (top 5 태그 × top 10 VOD). TTL 필터 적용 |
+| `serving.personalized_banner` | `user_id_fk`, `rank`, `vod_id_fk`, `score`, `genre`, `expires_at` | VARCHAR/SMALLINT/VARCHAR/REAL/VARCHAR/TIMESTAMPTZ | `/home/banner` 1단 (유저별 top 5). TTL 필터 적용 |
 | `serving.mv_vod_watch_stats` | `vod_id_fk`, `total_watch_count` | VARCHAR/INT | /recommend fallback (인기순) |
 
 ### 다운스트림 (쓰기)

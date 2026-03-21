@@ -1,57 +1,91 @@
 from app.services.db import get_pool
 
 
-async def get_banner(limit: int = 5) -> list[dict]:
-    """히어로 배너 Top N — hybrid_recommendation 또는 popular fallback."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        # hybrid_recommendation 시도
-        try:
-            rows = await conn.fetch(
-                """
-                SELECT r.vod_id_fk, r.score,
-                       v.series_nm, v.asset_nm, v.poster_url, v.ct_cl
-                FROM serving.hybrid_recommendation r
-                JOIN public.vod v ON r.vod_id_fk = v.full_asset_id
-                ORDER BY r.score DESC
-                LIMIT $1
-                """,
-                limit,
-            )
-        except Exception:
-            rows = []
+async def get_banner(user_id: str | None = None) -> list[dict]:
+    """히어로 배너 3단 구조.
 
-        if not rows:
-            # popular fallback
+    1단: personalized_banner (유저별 top 5) — 로그인 + 시청이력 있는 유저
+    2단: popular_recommendation (비개인화 top 5) — 항상
+    3단: hybrid_recommendation (top 10) — 로그인 유저
+    비로그인 시 2단만 반환.
+    """
+    pool = await get_pool()
+    seen: set[str] = set()
+    items: list[dict] = []
+
+    def _append_rows(rows):
+        for r in rows:
+            nm = r["series_nm"] or r["asset_nm"]
+            if nm in seen:
+                continue
+            seen.add(nm)
+            items.append({
+                "series_nm": nm,
+                "title": r["asset_nm"],
+                "poster_url": r["poster_url"],
+                "category": r["ct_cl"],
+                "score": r["score"],
+            })
+
+    async with pool.acquire() as conn:
+        # 1단: personalized_banner (로그인 유저만)
+        if user_id:
+            try:
+                rows = await conn.fetch(
+                    """
+                    SELECT pb.vod_id_fk, pb.score,
+                           v.series_nm, v.asset_nm, v.poster_url, v.ct_cl
+                    FROM serving.personalized_banner pb
+                    JOIN public.vod v ON pb.vod_id_fk = v.full_asset_id
+                    WHERE pb.user_id_fk = $1
+                      AND (pb.expires_at IS NULL OR pb.expires_at > NOW())
+                    ORDER BY pb.rank
+                    LIMIT 5
+                    """,
+                    user_id,
+                )
+                _append_rows(rows)
+            except Exception:
+                pass  # 테이블 미생성 시 무시
+
+        # 2단: popular_recommendation (항상)
+        try:
             rows = await conn.fetch(
                 """
                 SELECT pr.vod_id_fk, pr.score,
                        v.series_nm, v.asset_nm, v.poster_url, v.ct_cl
                 FROM serving.popular_recommendation pr
                 JOIN public.vod v ON pr.vod_id_fk = v.full_asset_id
+                WHERE pr.expires_at IS NULL OR pr.expires_at > NOW()
                 ORDER BY pr.score DESC
-                LIMIT $1
+                LIMIT 5
                 """,
-                limit,
             )
+            _append_rows(rows)
+        except Exception:
+            pass
 
-    seen = set()
-    items = []
-    for r in rows:
-        nm = r["series_nm"] or r["asset_nm"]
-        if nm in seen:
-            continue
-        seen.add(nm)
-        items.append(
-            {
-                "series_nm": nm,
-                "title": r["asset_nm"],
-                "poster_url": r["poster_url"],
-                "category": r["ct_cl"],
-                "score": r["score"],
-            }
-        )
-    return items[:limit]
+        # 3단: hybrid_recommendation (로그인 유저만)
+        if user_id:
+            try:
+                rows = await conn.fetch(
+                    """
+                    SELECT r.vod_id_fk, r.score,
+                           v.series_nm, v.asset_nm, v.poster_url, v.ct_cl
+                    FROM serving.hybrid_recommendation r
+                    JOIN public.vod v ON r.vod_id_fk = v.full_asset_id
+                    WHERE r.user_id_fk = $1
+                      AND (r.expires_at IS NULL OR r.expires_at > NOW())
+                    ORDER BY r.rank
+                    LIMIT 10
+                    """,
+                    user_id,
+                )
+                _append_rows(rows)
+            except Exception:
+                pass
+
+    return items
 
 
 async def get_sections() -> list[dict]:

@@ -40,6 +40,22 @@ def get_current_user(
         raise TOKEN_DECODE_FAILED()
 
 
+_optional_security = HTTPBearer(auto_error=False)
+
+
+def get_optional_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_optional_security),
+) -> str | None:
+    """토큰이 있으면 user_id 반환, 없으면 None (비로그인 허용)."""
+    if credentials is None:
+        return None
+    try:
+        payload = jwt.decode(credentials.credentials, _secret(), algorithms=[ALGORITHM])
+        return payload.get("sub")
+    except JWTError:
+        return None
+
+
 @router.post("/token", response_model=TokenResponse)
 async def issue_token(request: TokenRequest):
     pool = await get_pool()

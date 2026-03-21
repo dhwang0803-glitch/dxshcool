@@ -23,7 +23,7 @@
 | `public.detected_object_clip` | `Object_Detection` | `Shopping_Ad`(읽기) |
 | `public.detected_object_stt` | `Object_Detection` | `Shopping_Ad`(읽기) |
 | `public.seasonal_market` | `Shopping_Ad` | `Shopping_Ad`(읽기) |
-| `public.vod_tag` | `Database_Design`(초기 적재) | `Hybrid_Layer`(읽기) |
+| `public.vod_tag` | `Hybrid_Layer`(적재) | `Hybrid_Layer`(읽기) |
 | `public.user_preference` | `Hybrid_Layer` | `Hybrid_Layer`(읽기), `API_Server`(읽기) |
 | `public.wishlist` | `API_Server` | `API_Server`(읽기/쓰기) |
 | `public.episode_progress` | `API_Server` | `API_Server`(읽기/쓰기) |

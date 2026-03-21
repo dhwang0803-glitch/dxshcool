@@ -194,7 +194,7 @@ Poster_Collection/
 ### `CF_Engine` — 협업 필터링 (행렬 분해)
 - 시청 이력 기반 User-Item 행렬 구성
 - ALS (Alternating Least Squares) 또는 SVD++ 적용
-- 실시간 추천 결과 캐싱 (Redis 예정)
+- 추천 결과는 `serving.vod_recommendation` 테이블에 사전 적재 → API 서버에서 PK 조회
 
 **예정 폴더 구조:**
 ```
@@ -226,11 +226,19 @@ Vector_Search/
 
 ---
 
-### `Hybrid_Layer` — 설명 가능한 추천 (Explainable Recommendation)
+### `Hybrid_Layer` — 설명 가능한 추천 (Explainable Recommendation) `구현 완료`
 - CF_Engine + Vector_Search의 추천 후보(각 top 20)를 입력으로 수신
 - `vod_tag`(감독/배우/장르) × `user_preference`(유저 선호 프로필) 매칭
-- 중복 제거 + 태그 기반 리랭킹 → 최종 top 20 + `explanation_tags` 생성
-- `serving.hybrid_recommendation`에 적재 → API_Server가 이 테이블을 서빙
+- 중복 제거 + 태그 기반 리랭킹 → 최종 top 10 + `explanation_tags` 생성
+- `serving.hybrid_recommendation`에 적재 → 홈 배너 3단 구조의 3단 영역
+- `serving.tag_recommendation`에 적재 → `/recommend` 패턴 그룹핑 서빙
+
+**홈 배너 3단 구조:**
+```
+1단: Normal_Recommendation → personalized_banner (유저별 top 5)
+2단: Normal_Recommendation → popular_recommendation (비개인화 top 5)
+3단: Hybrid_Layer → hybrid_recommendation (top 10)
+```
 
 **설명 가능한 추천 예시:**
 ```
@@ -238,20 +246,27 @@ Vector_Search/
 "송강호 배우 출연작을 자주 시청하셨네요" (actor affinity 0.85)
 ```
 
-**예정 폴더 구조:**
+**폴더 구조:**
 ```
 Hybrid_Layer/
 ├── src/
-│   ├── tag_builder.py        ← vod → vod_tag 태그 추출
-│   ├── preference_builder.py ← watch_history × vod_tag → user_preference
-│   └── reranker.py           ← 후보 리랭킹 + explanation 생성
+│   ├── tag_builder.py        ← Phase 1: vod → vod_tag 태그 추출
+│   ├── preference_builder.py ← Phase 2: watch_history × vod_tag → user_preference
+│   ├── reranker.py           ← Phase 3: 후보 리랭킹 + explanation 생성
+│   └── shelf_builder.py      ← Phase 4: 선호 태그별 VOD 선반 생성
 ├── scripts/
 │   ├── build_vod_tags.py         ← Phase 1 실행
 │   ├── build_user_preferences.py ← Phase 2 실행
-│   └── run_hybrid.py             ← Phase 3 리랭킹 + 적재
+│   ├── run_hybrid.py             ← Phase 3 리랭킹 + 적재
+│   └── build_tag_shelves.py      ← Phase 4 선반 생성
 ├── tests/
+│   ├── test_tag_builder.py       ← 15 tests
+│   └── test_reranker.py          ← 3 tests
 └── config/
+    └── hybrid_config.yaml        ← β=0.6, top_n=10 등
 ```
+
+> ⚠️ **데이터 적재 대기**: CF_Engine/Vector_Search가 `serving.vod_recommendation`에 COLLABORATIVE/VISUAL_SIMILARITY 데이터를 적재한 후 Phase 3~4 실행 가능. 현재 CONTENT_BASED(2,394,600건)만 존재.
 
 ---
 

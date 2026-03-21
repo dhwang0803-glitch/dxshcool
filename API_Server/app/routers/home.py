@@ -5,16 +5,22 @@ from app.models.home import (
     PersonalizedSectionsResponse,
     SectionsResponse,
 )
-from app.routers.auth import get_current_user
+from app.routers.auth import get_current_user, get_optional_user
 from app.services import home_service
 
 router = APIRouter()
 
 
 @router.get("/banner", response_model=BannerResponse)
-async def home_banner():
-    """히어로 배너 Top 5 (Hybrid score 내림차순, fallback → popular)."""
-    items = await home_service.get_banner(limit=5)
+async def home_banner(
+    current_user: str | None = Depends(get_optional_user),
+):
+    """히어로 배너 3단 구조.
+
+    로그인: personalized(5) + popular(5) + hybrid(10)
+    비로그인: popular(5)
+    """
+    items = await home_service.get_banner(user_id=current_user)
     return BannerResponse(items=items, total=len(items))
 
 
