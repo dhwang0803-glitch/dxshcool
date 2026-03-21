@@ -194,7 +194,7 @@ Poster_Collection/
 ### `CF_Engine` — 협업 필터링 (행렬 분해)
 - 시청 이력 기반 User-Item 행렬 구성
 - ALS (Alternating Least Squares) 또는 SVD++ 적용
-- 실시간 추천 결과 캐싱 (Redis 예정)
+- 추천 결과는 `serving.vod_recommendation` 테이블에 사전 적재 → API 서버에서 PK 조회 (인프라 제약으로 Redis 미도입)
 
 **예정 폴더 구조:**
 ```
@@ -367,21 +367,26 @@ Shopping_Ad/
 ## Phase 4 — 서비스 레이어
 
 ### `API_Server` — FastAPI 백엔드
-- 추천 엔드포인트: `/recommend/{user_id}`
-- 유사 콘텐츠: `/similar/{asset_id}`
-- 광고 트리거: `/ad/popup` (WebSocket 또는 SSE)
-- 인증: JWT
+- 추천 엔드포인트: `/recommend/{user_id}`, `/similar/{asset_id}`
+- 광고 트리거: `/ad/popup` (WebSocket)
+- 인증: JWT (셋톱박스 자동 로그인, 만료 없음)
+- **실시간 처리 (방안 A — Redis 미도입)**: 인프라 제약(1GB RAM)으로 Redis 대신 PG 내장 기능 + 인메모리 버퍼 채택
+  - 시청 진행률: 인메모리 버퍼 → 60초 batch UPSERT
+  - 마이페이지 실시간 갱신: PG LISTEN/NOTIFY → WebSocket push
+  - 포인트 잔액: DB 트리거 자동 갱신 (point_history INSERT → user.point_balance UPDATE)
+  - 시청예약 알림: 30초 주기 background task → WebSocket push
 
-**예정 폴더 구조:**
+**폴더 구조:**
 ```
 API_Server/
 ├── app/
-│   ├── routers/       ← recommend.py, search.py, ad.py, auth.py
-│   ├── services/      ← 비즈니스 로직 (CF_Engine, Vector_Search 호출)
+│   ├── routers/       ← auth, home, vod, series, user, purchase, wishlist, recommend, similar, ad, reservation
+│   ├── services/      ← 비즈니스 로직, progress_buffer, pg_listener, reservation_checker, exceptions
 │   ├── models/        ← Pydantic 요청/응답 스키마
 │   └── main.py
 ├── tests/
-└── config/
+├── config/
+└── docs/              ← realtime_architecture.md, error_message_policy.md
 ```
 
 ---
