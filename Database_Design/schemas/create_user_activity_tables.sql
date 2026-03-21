@@ -276,3 +276,65 @@ CREATE TRIGGER trg_wishlist_notify
 CREATE TRIGGER trg_purchase_notify
     AFTER INSERT ON public.purchase_history
     FOR EACH ROW EXECUTE FUNCTION fn_notify_user_activity();
+
+
+-- =============================================================
+-- [7] notifications — 알림 (GNB 벨)
+--     type: new_episode(찜 시리즈 신규 에피소드)
+--           reservation(시청예약 도래)
+--           system(시스템 공지)
+--     vod INSERT 트리거가 wishlist 기반 new_episode 알림 자동 생성.
+-- =============================================================
+
+CREATE TABLE public.notifications (
+    notification_id  SERIAL          PRIMARY KEY,
+    user_id_fk       VARCHAR(64)     NOT NULL REFERENCES "user"(sha2_hash) ON DELETE CASCADE,
+    type             VARCHAR(32)     NOT NULL,
+    title            VARCHAR(255)    NOT NULL,
+    message          VARCHAR(512)    NOT NULL,
+    image_url        TEXT,
+    read             BOOLEAN         NOT NULL DEFAULT FALSE,
+    created_at       TIMESTAMPTZ     DEFAULT NOW(),
+
+    CONSTRAINT chk_notification_type CHECK (type IN ('new_episode', 'reservation', 'system'))
+);
+
+CREATE INDEX idx_notifications_user_created
+    ON public.notifications (user_id_fk, created_at DESC);
+
+CREATE INDEX idx_notifications_user_unread
+    ON public.notifications (user_id_fk)
+    WHERE read = FALSE;
+
+COMMENT ON TABLE public.notifications IS
+    '유저 알림. GNB 벨 표시. type: new_episode / reservation / system.';
+COMMENT ON COLUMN public.notifications.notification_id IS '자동 생성 알림 ID';
+COMMENT ON COLUMN public.notifications.user_id_fk IS 'FK -> "user".sha2_hash (ON DELETE CASCADE)';
+COMMENT ON COLUMN public.notifications.type IS 'new_episode: 찜 시리즈 신규 에피소드 | reservation: 시청예약 도래 | system: 시스템 공지';
+COMMENT ON COLUMN public.notifications.title IS '알림 제목 (시리즈명 또는 프로그램명)';
+COMMENT ON COLUMN public.notifications.message IS '알림 본문';
+COMMENT ON COLUMN public.notifications.image_url IS '알림 썸네일. NULL 허용.';
+COMMENT ON COLUMN public.notifications.read IS '읽음 여부. PATCH로 TRUE 전환.';
+COMMENT ON COLUMN public.notifications.created_at IS '알림 생성 시각';
+
+-- 신규 에피소드 알림 트리거
+CREATE OR REPLACE FUNCTION fn_notify_new_episode()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.series_nm IS NOT NULL THEN
+        INSERT INTO public.notifications (user_id_fk, type, title, message, image_url)
+        SELECT w.user_id_fk,
+               'new_episode',
+               NEW.series_nm,
+               NEW.asset_nm || ' 새로운 에피소드가 등록되었습니다',
+               NEW.poster_url
+        FROM public.wishlist w
+        WHERE w.series_nm = NEW.series_nm;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_new_episode_notify
+    AFTER INSERT ON public.vod
+    FOR EACH ROW EXECUTE FUNCTION fn_notify_new_episode();

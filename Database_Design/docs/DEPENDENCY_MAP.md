@@ -30,6 +30,7 @@
 | `public.purchase_history` | `API_Server` | `API_Server`(읽기/쓰기) |
 | `public.point_history` | `API_Server` | `API_Server`(읽기/쓰기) |
 | `public.watch_reservation` | `API_Server` | `API_Server`(읽기/쓰기) |
+| `public.notifications` | `API_Server`, DB 트리거(`fn_notify_new_episode`) | `API_Server`(읽기/쓰기) |
 
 ### Gold 계층 (serving 스키마)
 
@@ -178,6 +179,7 @@
 | 읽기/쓰기 | `public.point_history` | `point_history_id`, `user_id_fk`, `type`, `amount`, `description`, `related_purchase_id`, `created_at` | BIGINT/VARCHAR(64)/VARCHAR(8)/INTEGER/VARCHAR(256)/BIGINT/TIMESTAMPTZ | 포인트 적립/사용. DB 트리거가 `user.point_balance` 자동 갱신 + `NOTIFY user_activity` |
 | 읽기 | `public."user"` | `point_balance` | INTEGER | 포인트 잔액 O(1) 조회 (DB 트리거 자동 갱신) |
 | 읽기/쓰기 | `public.watch_reservation` | `reservation_id`, `user_id_fk`, `channel`, `program_name`, `alert_at`, `notified` | SERIAL/VARCHAR(64)/INTEGER/VARCHAR(255)/TIMESTAMPTZ/BOOLEAN | 시청예약 등록/조회/삭제. 30초 주기 background task가 `notified` 갱신 |
+| 읽기/쓰기 | `public.notifications` | `notification_id`, `user_id_fk`, `type`, `title`, `message`, `image_url`, `read`, `created_at` | SERIAL/VARCHAR(64)/VARCHAR(32)/VARCHAR(255)/VARCHAR(512)/TEXT/BOOLEAN/TIMESTAMPTZ | GNB 알림 벨. type: new_episode/reservation/system. 읽음/삭제 관리 |
 
 ---
 
