@@ -33,6 +33,7 @@ CREATE TABLE "user" (
     ch_hh_avg_month1    REAL,
     kids_use_pv_month1  REAL,
     nfx_use_yn          BOOLEAN,
+    point_balance       INTEGER         NOT NULL DEFAULT 0,
     created_at          TIMESTAMPTZ     DEFAULT NOW(),
     last_active_at      TIMESTAMPTZ     DEFAULT NOW()
 );
