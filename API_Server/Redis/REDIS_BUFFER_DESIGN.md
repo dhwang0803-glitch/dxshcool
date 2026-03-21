@@ -1,7 +1,8 @@
 # Redis 실시간 유저 데이터 버퍼 설계
 
 > 작성일: 2026-03-20
-> 상태: 검토 중 (브랜치 분기 미정)
+> **상태: 폐기 (2026-03-21)** — 인프라 제약(1GB RAM VPC)으로 Redis 도입 불가.
+> 대체 설계: `API_Server/docs/realtime_architecture.md` (방안 A — PG 내장 기능 + 인메모리 버퍼)
 
 ---
 

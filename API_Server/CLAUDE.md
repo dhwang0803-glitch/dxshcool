@@ -54,7 +54,7 @@ import uvicorn
 | GET | `/home/sections` | CT_CL별 인기 20선 | popular_recommendation |
 | GET | `/series/{id}/episodes` | 에피소드 목록 (중복 제거) | vod |
 | GET | `/series/{id}/progress` | 시청 진행 현황 | episode_progress |
-| POST | `/series/{id}/episodes/{id}/progress` | 진행률 UPSERT | episode_progress |
+| POST | `/series/{id}/episodes/{id}/progress` | 진행률 heartbeat (인메모리 버퍼 → 60초 batch flush) | episode_progress |
 | GET | `/series/{id}/purchase-check` | 구매 여부 확인 | purchase_history |
 | GET | `/series/{id}/purchase-options` | 구매 옵션 (FOD 무료 분기) | vod |
 | GET | `/user/me/watching` | 시청 중 콘텐츠 | episode_progress |
@@ -66,6 +66,9 @@ import uvicorn
 | POST | `/purchases` | 포인트 구매 트랜잭션 | purchase/point_history |
 | POST | `/wishlist` | 찜 추가 | wishlist |
 | DELETE | `/wishlist/{series_nm}` | 찜 해제 | wishlist |
+| POST | `/reservations` | 시청예약 등록 | watch_reservation |
+| GET | `/reservations` | 시청예약 목록 (미알림) | watch_reservation |
+| DELETE | `/reservations/{id}` | 시청예약 취소 | watch_reservation |
 
 ## 실행
 

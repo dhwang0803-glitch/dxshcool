@@ -10,6 +10,7 @@ from app.models.series import (
 )
 from app.routers.auth import get_current_user
 from app.services import series_service
+from app.services.progress_buffer import buffer_progress
 from app.services.exceptions import (
     EPISODE_NOT_FOUND,
     INVALID_COMPLETION_RATE,
@@ -54,19 +55,27 @@ async def update_progress(
     body: ProgressUpdateRequest,
     current_user: str = Depends(get_current_user),
 ):
-    """에피소드 시청 진행률 기록 (UPSERT).
+    """에피소드 시청 진행률 기록 (인메모리 버퍼).
 
     Frontend에서 30초 heartbeat 주기로 호출.
-    ON CONFLICT DO UPDATE로 최신 진행률만 유지.
+    DB에 직접 쓰지 않고 메모리 버퍼에 최신 값만 보관,
+    60초마다 background task가 batch UPSERT.
     """
     if body.completion_rate < 0 or body.completion_rate > 100:
         raise INVALID_COMPLETION_RATE()
-    result = await series_service.update_episode_progress(
-        current_user, series_nm, asset_nm, body.completion_rate
-    )
-    if not result:
+
+    # vod_id 조회 (버퍼에 넣기 위해 필요)
+    vod_id = await series_service.resolve_vod_id(series_nm, asset_nm)
+    if not vod_id:
         raise EPISODE_NOT_FOUND()
-    return ProgressUpdateResponse(**result)
+
+    await buffer_progress(current_user, vod_id, series_nm, body.completion_rate)
+
+    return ProgressUpdateResponse(
+        episode_title=asset_nm,
+        completion_rate=body.completion_rate,
+        watched_at=None,  # 버퍼 모드에서는 flush 후 확정
+    )
 
 
 @router.get(

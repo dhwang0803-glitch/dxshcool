@@ -36,7 +36,7 @@ class ProgressUpdateRequest(BaseModel):
 class ProgressUpdateResponse(BaseModel):
     episode_title: str
     completion_rate: int
-    watched_at: datetime
+    watched_at: datetime | None
 
 
 class PurchaseCheckResponse(BaseModel):
