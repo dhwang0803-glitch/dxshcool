@@ -73,7 +73,22 @@ CREATE TABLE vod (
 
     -- Poster_Collection 파이프라인이 채우는 포스터 경로 (2026-03-11 추가)
     -- VPC 업로드 후 경로 또는 URL. NULL = 미수집.
-    poster_url          TEXT
+    poster_url          TEXT,
+
+    -- disp_rtm를 분 단위로 변환한 값 (2026-03-14 추가)
+    disp_rtm_min        SMALLINT,               -- ROUND(disp_rtm_sec / 60). 프론트엔드 표시용.
+
+    -- TMDB 인기도/평점 컬럼 (2026-03-18 추가)
+    -- RAG 파이프라인이 수집, 인기도 스코어 산출 입력
+    tmdb_vote_average   REAL,                   -- TMDB 평점 (0.0~10.0)
+    tmdb_vote_count     INTEGER,                -- TMDB 평가 참여자 수
+    tmdb_popularity     REAL,                   -- TMDB 인기도 점수 (참고용)
+
+    -- Object_Detection 파이프라인용 트레일러 컬럼 (2026-03-18 추가)
+    -- backfill_youtube_ids.py가 YouTube 검색 후 적재, Object_Detection이 소비
+    youtube_video_id    VARCHAR(20),            -- YouTube 영상 ID (iframe 재생용)
+    duration_sec        REAL,                   -- 트레일러 영상 길이 (초). disp_rtm_sec(원본 메타 러닝타임)과 별도.
+    trailer_processed   BOOLEAN     DEFAULT FALSE  -- Object_Detection 처리 완료 여부
 );
 
 
