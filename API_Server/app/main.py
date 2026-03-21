@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.routers import ad, auth, home, purchase, recommend, reservation, series, similar, user, vod, wishlist
+from app.routers import ad, auth, home, notification, purchase, recommend, reservation, search, series, similar, user, vod, wishlist
 from app.services.db import close_pool, create_pool
 from app.services.exceptions import APIError
 from app.services.pg_listener import start_pg_listener
@@ -96,6 +96,8 @@ app.include_router(wishlist.router, prefix="/wishlist", tags=["wishlist"])
 app.include_router(recommend.router, prefix="/recommend", tags=["recommend"])
 app.include_router(reservation.router, prefix="/reservations", tags=["reservation"])
 app.include_router(similar.router, prefix="/similar", tags=["similar"])
+app.include_router(notification.router, prefix="/user/me/notifications", tags=["notification"])
+app.include_router(search.router, prefix="/vod", tags=["search"])
 
 
 @app.get("/health")

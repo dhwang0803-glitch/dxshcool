@@ -69,6 +69,12 @@ import uvicorn
 | POST | `/reservations` | 시청예약 등록 | watch_reservation |
 | GET | `/reservations` | 시청예약 목록 (미알림) | watch_reservation |
 | DELETE | `/reservations/{id}` | 시청예약 취소 | watch_reservation |
+| GET | `/home/sections/{user_id}` | 개인화 섹션 (장르 시청 비중 + 미시청 도전) | watch_history + popular_recommendation |
+| GET | `/user/me/notifications` | 알림 목록 (최신순) | notifications |
+| PATCH | `/user/me/notifications/{id}/read` | 알림 읽음 처리 | notifications |
+| POST | `/user/me/notifications/read-all` | 전체 읽음 처리 | notifications |
+| DELETE | `/user/me/notifications/{id}` | 알림 삭제 | notifications |
+| GET | `/vod/search?q={query}` | GNB 통합 검색 (제목/출연진/감독/장르, 최대 8건) | vod (pg_trgm) |
 
 ## 실행
 

@@ -76,6 +76,9 @@ def SIMILAR_NOT_FOUND() -> APIError:
 def WISHLIST_NOT_FOUND() -> APIError:
     return APIError("WISHLIST_NOT_FOUND", "찜 목록에 없는 시리즈입니다", 404)
 
+def NOTIFICATION_NOT_FOUND() -> APIError:
+    return APIError("NOTIFICATION_NOT_FOUND", "해당 알림을 찾을 수 없습니다", 404)
+
 
 # ── 500 Internal Server Error ─────────────────────────────────
 
