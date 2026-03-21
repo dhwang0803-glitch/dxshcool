@@ -88,17 +88,28 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 | `public.vod` | `director`, `cast_lead`, `cast_guest` | VARCHAR/TEXT | VOD 상세 응답 |
 | `public.vod` | `smry`, `rating`, `release_date`, `poster_url`, `asset_prod` | TEXT/VARCHAR/DATE/TEXT/VARCHAR | VOD 상세 응답. `release_date` → `release_year`(연도 int) 변환. `asset_prod='FOD'` → `is_free=true` |
 | `public."user"` | `sha2_hash` | VARCHAR | 사용자 존재 여부 확인 (PK) |
+| `public."user"` | `point_balance` | INT | 포인트 잔액 O(1) 조회 (DB 트리거가 point_history INSERT 시 자동 갱신) |
+| `public.episode_progress` | `user_id_fk`, `vod_id_fk`, `series_nm`, `completion_rate`, `watched_at` | VARCHAR/VARCHAR/VARCHAR/SMALLINT/TIMESTAMPTZ | 시청 진행률 조회 (시청중/시청내역) |
+| `public.purchase_history` | `user_id_fk`, `series_nm`, `purchased_at`, `expires_at` | VARCHAR/VARCHAR/TIMESTAMPTZ/TIMESTAMPTZ | 구매 내역·만료 확인 |
+| `public.point_history` | `user_id_fk`, `amount`, `reason`, `created_at` | VARCHAR/INT/VARCHAR/TIMESTAMPTZ | 포인트 내역 조회 |
+| `public.wishlist` | `user_id_fk`, `series_nm` | VARCHAR/VARCHAR | 찜 목록 조회 |
+| `public.watch_reservation` | `reservation_id`, `user_id_fk`, `channel`, `program_name`, `alert_at`, `notified` | SERIAL/VARCHAR/INT/VARCHAR/TIMESTAMPTZ/BOOLEAN | 시청예약 조회·알림 체크 (30초 주기) |
 | `serving.vod_recommendation` | `user_id_fk`, `source_vod_id`, `vod_id_fk`, `rank`, `score`, `recommendation_type`, `expires_at` | VARCHAR/REAL/INT/VARCHAR/TIMESTAMPTZ | `/recommend` (user_id_fk 기준) + `/similar` (source_vod_id 기준). TTL 필터 적용 |
 | `serving.mv_vod_watch_stats` | `vod_id_fk`, `total_watch_count` | VARCHAR/INT | /recommend fallback (인기순) |
 
 ### 다운스트림 (쓰기)
 
-| 대상 | 방식 |
-|------|------|
-| `Frontend` | REST JSON 응답 / WebSocket |
+| 테이블 | 컬럼 | 타입 | 비고 |
+|--------|------|------|------|
+| `public.episode_progress` | `user_id_fk`, `vod_id_fk`, `series_nm`, `completion_rate`, `watched_at` | VARCHAR/VARCHAR/VARCHAR/SMALLINT/TIMESTAMPTZ | 인메모리 버퍼 → 60초 batch UPSERT. `ON CONFLICT (user_id_fk, vod_id_fk) DO UPDATE` |
+| `public.purchase_history` | `user_id_fk`, `series_nm`, `points_used`, `purchased_at`, `expires_at` | VARCHAR/VARCHAR/INT/TIMESTAMPTZ/TIMESTAMPTZ | 트랜잭션 INSERT. 중복 구매 시 무시 |
+| `public.point_history` | `user_id_fk`, `amount`, `reason` | VARCHAR/INT/VARCHAR | 트랜잭션 INSERT. DB 트리거가 `user.point_balance` 자동 갱신 + `NOTIFY user_activity` |
+| `public.wishlist` | `user_id_fk`, `series_nm` | VARCHAR/VARCHAR | INSERT/DELETE. DB 트리거 `NOTIFY user_activity` |
+| `public.watch_reservation` | `user_id_fk`, `channel`, `program_name`, `alert_at` | VARCHAR/INT/VARCHAR/TIMESTAMPTZ | INSERT/DELETE. `notified` 플래그 UPDATE (알림 전송 후) |
+| `Frontend` | — | — | REST JSON 응답 / WebSocket (광고 팝업 + 시청예약 알림 + 마이페이지 실시간 갱신) |
 
-> API 서버는 Gold 레이어(serving.*)에서 최종 결과만 읽어 JSON으로 전달한다.
-> 벡터 연산·집계는 수행하지 않는다.
+> API 서버는 Gold 레이어(serving.*)에서 추천 결과를 읽고, public 스키마에 사용자 활동을 기록한다.
+> 벡터 연산·집계는 수행하지 않는다. 실시간 갱신은 PG LISTEN/NOTIFY + 인메모리 버퍼(방안 A)로 처리한다.
 
 ---
 
