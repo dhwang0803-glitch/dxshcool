@@ -13,6 +13,7 @@ from app.services import series_service
 from app.services.exceptions import (
     EPISODE_NOT_FOUND,
     INVALID_COMPLETION_RATE,
+    RENTAL_EXPIRED,
     SERIES_NOT_FOUND,
 )
 
@@ -53,7 +54,11 @@ async def update_progress(
     body: ProgressUpdateRequest,
     current_user: str = Depends(get_current_user),
 ):
-    """에피소드 시청 진행률 기록 (UPSERT)."""
+    """에피소드 시청 진행률 기록 (UPSERT).
+
+    Frontend에서 30초 heartbeat 주기로 호출.
+    ON CONFLICT DO UPDATE로 최신 진행률만 유지.
+    """
     if body.completion_rate < 0 or body.completion_rate > 100:
         raise INVALID_COMPLETION_RATE()
     result = await series_service.update_episode_progress(
@@ -72,8 +77,13 @@ async def purchase_check(
     series_nm: str,
     current_user: str = Depends(get_current_user),
 ):
-    """특정 시리즈 구매 여부 + 대여 만료 확인."""
+    """특정 시리즈 구매 여부 + 대여 만료 확인.
+
+    대여 만료 시 403 RENTAL_EXPIRED 반환 → Frontend가 구매 페이지로 이동.
+    """
     data = await series_service.check_purchase(current_user, series_nm)
+    if data.get("is_expired"):
+        raise RENTAL_EXPIRED(series_nm)
     return PurchaseCheckResponse(**data)
 
 

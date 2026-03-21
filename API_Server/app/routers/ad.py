@@ -18,6 +18,10 @@ log = logging.getLogger(__name__)
 # 연결된 클라이언트 관리 (user_id → WebSocket)
 _connections: dict[str, WebSocket] = {}
 
+# 유저별 활성 광고 상태 (user_id → list[ad_data])
+# 재연결 시 미제거 광고를 다시 전송한다.
+_active_ads: dict[str, list[dict]] = {}
+
 
 @router.websocket("/popup")
 async def ad_popup(ws: WebSocket):
@@ -42,6 +46,13 @@ async def ad_popup(ws: WebSocket):
     await ws.accept()
     _connections[user_id] = ws
     log.info("ad_popup connected: user_id=%s", user_id)
+
+    # 재연결 시 미제거 광고 복원 전송
+    pending = _active_ads.get(user_id, [])
+    for ad_data in pending:
+        await ws.send_json(ad_data)
+    if pending:
+        log.info("ad_popup restored %d ads for user_id=%s", len(pending), user_id)
 
     try:
         while True:
@@ -80,8 +91,9 @@ async def _handle_action(user_id: str, action: AdActionMessage):
             })
 
     elif action.action == "dismiss":
-        # 팝업 완전 제거 — 클라이언트 측 처리, 서버는 로그만
-        pass
+        # 팝업 완전 제거 — 활성 광고 목록에서 제거 (재연결 시 복원 방지)
+        ads = _active_ads.get(user_id, [])
+        _active_ads[user_id] = [a for a in ads if a.get("vod_id") != action.vod_id]
 
     elif action.action in ("minimize", "reopen"):
         # 팝업 최소화/다시 열기 — 클라이언트 측 UI 처리
@@ -95,6 +107,9 @@ async def send_ad_to_user(user_id: str, ad_data: dict):
         {"type": "ad_popup", "ad_type": "local_gov", "vod_id": "...",
          "time_sec": 120, "data": {"image_url": "...", ...}}
     """
+    # 활성 광고 목록에 추가 (재연결 시 복원용)
+    _active_ads.setdefault(user_id, []).append(ad_data)
+
     ws = _connections.get(user_id)
     if ws:
         await ws.send_json(ad_data)

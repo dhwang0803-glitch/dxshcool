@@ -33,6 +33,16 @@ def TOKEN_DECODE_FAILED() -> APIError:
     return APIError("TOKEN_DECODE_FAILED", "인증 토큰을 확인할 수 없습니다", 401)
 
 
+# ── 403 Forbidden ────────────────────────────────────────────
+
+def RENTAL_EXPIRED(series_nm: str) -> APIError:
+    return APIError(
+        "RENTAL_EXPIRED",
+        f"대여 기간이 만료되었습니다. 구매 페이지에서 다시 구매해주세요",
+        403,
+    )
+
+
 # ── 402 Payment Required ─────────────────────────────────────
 
 def INSUFFICIENT_POINTS(balance: int, required: int) -> APIError:
