@@ -4,78 +4,49 @@
 
 ## 모듈 역할
 
-**YOLOv11 기반 VOD 배치 사물인식** — VOD 영상 프레임을 로컬에서 일괄 추론하여
-`vod_detected_object.parquet`을 생성한다. Shopping_Ad가 이 파일을 소비한다.
+**VOD 음식/관광지 2종 인식 + 지역명 추출** — 여행·먹방 VOD 트레일러를 로컬에서 분석하여
+음식/관광지 카테고리 + 지역명을 추출한다. Shopping_Ad가 이 산출물을 소비한다.
 
 > ⚠️ **로컬 전용 파이프라인**: VPC 인프라 제약(1 core / 1GB RAM)으로 모든 연산은 로컬에서 수행.
 > VPC에는 `detected_object_yolo`, `detected_object_clip`, `detected_object_stt` 3개 테이블에 적재.
 
+### 광고 전략 (2026-03-19 확정)
+
+| 인식 카테고리 | 광고 액션 | 예시 |
+|-------------|----------|------|
+| **관광지/지역** | 지자체 광고 팝업 (관광·축제) | "진주" 인식 → 진주 등불축제 광고 |
+| **음식** | 제철장터 채널 상품 연계 (채널 이동/시청예약) | "삼겹살" 인식 → 제철장터 한우 상품 |
+
+> **대상 VOD**: `genre_detail IN ('여행', '음식_먹방')` — 2,958건 (트레일러 매칭 1,479건)
+> **홈쇼핑 매칭 폐기** — 기획의도: 홈쇼핑 과몰입 수익구조 다각화 → 지역성 연계
+
 ### 데이터 플로우
 
 ```
-VOD 영상 파일 (로컬 트레일러 5,726개)
+VOD 트레일러 (여행/음식_먹방 1,479건, 로컬)
     → 프레임 추출 (N fps 샘플링, frame_extractor.py)
-    → YOLOv11 배치 추론 (로컬 GPU/CPU, detector.py)
-    → CLIP zero-shot 개념 태깅 (clip_scorer.py)
-    → context_filter 검증 (context_filter.py)
-    → Whisper STT 키워드 추출 (stt_scorer.py)
-    → 신뢰도 필터링 (>= 0.5)
-    → vod_detected_object.parquet 저장 (로컬)
-    → vod_clip_concept.parquet 저장 (로컬)
-    → vod_stt_concept.parquet 저장 (로컬)
-    → Shopping_Ad가 parquet 소비 → serving.shopping_ad 적재
-    → [사전처리 완료 후 영상 파일 삭제 가능 — DB에는 타임스탬프+광고만 저장]
+    → YOLOv11 배치 추론 (로컬 GPU/CPU, detector.py) — 음식 탐지
+    → CLIP zero-shot 개념 태깅 (clip_scorer.py) — 음식/관광지 장면 분류
+    → Whisper STT 키워드 추출 (stt_scorer.py) — 지역명 + 음식명
+    → OCR 자막 인식 (ocr_scorer.py) — 지역명/음식명 보완
+    → VOD 단위 카테고리 태깅 (음식/관광지 + 지역명)
+    → parquet 저장 (로컬)
+    → Shopping_Ad가 소비:
+        음식 → 제철장터 상품 매칭
+        관광지/지역 → 지자체 광고 소재 매칭
 ```
-
-### Shopping_Ad 연동 — 임베딩 기반 의미 매칭
-
-Object_Detection 산출물(label/concept/keyword)을 텍스트 임베딩하여 pgvector에 저장하고,
-`product_catalog` 상품명 임베딩과 코사인 유사도로 광고 상품을 매칭한다.
-
-```
-[Object Detection 산출물]
-  YOLO label:    "비빔밥"
-  CLIP concept:  "해변 바다 리조트 수영장"
-  STT keyword:   "여행"
-        ↓ sentence-transformers 텍스트 임베딩 (384d)
-        ↓
-[pgvector: public.detected_objects.embedding]
-        ↓ cosine similarity
-[pgvector: product_catalog.embedding]
-  product_name: "제주 여행 패키지", "한식 밀키트" 등
-        ↓
-[serving.shopping_ad]
-  vod_id | ts_start | ts_end | product_id | confidence
-```
-
-**rule-based 대비 장점:**
-- 카테고리 룰 수동 관리 불필요
-- 신규 상품 추가 시 임베딩만 추가하면 자동 연결
-- "삼겹살" → "BBQ 그릴", "캠핑 의자" 등 의미 기반 확장 매칭 가능
-
-**DB 추가 필요 컬럼 (황대원 협의):**
-
-| 테이블 | 컬럼 | 타입 | 용도 |
-|--------|------|------|------|
-| `public.detected_objects` | `embedding` | `vector(384)` | label 임베딩 |
-| `product_catalog` | `embedding` | `vector(384)` | 상품명 임베딩 |
-
-**임베딩 모델:** `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` (384d, 한국어 지원)
-
----
 
 ### UI 서빙 아키텍처
 
 ```
 [사전 배치 처리 — 1회]
-트레일러 로컬 처리 → serving.shopping_ad DB 적재 → 영상 파일 삭제 가능
+트레일러 로컬 분석 → VOD별 ad_category + region 태깅 → DB 적재
 
 [실시간 서빙]
-UI 영상 재생 (HTML5 video / YouTube iframe)
-  → currentTime 폴링 (0.5~1초)
-  → API_Server: SELECT * FROM serving.shopping_ad
-                WHERE vod_id=$1 AND ts_start <= $2 AND ts_end >= $2
-  → 팝업 표시
+UI 영상 재생
+  → API_Server: VOD의 ad_category/region 조회
+  → 음식 카테고리 → "제철장터에서 OO 판매중" 팝업 (채널 이동/시청예약)
+  → 관광지 카테고리 → "OO 지역 축제 안내" 팝업 (지자체 광고)
 ```
 
 ### 산출물 스키마 (parquet)
@@ -170,14 +141,9 @@ cd Object_Detection  # 또는 프로젝트 루트에서
 python scripts/batch_detect.py --input-dir /path/to/videos --output data/vod_detected_object.parquet
 python scripts/batch_detect.py --status   # 진행 상황 확인
 python scripts/batch_detect.py --dry-run --limit 5  # 테스트
-
-# ct_cl 필터 (기본값: TV 연예/오락)
-python scripts/batch_detect.py --ct-cl "TV 연예/오락"  # 예능만 처리 (기본값)
-python scripts/batch_detect.py --ct-cl ""              # 전체 처리
 ```
 
-> ⚠️ **처리 대상**: `public.vod.ct_cl = 'TV 연예/오락'` (19,141건) 만 처리.
-> 전체 처리 시 `--ct-cl ""`으로 필터 해제.
+> ⚠️ **처리 대상**: `genre_detail IN ('여행', '음식_먹방')` — 2,958건 (트레일러 매칭 1,479건).
 
 ---
 

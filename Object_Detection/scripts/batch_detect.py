@@ -26,7 +26,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from frame_extractor import extract_frames, list_video_files
-from detector import Detector
+from detector_v2 import DetectorV2
 from vod_filter import filter_videos_by_ct_cl
 
 DATA_DIR    = PROJECT_ROOT / "data"
@@ -101,8 +101,8 @@ def main():
     parser.add_argument("--input-dir", type=str, default=str(PROJECT_ROOT / "data" / "trailers_아름"),
                         help="VOD 영상 파일 디렉터리")
     parser.add_argument("--output",    type=str, default=str(DATA_DIR / "vod_detected_object.parquet"))
-    parser.add_argument("--model",     type=str, default="yolo11s.pt",
-                        help="yolo11n.pt | yolo11s.pt | yolov8s.pt 등")
+    parser.add_argument("--model",     type=str, default=str(PROJECT_ROOT / "models" / "best.pt"),
+                        help="파인튜닝 best.pt (기본) | yolo11s.pt (COCO fallback)")
     parser.add_argument("--fps",       type=float, default=1.0)
     parser.add_argument("--conf",      type=float, default=0.5)
     parser.add_argument("--device",    type=str, default="cpu")
@@ -149,8 +149,16 @@ def main():
             log.info(f"[DRY-RUN] {f.name}")
         return
 
-    # Detector 초기화
-    det = Detector(model_name=args.model, confidence=args.conf, device=args.device)
+    # DetectorV2 초기화 (COCO 사전필터 + 파인튜닝 food 모델)
+    food_pt = args.model if Path(args.model).exists() else "yolo11s.pt"
+    log.info(f"food 모델: {food_pt}")
+    det = DetectorV2(
+        food_model=food_pt,
+        coco_model="yolo11s.pt",
+        confidence=args.conf,
+        coco_confidence=0.3,
+        device=args.device,
+    )
 
     run_success = run_failed = 0
     buffer = []

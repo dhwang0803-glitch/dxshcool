@@ -1,4 +1,4 @@
-"""homeshopping_product 테이블 UPSERT 모듈."""
+"""seasonal_market 테이블 UPSERT 모듈."""
 
 from __future__ import annotations
 
@@ -15,25 +15,17 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 UPSERT_SQL = """
-INSERT INTO homeshopping_product (
-    channel, broadcast_date, start_time, end_time,
-    raw_name, normalized_name, price,
-    product_url, image_url, program_name
+INSERT INTO seasonal_market (
+    channel, broadcast_date, start_time, end_time, product_name
 )
 VALUES (
     %(channel)s, %(broadcast_date)s, %(start_time)s, %(end_time)s,
-    %(raw_name)s, %(normalized_name)s, %(price)s,
-    %(product_url)s, %(image_url)s, %(program_name)s
+    %(product_name)s
 )
-ON CONFLICT (channel, broadcast_date, start_time, raw_name)
+ON CONFLICT (channel, broadcast_date, start_time, product_name)
 DO UPDATE SET
-    end_time        = EXCLUDED.end_time,
-    normalized_name = EXCLUDED.normalized_name,
-    price           = EXCLUDED.price,
-    product_url     = EXCLUDED.product_url,
-    image_url       = EXCLUDED.image_url,
-    program_name    = EXCLUDED.program_name,
-    crawled_at      = NOW()
+    end_time   = EXCLUDED.end_time,
+    crawled_at = NOW()
 """
 
 
@@ -58,7 +50,7 @@ def get_conn():
 
 
 def upsert_products(conn, products: list[dict]) -> int:
-    """homeshopping_product UPSERT. 적재 건수를 반환."""
+    """seasonal_market UPSERT. 적재 건수를 반환."""
     if not products:
         return 0
 
@@ -71,12 +63,7 @@ def upsert_products(conn, products: list[dict]) -> int:
                 "broadcast_date": row.get("broadcast_date"),
                 "start_time": row.get("start_time"),
                 "end_time": row.get("end_time"),
-                "raw_name": row.get("raw_name"),
-                "normalized_name": row.get("normalized_name"),
-                "price": row.get("price"),
-                "product_url": row.get("product_url"),
-                "image_url": row.get("image_url"),
-                "program_name": row.get("program_name"),
+                "product_name": row.get("product_name"),
             }
             cur.execute(UPSERT_SQL, params)
             count += 1

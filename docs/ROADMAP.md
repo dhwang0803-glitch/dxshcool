@@ -20,8 +20,8 @@
      ▼              ▼              ▼
 ┌─────────┐  ┌────────────┐  ┌──────────────┐
 │CF_Engine│  │Vector_     │  │Shopping_Ad   │
-│행렬분해  │  │Search      │  │홈쇼핑 팝업   │
-│추천엔진  │  │유사도검색  │  │광고 시스템   │
+│행렬분해  │  │Search      │  │지자체 광고   │
+│추천엔진  │  │유사도검색  │  │+제철장터    │
 └────┬────┘  └─────┬──────┘  └──────┬───────┘
      │              │                │
      └──────────────┼────────────────┘
@@ -226,6 +226,35 @@ Vector_Search/
 
 ---
 
+### `Hybrid_Layer` — 설명 가능한 추천 (Explainable Recommendation)
+- CF_Engine + Vector_Search의 추천 후보(각 top 20)를 입력으로 수신
+- `vod_tag`(감독/배우/장르) × `user_preference`(유저 선호 프로필) 매칭
+- 중복 제거 + 태그 기반 리랭킹 → 최종 top 20 + `explanation_tags` 생성
+- `serving.hybrid_recommendation`에 적재 → API_Server가 이 테이블을 서빙
+
+**설명 가능한 추천 예시:**
+```
+"봉준호 감독 작품을 즐겨 보셨어요" (director affinity 0.92)
+"송강호 배우 출연작을 자주 시청하셨네요" (actor affinity 0.85)
+```
+
+**예정 폴더 구조:**
+```
+Hybrid_Layer/
+├── src/
+│   ├── tag_builder.py        ← vod → vod_tag 태그 추출
+│   ├── preference_builder.py ← watch_history × vod_tag → user_preference
+│   └── reranker.py           ← 후보 리랭킹 + explanation 생성
+├── scripts/
+│   ├── build_vod_tags.py         ← Phase 1 실행
+│   ├── build_user_preferences.py ← Phase 2 실행
+│   └── run_hybrid.py             ← Phase 3 리랭킹 + 적재
+├── tests/
+└── config/
+```
+
+---
+
 ## Phase 3 — 영상 AI
 
 > **인프라 제약**: VPC 1 core / 1GB RAM (+3GB swap) / 150GB Storage
@@ -266,70 +295,60 @@ Object_Detection/
 
 ---
 
-### `Shopping_Ad` — 홈쇼핑 광고 팝업 시스템
+### `Shopping_Ad` — 지자체 광고 팝업 + 제철장터 채널 연계
 
-**핵심 아이디어**: VOD 재생 전 트리거 포인트(time_sec)를 미리 계산하고,
-매일 자정 수집한 홈쇼핑 tv_schedule과 매칭하여 `serving.shopping_ad`에 적재.
-시청자가 VOD를 재생하다 해당 time_sec에 도달하면 API_Server가 팝업을 발화한다.
+> **2026-03-19 방향 전환**: 홈쇼핑 연동 폐기 → 지자체 광고 + 제철장터 연계로 전환.
+
+**핵심 아이디어**: Object_Detection의 장면 인식 결과를 기반으로,
+관광지/지역 인식 시 지자체 광고 팝업을, 음식 인식 시 제철장터 채널 연계를 트리거한다.
+
+| 인식 대상 | 광고 액션 | 예시 |
+|----------|---------|------|
+| 관광지/지역 (진주, 여수 등) | 지자체 광고 팝업 (생성형 AI 제작, OCI 저장) | 진주 동물축제 광고 |
+| 음식 (삼겹살, 한우 등) | 제철장터 채널 상품 연계 (채널 이동/시청예약) | 한우 축제, 김치 축제 |
 
 **처리 흐름 (3단계):**
 
 ```
 ━━━ ① 배치 처리 (사전 계산) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-VOD_Embedding 세부장르 분류 (예능 한정)
-  세부장르: 여행 / 먹방·음식 / 토크쇼
-
 Object_Detection 3종 parquet 소비:
   vod_detected_object.parquet  ← YOLO bbox
   vod_clip_concept.parquet     ← CLIP 개념 태깅
   vod_stt_concept.parquet      ← Whisper STT 키워드
 
-세부장르별 트리거 조건 적용:
-  먹방·음식 → 음식 인서트 컷 / 식사 장면 (YOLO + CLIP)
-  여행      → 지역 음식·특산품 등장 (CLIP + STT)
-  토크쇼    → 상품·브랜드 언급 구간 (STT 우선)
+인식 대상별 트리거 조건 적용:
+  관광지/지역 → STT 지역명 + CLIP 지역 개념 → 지자체 광고 팝업
+  음식        → YOLO 음식 bbox + CLIP 음식 개념 → 제철장터 채널 연계
 
-→ trigger_points.parquet (vod_id, time_sec, genre, ad_category)
+→ trigger_points.parquet (vod_id, time_sec, ad_category, ad_action_type)
 
-━━━ ② 매일 자정 (tv_schedule 갱신) ━━━━━━━━━━━━━━━━━━━━━━━━
+━━━ ② 광고 소재 생성 (MVP: 수동/반자동) ━━━━━━━━━━━━━━━━━━━
 
-홈쇼핑 채널 편성 API 수집
-→ tv_schedule 갱신 (상품명, 카테고리, 판매 시작·종료 시간, 채널)
-→ ad_category 기준 serving.shopping_ad product 정보 업데이트
+축제 리스트 수집 (예: 3~4월 지역 축제)
+→ 생성형 AI로 팝업 광고 이미지 제작
+→ OCI Object Storage 업로드
+→ serving 테이블에 광고 이미지 URL 적재
 
 ━━━ ③ 실시간 팝업 발화 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 시청자 VOD 재생 시작
 → API_Server: serving.shopping_ad WHERE vod_id=$1 조회
 → 재생 중 time_sec 도달
-→ 매칭된 홈쇼핑 상품 팝업 발화 (채널이동 / 시청예약 액션)
-```
-
-**팝업 메시지 스펙:**
-```json
-{
-  "trigger_label": "음식",
-  "product_name": "영광 굴비 선물세트",
-  "channel": "GS샵",
-  "price": "59,000원",
-  "actions": ["채널이동", "시청예약"]
-}
+→ 관광지/지역: 지자체 광고 팝업 표시
+→ 음식: 제철장터 채널 이동/시청예약 안내
 ```
 
 **테이블 소유:**
 
 | 테이블 | 위치 | 설명 |
 |--------|------|------|
-| `tv_schedule` | 로컬 DB | 홈쇼핑 채널 상품 편성표 — **매일 자정 갱신** |
-| `homeshopping_product` | 로컬 DB/CSV | 홈쇼핑 상품 카탈로그 (이 브랜치가 수집·보유) |
-| `product_object_mapping` | 로컬 yaml/CSV | YOLO·CLIP 개념 → 광고 카테고리 매핑 (비즈니스 로직) |
-| `serving.shopping_ad` | **VPC** | 트리거 포인트 + 매칭 상품 (API_Server 직접 조회) |
+| `product_object_mapping` | 로컬 yaml/CSV | 인식 결과 → 광고 카테고리 매핑 (비즈니스 로직) |
+| `serving.shopping_ad` | **VPC** | 트리거 포인트 + 광고 액션 (API_Server 직접 조회) |
 
 **의존 관계:**
-- `VOD_Embedding` — 세부장르 분류 (`public.vod.genre`) 완료 후 트리거 추출 가능
 - `Object_Detection` — 3종 parquet 생성 완료 후 트리거 추출 가능
-- `Database_Design` — `serving.shopping_ad` 스키마 확정 필요
+- `Database_Design` — `serving.shopping_ad` 스키마 재설계 필요 (지자체 광고 + 제철장터 반영)
 - `API_Server` — `/ad/popup` trigger_ts 기반 발화 엔드포인트 구현 (PLAN_06)
 
 **예정 폴더 구조:**
@@ -370,7 +389,7 @@ API_Server/
 ### `Frontend` — React/Next.js 클라이언트
 - VOD 목록 + 추천 결과 표시
 - 실시간 광고 팝업 오버레이 (TV 화면 위)
-- 홈쇼핑 채널 이동 / 시청예약 UX
+- 지자체 광고 팝업 오버레이 + 제철장터 채널 이동/시청예약 UX
 
 **예정 폴더 구조:**
 ```

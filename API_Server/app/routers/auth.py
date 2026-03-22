@@ -1,5 +1,4 @@
 import os
-from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -12,7 +11,6 @@ router = APIRouter()
 security = HTTPBearer()
 
 ALGORITHM = "HS256"
-EXPIRE_MINUTES = 60
 
 
 def _secret() -> str:
@@ -23,10 +21,8 @@ def _secret() -> str:
 
 
 def create_access_token(user_id: str) -> str:
-    payload = {
-        "sub": user_id,
-        "exp": datetime.utcnow() + timedelta(minutes=EXPIRE_MINUTES),
-    }
+    """셋톱박스 자동 로그인 — 만료 없는 토큰 발급."""
+    payload = {"sub": user_id}
     return jwt.encode(payload, _secret(), algorithm=ALGORITHM)
 
 

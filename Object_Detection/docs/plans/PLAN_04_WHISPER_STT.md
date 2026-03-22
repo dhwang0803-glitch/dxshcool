@@ -1,3 +1,5 @@
+> ✅ **완료** (Phase 4). STT 키워드 현재 599개. 최신 → `docs/MATCHING_FLOW.md`
+
 # PLAN_04 — Whisper STT 멀티모달 확장
 
 - **브랜치**: Object_Detection
