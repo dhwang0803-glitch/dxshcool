@@ -63,6 +63,16 @@ def load_clip_queries(path):
     return queries, qmap
 
 
+def _append_parquet(df_new, path):
+    """기존 parquet에 append (없으면 신규 생성)"""
+    if path.exists():
+        df_old = pd.read_parquet(str(path))
+        df = pd.concat([df_old, df_new], ignore_index=True)
+    else:
+        df = df_new
+    df.to_parquet(str(path), index=False)
+
+
 def format_time(sec):
     m, s = divmod(int(sec), 60)
     return f"{m:02d}:{s:02d}"
@@ -79,6 +89,8 @@ def main():
     parser.add_argument("--fps", type=float, default=1.0)
     parser.add_argument("--save-frames", action="store_true",
                         help="TRIGGER 구간 대표 프레임을 이미지로 저장")
+    parser.add_argument("--save-parquet", action="store_true",
+                        help="DB 적재용 parquet 4종 저장")
     args = parser.parse_args()
 
     print("=" * 70)
@@ -362,6 +374,57 @@ def main():
 
         if args.save_frames and trigger_count > 0:
             print(f"\n  📸 TRIGGER 프레임 {trigger_count}장 저장 → {snap_dir}")
+
+        # parquet 저장 (DB 적재용)
+        if args.save_parquet:
+            parquet_dir = PROJECT_ROOT / "data" / "parquet_output"
+            parquet_dir.mkdir(parents=True, exist_ok=True)
+
+            # YOLO parquet
+            if yolo_records:
+                df_yolo = pd.DataFrame(yolo_records)
+                _append_parquet(df_yolo, parquet_dir / "vod_detected_object.parquet")
+
+            # CLIP parquet
+            if clip_records:
+                df_clip = pd.DataFrame(clip_records)
+                _append_parquet(df_clip, parquet_dir / "vod_clip_concept.parquet")
+
+            # STT parquet
+            if stt_records:
+                df_stt = pd.DataFrame(stt_records)
+                _append_parquet(df_stt, parquet_dir / "vod_stt_concept.parquet")
+
+            # OCR parquet (상세: bbox + confidence)
+            if ocr_results:
+                ocr_detail_records = []
+                for ocr_item in ocr_results:
+                    # keyword_mapper 매칭
+                    matches = kw_mapper.match(
+                        ocr_item["text"], vod_id,
+                        ocr_item["frame_ts"], ocr_item["frame_ts"] + 1.0
+                    )
+                    ad_category = None
+                    region_hint = None
+                    for m in matches:
+                        if len(m["keyword"]) >= 2:
+                            ad_category = m["ad_category"]
+                            if m["ad_category"] == "관광지":
+                                region_hint = m["keyword"]
+                    ocr_detail_records.append({
+                        "vod_id": vod_id,
+                        "frame_ts": ocr_item["frame_ts"],
+                        "detected_text": ocr_item["text"],
+                        "confidence": 0.0,  # extract_texts는 confidence 미포함
+                        "bbox": [],
+                        "ad_category": ad_category,
+                        "region_hint": region_hint,
+                    })
+                if ocr_detail_records:
+                    df_ocr = pd.DataFrame(ocr_detail_records)
+                    _append_parquet(df_ocr, parquet_dir / "vod_ocr_concept.parquet")
+
+            print(f"\n  💾 parquet 저장 → {parquet_dir}")
 
         # 결과 저장
         all_results.append({
