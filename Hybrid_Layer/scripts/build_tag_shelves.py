@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 
 
 def main():
-    with open("Hybrid_Layer/config/hybrid_config.yaml") as f:
+    with open("Hybrid_Layer/config/hybrid_config.yaml", encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
     tr = config.get("tag_recommendation", {})

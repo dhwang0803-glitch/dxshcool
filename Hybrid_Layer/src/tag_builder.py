@@ -2,12 +2,32 @@
 
 public.vod → public.vod_tag
 태그 카테고리: director, actor, genre, genre_detail, rating
+
+confidence 계산:
+    log(vote_count+1) / log(MAX_VOTE_COUNT+1) × vote_average/10
+    - vote_count, vote_average 없으면 DEFAULT_CONFIDENCE(0.1) 사용
+    - 장르/감독/배우 태그 모두 동일 공식 적용
+    → 인기+품질 기반으로 장르 내 VOD 정렬 순서 결정
 """
 
 import json
 import logging
+import math
 
 log = logging.getLogger(__name__)
+
+# tmdb_vote_count max=39,140 기준 (DB 실측값)
+_MAX_VOTE_COUNT = 40000
+_DEFAULT_CONFIDENCE = 0.1  # TMDB 데이터 없는 VOD (25.6%)
+
+
+def _calc_confidence(vote_count, vote_average) -> float:
+    """TMDB 투표수 × 평점 기반 confidence 계산 (0~1)."""
+    if not vote_count or not vote_average:
+        return _DEFAULT_CONFIDENCE
+    popularity = math.log(vote_count + 1) / math.log(_MAX_VOTE_COUNT + 1)
+    quality = float(vote_average) / 10.0
+    return round(min(popularity * quality, 1.0), 6)
 
 
 def parse_cast(raw: str | None) -> list[str]:
@@ -49,11 +69,12 @@ def normalize_rating(raw: str | None) -> str | None:
 def extract_tags_from_row(row: dict) -> list[tuple[str, str, str, float]]:
     """단일 VOD 행에서 (vod_id, tag_category, tag_value, confidence) 리스트 반환."""
     vod_id = row["full_asset_id"]
+    conf = _calc_confidence(row.get("tmdb_vote_count"), row.get("tmdb_vote_average"))
     tags = []
 
     # director
     for d in parse_director(row.get("director")):
-        tags.append((vod_id, "director", d, 1.0))
+        tags.append((vod_id, "director", d, conf))
 
     # actor (cast_lead + cast_guest)
     actors = set()
@@ -62,22 +83,22 @@ def extract_tags_from_row(row: dict) -> list[tuple[str, str, str, float]]:
     for name in parse_cast(row.get("cast_guest")):
         actors.add(name)
     for a in actors:
-        tags.append((vod_id, "actor", a, 1.0))
+        tags.append((vod_id, "actor", a, conf))
 
     # genre
     genre = row.get("genre")
     if genre and genre.strip():
-        tags.append((vod_id, "genre", genre.strip(), 1.0))
+        tags.append((vod_id, "genre", genre.strip(), conf))
 
     # genre_detail
     genre_detail = row.get("genre_detail")
     if genre_detail and genre_detail.strip():
-        tags.append((vod_id, "genre_detail", genre_detail.strip(), 1.0))
+        tags.append((vod_id, "genre_detail", genre_detail.strip(), conf))
 
     # rating
     rating = normalize_rating(row.get("rating"))
     if rating:
-        tags.append((vod_id, "rating", rating, 1.0))
+        tags.append((vod_id, "rating", rating, conf))
 
     return tags
 
@@ -93,7 +114,8 @@ def build_vod_tags(conn) -> int:
         cur.execute(
             """
             SELECT full_asset_id, director, cast_lead, cast_guest,
-                   genre, genre_detail, rating
+                   genre, genre_detail, rating,
+                   tmdb_vote_count, tmdb_vote_average
             FROM public.vod
             WHERE full_asset_id IS NOT NULL
             """
@@ -109,12 +131,13 @@ def build_vod_tags(conn) -> int:
 
     log.info("Extracted %d tags, inserting into vod_tag...", len(all_tags))
 
-    # 배치 INSERT (ON CONFLICT DO NOTHING)
+    # 기존 데이터 삭제 후 재적재 (confidence 값 갱신)
     inserted = 0
     batch_size = 5000
     with conn.cursor() as cur:
+        cur.execute("TRUNCATE TABLE public.vod_tag")
         for i in range(0, len(all_tags), batch_size):
-            batch = all_tags[i : i + batch_size]
+            batch = all_tags[i: i + batch_size]
             args = ",".join(
                 cur.mogrify("(%s,%s,%s,%s)", t).decode() for t in batch
             )
@@ -128,5 +151,5 @@ def build_vod_tags(conn) -> int:
             inserted += cur.rowcount
         conn.commit()
 
-    log.info("Inserted %d new tags (skipped duplicates)", inserted)
+    log.info("Inserted %d new tags", inserted)
     return inserted
