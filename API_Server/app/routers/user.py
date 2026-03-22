@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 
 from app.models.user import (
     HistoryResponse,
@@ -10,6 +10,7 @@ from app.models.user import (
 )
 from app.routers.auth import get_current_user
 from app.services import user_service
+from app.services.exceptions import PROFILE_NOT_FOUND
 
 router = APIRouter()
 
@@ -29,7 +30,7 @@ async def profile(current_user: str = Depends(get_current_user)):
     """유저 프로필 — user_name(sha2_hash 앞 5자), point_balance, coupon_count."""
     data = await user_service.get_profile(current_user)
     if not data:
-        raise HTTPException(status_code=404, detail="유저를 찾을 수 없습니다")
+        raise PROFILE_NOT_FOUND()
     return UserProfileResponse(**data)
 
 

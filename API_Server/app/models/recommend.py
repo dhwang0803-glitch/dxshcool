@@ -1,20 +1,31 @@
 from pydantic import BaseModel
 
 
-class RecommendItem(BaseModel):
-    asset_id: str
-    title: str
-    genre: str | None
+# --- /recommend/{user_id} patterns 구조 ---
+
+class TopVod(BaseModel):
+    series_id: str
+    asset_nm: str
+    poster_url: str | None
+
+
+class PatternVodItem(BaseModel):
+    series_id: str
+    asset_nm: str
     poster_url: str | None
     score: float | None
-    rank: int | None
-    recommendation_type: str | None  # 'HYBRID' | 'COLLABORATIVE' | 'VISUAL_SIMILARITY' | 'CONTENT_BASED' | 'POPULAR'
+
+
+class PatternItem(BaseModel):
+    pattern_rank: int
+    pattern_reason: str
+    vod_list: list[PatternVodItem]
 
 
 class RecommendResponse(BaseModel):
     user_id: str
-    items: list[RecommendItem]
-    total: int
+    top_vod: TopVod | None
+    patterns: list[PatternItem]
     source: str  # 'personalized' | 'popular_fallback'
 
 

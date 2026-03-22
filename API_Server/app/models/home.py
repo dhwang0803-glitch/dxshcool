@@ -29,3 +29,19 @@ class SectionItem(BaseModel):
 
 class SectionsResponse(BaseModel):
     sections: list[SectionItem]
+
+
+class PersonalizedVodItem(BaseModel):
+    series_nm: str
+    asset_nm: str
+    poster_url: str | None
+
+
+class PersonalizedSectionItem(BaseModel):
+    genre: str
+    view_ratio: int
+    vod_list: list[PersonalizedVodItem]
+
+
+class PersonalizedSectionsResponse(BaseModel):
+    sections: list[PersonalizedSectionItem]
