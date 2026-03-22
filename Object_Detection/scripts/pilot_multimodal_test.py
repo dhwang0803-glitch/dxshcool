@@ -380,19 +380,30 @@ def main():
             parquet_dir = PROJECT_ROOT / "data" / "parquet_output"
             parquet_dir.mkdir(parents=True, exist_ok=True)
 
-            # YOLO parquet
+            # YOLO parquet — DB: vod_id_fk, frame_ts, label, confidence, bbox
             if yolo_records:
                 df_yolo = pd.DataFrame(yolo_records)
+                # context 컬럼 제거 (DB에 없음)
+                df_yolo = df_yolo[["vod_id", "frame_ts", "label", "confidence", "bbox"]]
                 _append_parquet(df_yolo, parquet_dir / "vod_detected_object.parquet")
 
-            # CLIP parquet
+            # CLIP parquet — DB: vod_id_fk, frame_ts, concept, clip_score, ad_category, context_valid, context_reason
             if clip_records:
                 df_clip = pd.DataFrame(clip_records)
+                # context_valid, context_reason 추가 (DB NOT NULL)
+                if "context_valid" not in df_clip.columns:
+                    df_clip["context_valid"] = True
+                if "context_reason" not in df_clip.columns:
+                    df_clip["context_reason"] = None
+                df_clip = df_clip[["vod_id", "frame_ts", "concept", "clip_score", "ad_category", "context_valid", "context_reason"]]
                 _append_parquet(df_clip, parquet_dir / "vod_clip_concept.parquet")
 
-            # STT parquet
+            # STT parquet — DB: vod_id_fk, start_ts, end_ts, transcript, keyword, ad_category, ad_hints
             if stt_records:
                 df_stt = pd.DataFrame(stt_records)
+                # context_valid, context_reason 제거 (DB에 없음)
+                keep_cols = ["vod_id", "start_ts", "end_ts", "transcript", "keyword", "ad_category", "ad_hints"]
+                df_stt = df_stt[[c for c in keep_cols if c in df_stt.columns]]
                 _append_parquet(df_stt, parquet_dir / "vod_stt_concept.parquet")
 
             # OCR parquet (상세: bbox + confidence)
