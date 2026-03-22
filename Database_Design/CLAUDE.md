@@ -58,6 +58,12 @@ import sqlalchemy        # ORM (선택)
 | `public.seasonal_market` | 제철장터 채널 편성표 (Shopping_Ad 매칭) |
 | `public.vod_tag` | VOD 해석 가능 태그 — 감독/배우/장르 등 (Hybrid_Layer 소비) |
 | `public.user_preference` | 유저별 태그 선호 프로필 (Hybrid_Layer 생산) |
+| `public.wishlist` | 유저 찜 목록 — 시리즈 단위 (API_Server 읽기/쓰기) |
+| `public.episode_progress` | 에피소드별 시청 진행률 — API 응답 전용, 정수 0~100% (API_Server 읽기/쓰기) |
+| `public.purchase_history` | 포인트 기반 구매/대여 내역 — 시리즈 단위 (API_Server 읽기/쓰기) |
+| `public.point_history` | 포인트 적립/사용 내역 — INSERT 트리거가 user.point_balance 자동 갱신 (API_Server 읽기/쓰기) |
+| `public.watch_reservation` | 시청예약 — 채널+시각 지정, 30초 주기 알림 (API_Server 읽기/쓰기) |
+| `public.notifications` | GNB 알림 — new_episode/reservation/system. vod INSERT 트리거 자동 생성 (API_Server 읽기/쓰기) |
 
 ### Gold 계층 (serving 스키마)
 

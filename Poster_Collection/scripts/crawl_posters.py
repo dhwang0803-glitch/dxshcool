@@ -59,23 +59,72 @@ def get_db_conn():
     )
 
 
-def fetch_all_series(conn) -> list[dict]:
+def fetch_tmdb_migrate_series(conn, rag_source: str = None) -> list[dict]:
+    """poster_url이 TMDB URL인 VOD의 (series_nm, season) DISTINCT 목록 조회.
+
+    --tmdb-migrate 모드 전용: TMDB API 재호출 없이 기존 TMDB URL을 직접 다운로드한다.
+    """
+    with conn.cursor() as cur:
+        rag_filter = "AND rag_source = %s" if rag_source else ""
+        params = (rag_source,) if rag_source else ()
+        cur.execute(
+            f"""
+            SELECT full_asset_id, series_nm, ct_cl,
+                   EXTRACT(YEAR FROM release_date)::int AS release_year,
+                   asset_nm, poster_url
+            FROM vod
+            WHERE poster_url LIKE '%%tmdb.org%%'
+              AND series_nm IS NOT NULL
+              {rag_filter}
+            ORDER BY series_nm, full_asset_id
+            """,
+            params,
+        )
+        rows = cur.fetchall()
+
+    seen = set()
+    result = []
+    for r in rows:
+        asset_nm = r[4] or ""
+        _, season = parse_season_from_asset_nm(asset_nm) if asset_nm else ("", 1)
+        key = (r[1], season)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append({
+            "series_id": r[0],
+            "series_nm": r[1],
+            "ct_cl": r[2],
+            "release_year": r[3],
+            "asset_nm": asset_nm,
+            "season": season,
+            "existing_poster_url": r[5],
+        })
+    return result
+
+
+def fetch_all_series(conn, rag_source: str = None) -> list[dict]:
     """poster_url IS NULL인 (series_nm, season) DISTINCT 목록 조회.
 
     asset_nm에서 시즌을 파싱하여 (series_nm, season)별로 1건만 반환.
     동일 series_nm이라도 시즌이 다르면 별도 항목으로 처리.
+    rag_source 지정 시 해당 값을 가진 VOD만 대상으로 한다.
     """
     with conn.cursor() as cur:
+        rag_filter = "AND rag_source = %s" if rag_source else ""
+        params = (rag_source,) if rag_source else ()
         cur.execute(
-            """
+            f"""
             SELECT full_asset_id, series_nm, ct_cl,
                    EXTRACT(YEAR FROM release_date)::int AS release_year,
                    asset_nm
             FROM vod
             WHERE poster_url IS NULL
               AND series_nm IS NOT NULL
+              {rag_filter}
             ORDER BY series_nm, full_asset_id
-            """
+            """,
+            params,
         )
         rows = cur.fetchall()
 
@@ -136,8 +185,12 @@ def append_manifest(rows: list[dict]):
         writer.writerows(rows)
 
 
-def run_crawl(series_list: list[dict], local_dir: str, api_sleep: float = API_SLEEP_BASE) -> dict:
-    """series_list 처리. 매 CHECKPOINT_INTERVAL건마다 체크포인트·매니페스트 저장."""
+def run_crawl(series_list: list[dict], local_dir: str, api_sleep: float = API_SLEEP_BASE,
+              tmdb_migrate: bool = False) -> dict:
+    """series_list 처리. 매 CHECKPOINT_INTERVAL건마다 체크포인트·매니페스트 저장.
+
+    tmdb_migrate=True 이면 TMDB API 호출 없이 item['existing_poster_url']을 직접 사용.
+    """
     processed_ids: set = set()
     pending_manifest: list[dict] = []
     stats = {"total": 0, "api_ok": 0, "dl_ok": 0, "api_fail": 0, "dl_fail": 0}
@@ -146,32 +199,44 @@ def run_crawl(series_list: list[dict], local_dir: str, api_sleep: float = API_SL
     for idx, item in enumerate(series_list, 1):
         sid = item["series_id"]
         snm = item["series_nm"]
-
-        # TMDB 포스터 — fetch_all_series에서 이미 시즌 파싱 완료
-        ct_cl = item.get("ct_cl")
         season = item.get("season", 1)
-        try:
-            result = tmdb_poster.search(snm, season=season, ct_cl=ct_cl, sleep=api_sleep)
-        except Exception as e:
-            logger.error("[%d/%d] API 오류 sid=%s: %s", idx, total, sid, e)
-            stats["api_fail"] += 1
-            stats["total"] += 1
-            processed_ids.add(str(sid))
-            continue
 
-        if not result:
-            logger.info("[%d/%d] sid=%-12s ✗ TMDB 미매칭 %s", idx, total, sid, snm)
-            stats["api_fail"] += 1
-            stats["total"] += 1
-            processed_ids.add(str(sid))
-            continue
+        if tmdb_migrate:
+            # TMDB API 재호출 없이 DB에 저장된 TMDB URL 직접 사용
+            image_url = item.get("existing_poster_url")
+            if not image_url:
+                logger.info("[%d/%d] sid=%-12s ✗ 기존 URL 없음 %s", idx, total, sid, snm)
+                stats["api_fail"] += 1
+                stats["total"] += 1
+                processed_ids.add(str(sid))
+                continue
+            stats["api_ok"] += 1
+            logger.info("[%d/%d] sid=%-12s ✓ migrate %s (시즌%d)", idx, total, sid, snm, season)
+        else:
+            # TMDB 포스터 — fetch_all_series에서 이미 시즌 파싱 완료
+            ct_cl = item.get("ct_cl")
+            try:
+                result = tmdb_poster.search(snm, season=season, ct_cl=ct_cl, sleep=api_sleep)
+            except Exception as e:
+                logger.error("[%d/%d] API 오류 sid=%s: %s", idx, total, sid, e)
+                stats["api_fail"] += 1
+                stats["total"] += 1
+                processed_ids.add(str(sid))
+                continue
 
-        stats["api_ok"] += 1
-        image_url = result["image_url"]
-        matched = result.get("matched_name", "")
-        mtype = result.get("media_type", "?")
-        marker = "S" if result.get("season_matched") else "FB"
-        logger.info("[%d/%d] sid=%-12s ✓ %s → %s (%s/시즌%d/%s)", idx, total, sid, snm, matched, mtype, season, marker)
+            if not result:
+                logger.info("[%d/%d] sid=%-12s ✗ TMDB 미매칭 %s", idx, total, sid, snm)
+                stats["api_fail"] += 1
+                stats["total"] += 1
+                processed_ids.add(str(sid))
+                continue
+
+            stats["api_ok"] += 1
+            image_url = result["image_url"]
+            matched = result.get("matched_name", "")
+            mtype = result.get("media_type", "?")
+            marker = "S" if result.get("season_matched") else "FB"
+            logger.info("[%d/%d] sid=%-12s ✓ %s → %s (%s/시즌%d/%s)", idx, total, sid, snm, matched, mtype, season, marker)
 
         # 이미지 다운로드
         local_path = image_downloader.download(sid, image_url, local_dir)
@@ -221,16 +286,18 @@ def main():
     parser.add_argument("--part", type=int, default=1, help="분할 번호 (1-based, 기본: 1)")
     parser.add_argument("--total-parts", type=int, default=1, help="총 분할 수 (기본: 1=단일)")
     parser.add_argument("--ct-cl", type=str, default=None, help="ct_cl 필터 (예: 'TV연예/오락')")
+    parser.add_argument("--rag-source", type=str, default=None, help="rag_source 필터 (예: TMDB_NEW_2025)")
+    parser.add_argument("--tmdb-migrate", action="store_true",
+                        help="TMDB URL이 있는 VOD를 OCI로 마이그레이션 (API 재호출 없이 기존 URL 사용)")
     args = parser.parse_args()
 
     if args.part < 1 or args.part > args.total_parts:
         logger.error("--part는 1 이상 --total-parts 이하여야 합니다.")
         sys.exit(1)
 
-    # 분할 실행 시 파트별 manifest/checkpoint 파일 분리
+    # 파트별 manifest/checkpoint 파일 분리 (1분할 포함 항상 적용)
     global _part_suffix
-    if args.total_parts > 1:
-        _part_suffix = f"_part{args.part}"
+    _part_suffix = f"_part{args.part}"
 
     local_dir = os.getenv("LOCAL_POSTER_DIR")
     if not local_dir:
@@ -239,8 +306,16 @@ def main():
 
     logger.info("DB 연결 중...")
     conn = get_db_conn()
-    logger.info("시리즈 목록 조회 중 (poster_url IS NULL)...")
-    all_series = fetch_all_series(conn)
+    rag_source = getattr(args, 'rag_source', None)
+    tmdb_migrate = getattr(args, 'tmdb_migrate', False)
+    if tmdb_migrate:
+        logger.info("시리즈 목록 조회 중 (TMDB migrate%s)...",
+                    f", rag_source={rag_source}" if rag_source else "")
+        all_series = fetch_tmdb_migrate_series(conn, rag_source=rag_source)
+    else:
+        logger.info("시리즈 목록 조회 중 (poster_url IS NULL%s)...",
+                    f", rag_source={rag_source}" if rag_source else "")
+        all_series = fetch_all_series(conn, rag_source=rag_source)
     conn.close()
     logger.info("DB 조회 완료: %d건", len(all_series))
 
@@ -275,7 +350,7 @@ def main():
 
     logger.info("크롤링 시작: %d건 (저장: %s, sleep=%.2fs)", len(series_list), local_dir, api_sleep)
     t_start = time.time()
-    stats = run_crawl(series_list, local_dir, api_sleep=api_sleep)
+    stats = run_crawl(series_list, local_dir, api_sleep=api_sleep, tmdb_migrate=tmdb_migrate)
     elapsed = time.time() - t_start
 
     total = stats["total"]

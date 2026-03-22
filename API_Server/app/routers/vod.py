@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
 from app.models.vod import VodDetailResponse
+from app.services.exceptions import VOD_NOT_FOUND
 from app.services.vod_service import get_vod_detail
 
 router = APIRouter()
@@ -10,7 +11,7 @@ router = APIRouter()
 async def vod_detail(asset_id: str):
     vod = await get_vod_detail(asset_id)
     if vod is None:
-        raise HTTPException(status_code=404, detail="VOD not found")
+        raise VOD_NOT_FOUND()
     return VodDetailResponse(
         asset_id=vod["full_asset_id"],
         title=vod["asset_nm"],
@@ -21,6 +22,7 @@ async def vod_detail(asset_id: str):
         cast_guest=vod["cast_guest"],
         summary=vod["smry"],
         rating=vod["rating"],
-        release_date=vod["release_date"],
+        release_year=vod["release_date"].year if vod["release_date"] else None,
         poster_url=vod["poster_url"],
+        is_free=vod.get("asset_prod") == "FOD",
     )

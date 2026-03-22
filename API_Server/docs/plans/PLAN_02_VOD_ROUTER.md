@@ -28,7 +28,8 @@ SELECT
     smry,
     rating,
     release_date,
-    poster_url
+    poster_url,
+    asset_prod
 FROM public.vod
 WHERE full_asset_id = $1;
 ```
@@ -53,8 +54,9 @@ class VodDetailResponse(BaseModel):
     cast_guest: str | None
     summary: str | None
     rating: str | None
-    release_date: date | None
+    release_year: int | None    # date → 연도만 반환 (2026-03-20 결정)
     poster_url: str | None
+    is_free: bool               # asset_prod == 'FOD' (2026-03-20 추가)
 ```
 
 ---
@@ -106,8 +108,9 @@ async def vod_detail(asset_id: str):
         cast_guest=vod["cast_guest"],
         summary=vod["smry"],
         rating=vod["rating"],
-        release_date=vod["release_date"],
+        release_year=vod["release_date"].year if vod["release_date"] else None,
         poster_url=vod["poster_url"],
+        is_free=vod.get("asset_prod") == "FOD",
     )
 ```
 

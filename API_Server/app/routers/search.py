@@ -1,23 +1,18 @@
-from fastapi import APIRouter, HTTPException, Query
+"""GNB 통합 검색 — 제목/출연진/감독/장르."""
 
-from app.models.recommend import SimilarVodResponse, SimilarVodItem
-from app.services.search_service import get_similar_vods
+from fastapi import APIRouter, Query
+
+from app.models.search import SearchResponse, SearchResultItem
+from app.services import search_service
 
 router = APIRouter()
 
 
-@router.get("/{asset_id}", response_model=SimilarVodResponse)
-async def similar_vods(
-    asset_id: str,
-    limit: int = Query(default=10, ge=1, le=50),
+@router.get("/search", response_model=SearchResponse)
+async def vod_search(
+    q: str = Query(..., min_length=1, max_length=100, description="검색어"),
 ):
-    result = await get_similar_vods(asset_id, limit)
-    if not result["items"]:
-        raise HTTPException(status_code=404, detail="No similar VOD found")
-    items = [SimilarVodItem(**item) for item in result["items"]]
-    return SimilarVodResponse(
-        base_asset_id=asset_id,
-        items=items,
-        total=len(items),
-        source=result["source"],
-    )
+    """VOD 통합 검색 (asset_nm, cast_lead, director, genre). 최대 8건."""
+    results = await search_service.search_vod(q, limit=8)
+    items = [SearchResultItem(**r) for r in results]
+    return SearchResponse(items=items, total=len(items))
