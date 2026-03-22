@@ -8,7 +8,7 @@
 실행:
     conda activate myenv
     python Database_Design/scripts/backfill_youtube_ids.py                    # 전체 실행 (8 workers)
-    python Database_Design/scripts/backfill_youtube_ids.py --workers 16       # 워커 수 조정
+    python Database_Design/scripts/backfill_youtube_ids.py --workers 3        # 워커 수 조정
     python Database_Design/scripts/backfill_youtube_ids.py --limit 100        # 테스트
     python Database_Design/scripts/backfill_youtube_ids.py --ct-cl 영화       # 특정 ct_cl만
     python Database_Design/scripts/backfill_youtube_ids.py --status           # 진행 현황
@@ -35,11 +35,19 @@ DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 STATUS_FILE = DATA_DIR / "yt_backfill_status.json"
 
 BATCH_COMMIT = 200          # N건마다 DB COMMIT + 상태 저장
-REQUEST_DELAY_MIN = 0.1     # 워커당 최소 대기 (초) — 쿠키 인증 시 축소 가능
-REQUEST_DELAY_MAX = 0.3     # 워커당 최대 대기 (초)
-DURATION_MIN_SEC = 180      # 3분 미만 트레일러/티저 제외
-DURATION_MAX_SEC = 1800     # 30분 (에피소드 전체 허용)
+REQUEST_DELAY_MIN = 0.3     # 워커당 최소 대기 (초) — 쿠키 인증 시 축소 가능
+REQUEST_DELAY_MAX = 0.8     # 워커당 최대 대기 (초)
 MAX_RESULTS = 5             # 후보 늘려서 본편 잡을 확률 향상
+
+# ct_cl별 duration 범위
+# 본편 대상 (3분 이상): TV드라마, TV 연예/오락 — 에피소드 전체 영상 선별
+EPISODE_CT_CL = {"TV드라마", "TV 연예/오락"}
+EPISODE_DURATION_MIN = 180   # 3분 이상
+EPISODE_DURATION_MAX = 1800  # 30분
+
+# 트레일러 대상 (3분 이하): 그 외 ct_cl — 예고편/티저 선별
+TRAILER_DURATION_MIN = 30    # 30초 이상
+TRAILER_DURATION_MAX = 180   # 3분 이하
 
 EXCLUDE_CT_CL = {"우리동네", "미분류"}
 
@@ -123,9 +131,13 @@ def build_queries(asset_nm: str, ct_cl: str, provider: str = None) -> list:
 
 
 def search_youtube(vod_id: str, asset_nm: str, ct_cl: str,
-                   provider: str = None) -> dict:
+                   provider: str = None, cookies_file: str = None) -> dict:
     """
     YouTube 메타데이터만 검색 (다운로드 없음).
+    ct_cl에 따라 duration 범위를 다르게 적용:
+      - TV드라마 / TV 연예/오락 : 3분 이상 본편 선별 (최장 우선)
+      - 그 외               : 30초~3분 트레일러/예고편 선별 (최장 우선)
+    cookies_file: Netscape 형식 쿠키 파일 경로 (403 우회용, 없으면 비인증)
     반환: {"status": "success", "youtube_video_id": ..., "duration_sec": ...}
           또는 {"status": "failed", "reason": ...}
     """
@@ -133,6 +145,10 @@ def search_youtube(vod_id: str, asset_nm: str, ct_cl: str,
         import yt_dlp
     except ImportError:
         return {"status": "error", "reason": "yt_dlp_not_installed"}
+
+    is_episode = ct_cl in EPISODE_CT_CL
+    dur_min = EPISODE_DURATION_MIN if is_episode else TRAILER_DURATION_MIN
+    dur_max = EPISODE_DURATION_MAX if is_episode else TRAILER_DURATION_MAX
 
     queries = build_queries(asset_nm, ct_cl, provider)
 
@@ -144,8 +160,9 @@ def search_youtube(vod_id: str, asset_nm: str, ct_cl: str,
         "default_search": f"ytsearch{MAX_RESULTS}",
         "noplaylist": True,
         "socket_timeout": 20,
-        "cookiesfrombrowser": ("edge",),
     }
+    if cookies_file:
+        meta_opts["cookiefile"] = cookies_file
 
     for query in queries:
         time.sleep(random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX))
@@ -161,10 +178,10 @@ def search_youtube(vod_id: str, asset_nm: str, ct_cl: str,
                 time.sleep(60)
             continue
 
-        # duration 범위 내 후보 선별
+        # ct_cl별 duration 범위 내 후보 선별
         valid = [
             e for e in entries
-            if e and DURATION_MIN_SEC <= (e.get("duration") or 0) <= DURATION_MAX_SEC
+            if e and dur_min <= (e.get("duration") or 0) <= dur_max
         ]
         if not valid:
             continue
@@ -220,7 +237,29 @@ def main():
                         help="기존 youtube_video_id가 있어도 덮어쓰기")
     parser.add_argument("--reset", action="store_true",
                         help="상태 파일 초기화 후 처음부터 시작")
+    parser.add_argument("--retry-failed", action="store_true",
+                        help="이전에 failed 처리된 항목만 재시도")
+    parser.add_argument("--partial-series-only", action="store_true",
+                        help="동일 시리즈 내 성공한 에피소드가 1건 이상 있는 VOD만 처리")
+    parser.add_argument("--cookies", type=str, default="",
+                        metavar="COOKIES_FILE",
+                        help="Netscape 형식 쿠키 파일 경로 (YouTube 403 우회용). "
+                             "예: Database_Design/data/youtube_cookies.txt")
     args = parser.parse_args()
+
+    cookies_file = None
+    if args.cookies:
+        cp = Path(args.cookies)
+        if not cp.exists():
+            log.warning(f"쿠키 파일 없음: {args.cookies} — 비인증 모드로 실행")
+        else:
+            # Windows CRLF → LF 정규화 (yt-dlp가 CRLF를 거부하는 문제 방지)
+            raw = cp.read_bytes()
+            normalized = raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+            norm_path = DATA_DIR / "_cookies_normalized.txt"
+            norm_path.write_bytes(normalized)
+            cookies_file = str(norm_path)
+            log.info(f"쿠키 파일 로드: {cp.name} ({len(normalized):,} bytes)")
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -249,7 +288,7 @@ def main():
         params.append(tuple(args.ct_cl))
 
     sql = (
-        "SELECT full_asset_id, asset_nm, ct_cl, provider "
+        "SELECT full_asset_id, asset_nm, ct_cl, provider, series_nm "
         f"FROM vod WHERE {' AND '.join(where_clauses)} "
         "ORDER BY ct_cl, full_asset_id"
     )
@@ -259,13 +298,34 @@ def main():
     conn.close()
 
     vod_list = [
-        {"vod_id": r[0], "asset_nm": r[1], "ct_cl": r[2], "provider": r[3]}
+        {"vod_id": r[0], "asset_nm": r[1], "ct_cl": r[2], "provider": r[3], "series_nm": r[4]}
         for r in rows
     ]
 
-    # 이미 처리된 것 스킵
-    already = set(status["processed"].keys())
+    # 이미 처리된 것 스킵 (--retry-failed 시 failed 항목은 재시도)
+    if args.retry_failed:
+        already = {k for k, v in status["processed"].items() if v == "success"}
+        log.info(f"retry-failed 모드: failed {len(status['processed']) - len(already):,}건 재시도")
+    else:
+        already = set(status["processed"].keys())
     vod_list = [v for v in vod_list if v["vod_id"] not in already]
+
+    # --partial-series-only: 시리즈 내 성공 에피소드가 1건 이상인 시리즈만 처리
+    if args.partial_series_only:
+        conn2 = get_db_conn()
+        cur2 = conn2.cursor()
+        cur2.execute("""
+            SELECT DISTINCT series_nm
+            FROM vod
+            WHERE youtube_video_id IS NOT NULL
+              AND series_nm IS NOT NULL AND series_nm != ''
+        """)
+        partial_series = {r[0] for r in cur2.fetchall()}
+        cur2.close()
+        conn2.close()
+        before = len(vod_list)
+        vod_list = [v for v in vod_list if v.get("series_nm") in partial_series]
+        log.info(f"partial-series-only: {before:,} → {len(vod_list):,}건 (성공 이력 있는 시리즈만)")
 
     if args.limit > 0:
         vod_list = vod_list[:args.limit]
@@ -302,6 +362,7 @@ def main():
             pool.submit(
                 search_youtube,
                 v["vod_id"], v["asset_nm"], v["ct_cl"], v["provider"],
+                cookies_file,
             ): v
             for v in vod_list
         }

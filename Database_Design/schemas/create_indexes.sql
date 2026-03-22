@@ -82,6 +82,11 @@ CREATE INDEX idx_vod_poster_url_null
     ON vod (series_nm)
     WHERE poster_url IS NULL;
 
+-- Object_Detection 미처리 VOD 필터링용 부분 인덱스 (2026-03-18 추가)
+CREATE INDEX idx_vod_trailer_unprocessed
+    ON vod (full_asset_id)
+    WHERE trailer_processed = FALSE OR trailer_processed IS NULL;
+
 
 -- =============================================================
 -- [3] "user" 인덱스 (LOW 우선순위)
