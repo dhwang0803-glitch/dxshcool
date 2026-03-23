@@ -51,6 +51,16 @@ load_dotenv(ROOT / "RAG" / "config" / "api_keys.env", override=False)
 _SRC = ROOT / "RAG" / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
+
+# meta_sources.py 내부에서 'from sources.validation import ...' 사용
+# RAG/src/에 sources/ 패키지가 없으므로 sys.modules에 별칭 등록
+import types as _types
+if "sources" not in sys.modules:
+    _sources_pkg = _types.ModuleType("sources")
+    _sources_pkg.__path__ = [str(_SRC)]
+    _sources_pkg.__package__ = "sources"
+    sys.modules["sources"] = _sources_pkg
+
 import meta_sources as rab
 
 # ── 상수 ───────────────────────────────────────────────────────────────────────
