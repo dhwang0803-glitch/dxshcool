@@ -10,20 +10,21 @@
 ```
 [로그인 유저 홈 화면]
 ┌─────────────────────────────────────────────┐
-│ 히어로 배너 (top 5)                           │ ← serving.hybrid_recommendation (rank 1~5)
+│ 히어로 배너 (top 5, 비개인화)                  │ ← serving.popular_recommendation score 내림차순
 ├─────────────────────────────────────────────┤
-│ 공통 인기 추천 (CT_CL 4종 × 20건 = 80건)       │ ← serving.popular_recommendation
+│ 공통 인기 추천 (CT_CL 4종 × 20건 = 80건)       │ ← serving.popular_recommendation (/home/sections)
 ├─────────────────────────────────────────────┤
 │ 개인 선호 태그 선반 (top 5 태그 × 10 VOD)      │ ← serving.tag_recommendation
 ├─────────────────────────────────────────────┤
-│ 개인화 추천 (top 10)                           │ ← serving.hybrid_recommendation (rank 1~10)
+│ 개인화 추천 (top 10, 로그인 유저만)            │ ← serving.hybrid_recommendation (rank 1~10)
 └─────────────────────────────────────────────┘
 
-[비로그인 / fallback]
-  → serving.popular_recommendation (80건)
+[비로그인]
+  → 히어로 배너(popular top 5) + 공통 인기(80건)만 노출
 ```
 
-> `serving.personalized_banner`는 별도 테이블 불필요. `hybrid_recommendation`이 히어로 배너와 하단 개인화 섹션 모두 담당.
+> 히어로 배너 = 공통 인기 점수 기반 top 5 (누가 봐도 잘 팔릴 콘텐츠, 비개인화).
+> `serving.personalized_banner` 별도 테이블 불필요.
 
 ---
 
