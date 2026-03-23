@@ -34,7 +34,7 @@
 | 파일 | 상태 |
 |------|------|
 | `scripts/build_vod_summary.py` | ✅ parquet 4종 → VOD별 집계 (도시 우선순위) |
-| `scripts/run_ad_matching.py` | ✅ 축제 8건 + 제철장터 13건 = 21건 |
+| `scripts/run_ad_matching.py` | ✅ 축제 6건 + 제철장터 4건 = 10건 (VOD당 1건, Top3, 메타데이터 기반) |
 
 ### Phase 5 — DB 적재 (대기)
 

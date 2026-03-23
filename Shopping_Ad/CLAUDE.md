@@ -128,7 +128,7 @@ Shopping_Ad/
 | festival_matcher | ✅ 완료 |
 | seasonal_matcher | ✅ 실제 상품 매칭 |
 | VOD 요약 집계 (도시 우선순위) | ✅ 완료 |
-| 통합 매칭 파이프라인 | ✅ 축제 8건 + 제철장터 13건 |
+| 통합 매칭 파이프라인 | ✅ 축제 6건 + 제철장터 4건 = 10건 (VOD당 1건, Top3, 메타데이터 기반) |
 | DB 적재 | 🔲 serving DDL 대기 |
 
 ---
