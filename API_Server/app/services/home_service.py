@@ -4,9 +4,9 @@ from app.services.db import get_pool
 async def get_banner(user_id: str | None = None) -> list[dict]:
     """히어로 배너 3단 구조.
 
-    1단: personalized_banner (유저별 top 5) — 로그인 + 시청이력 있는 유저
+    1단: hybrid_recommendation (유저별 top 5, 히어로 캐러셀) — 로그인 유저
     2단: popular_recommendation (비개인화 top 5) — 항상
-    3단: hybrid_recommendation (top 10) — 로그인 유저
+    3단: hybrid_recommendation (top 6~10, 하단 개인화) — 로그인 유저 (1단 중복 제거)
     비로그인 시 2단만 반환.
     """
     pool = await get_pool()
@@ -28,25 +28,25 @@ async def get_banner(user_id: str | None = None) -> list[dict]:
             })
 
     async with pool.acquire() as conn:
-        # 1단: personalized_banner (로그인 유저만)
+        # 1단: hybrid_recommendation 히어로 top 5 (로그인 유저만)
         if user_id:
             try:
                 rows = await conn.fetch(
                     """
-                    SELECT pb.vod_id_fk, pb.score,
+                    SELECT r.vod_id_fk, r.score,
                            v.series_nm, v.asset_nm, v.poster_url, v.ct_cl
-                    FROM serving.personalized_banner pb
-                    JOIN public.vod v ON pb.vod_id_fk = v.full_asset_id
-                    WHERE pb.user_id_fk = $1
-                      AND (pb.expires_at IS NULL OR pb.expires_at > NOW())
-                    ORDER BY pb.rank
+                    FROM serving.hybrid_recommendation r
+                    JOIN public.vod v ON r.vod_id_fk = v.full_asset_id
+                    WHERE r.user_id_fk = $1
+                      AND (r.expires_at IS NULL OR r.expires_at > NOW())
+                    ORDER BY r.rank
                     LIMIT 5
                     """,
                     user_id,
                 )
                 _append_rows(rows)
             except Exception:
-                pass  # 테이블 미생성 시 무시
+                pass
 
         # 2단: popular_recommendation (항상)
         try:
