@@ -2,12 +2,11 @@ from app.services.db import get_pool
 
 
 async def get_banner(user_id: str | None = None) -> list[dict]:
-    """히어로 배너 3단 구조.
+    """히어로 배너 2단 구조.
 
-    1단: hybrid_recommendation (유저별 top 5, 히어로 캐러셀) — 로그인 유저
-    2단: popular_recommendation (비개인화 top 5) — 항상
-    3단: hybrid_recommendation (top 6~10, 하단 개인화) — 로그인 유저 (1단 중복 제거)
-    비로그인 시 2단만 반환.
+    1단: popular_recommendation score 내림차순 top 5 — 항상 (비개인화 히어로)
+    2단: hybrid_recommendation top 10 — 로그인 유저 (하단 개인화, seen 중복 제거)
+    비로그인 시 1단만 반환.
     """
     pool = await get_pool()
     seen: set[str] = set()
@@ -28,44 +27,21 @@ async def get_banner(user_id: str | None = None) -> list[dict]:
             })
 
     async with pool.acquire() as conn:
-        # 1단: hybrid_recommendation 히어로 top 5 (로그인 유저만)
-        if user_id:
-            try:
-                rows = await conn.fetch(
-                    """
-                    SELECT r.vod_id_fk, r.score,
-                           v.series_nm, v.asset_nm, v.poster_url, v.ct_cl
-                    FROM serving.hybrid_recommendation r
-                    JOIN public.vod v ON r.vod_id_fk = v.full_asset_id
-                    WHERE r.user_id_fk = $1
-                      AND (r.expires_at IS NULL OR r.expires_at > NOW())
-                    ORDER BY r.rank
-                    LIMIT 5
-                    """,
-                    user_id,
-                )
-                _append_rows(rows)
-            except Exception:
-                pass
+        # 1단: popular_recommendation 히어로 top 5 (항상)
+        rows = await conn.fetch(
+            """
+            SELECT pr.vod_id_fk, pr.score,
+                   v.series_nm, v.asset_nm, v.poster_url, v.ct_cl
+            FROM serving.popular_recommendation pr
+            JOIN public.vod v ON pr.vod_id_fk = v.full_asset_id
+            WHERE pr.expires_at IS NULL OR pr.expires_at > NOW()
+            ORDER BY pr.score DESC
+            LIMIT 5
+            """,
+        )
+        _append_rows(rows)
 
-        # 2단: popular_recommendation (항상)
-        try:
-            rows = await conn.fetch(
-                """
-                SELECT pr.vod_id_fk, pr.score,
-                       v.series_nm, v.asset_nm, v.poster_url, v.ct_cl
-                FROM serving.popular_recommendation pr
-                JOIN public.vod v ON pr.vod_id_fk = v.full_asset_id
-                WHERE pr.expires_at IS NULL OR pr.expires_at > NOW()
-                ORDER BY pr.score DESC
-                LIMIT 5
-                """,
-            )
-            _append_rows(rows)
-        except Exception:
-            pass
-
-        # 3단: hybrid_recommendation (로그인 유저만)
+        # 2단: hybrid_recommendation 개인화 top 10 (로그인 유저만)
         if user_id:
             try:
                 rows = await conn.fetch(
