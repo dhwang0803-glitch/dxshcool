@@ -42,6 +42,9 @@ def export(conn, records: list[dict], batch_size: int = 1000,
     log.info("삭제 완료: %d건", deleted)
 
     log.info("신규 추천 INSERT 중 (%d건, 배치 %d)...", len(records), batch_size)
+    # ALS score가 부동소수점 오차로 1.0 초과할 수 있어 클리핑
+    for r in records:
+        r["score"] = min(float(r["score"]), 1.0)
     total = 0
     for i in range(0, len(records), batch_size):
         batch = records[i:i + batch_size]

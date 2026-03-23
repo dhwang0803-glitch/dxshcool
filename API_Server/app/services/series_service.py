@@ -148,6 +148,22 @@ async def check_purchase(user_id: str, series_nm: str) -> dict:
     }
 
 
+async def resolve_vod_id(series_nm: str, asset_nm: str) -> str | None:
+    """series_nm + asset_nm → full_asset_id 조회. heartbeat 버퍼용."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT full_asset_id FROM public.vod
+            WHERE series_nm = $1 AND asset_nm = $2
+            LIMIT 1
+            """,
+            series_nm,
+            asset_nm,
+        )
+    return row["full_asset_id"] if row else None
+
+
 async def get_purchase_options(series_nm: str) -> dict:
     """구매 옵션 조회 — FOD 시리즈는 무료."""
     pool = await get_pool()

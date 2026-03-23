@@ -162,11 +162,9 @@ def main():
     if args.dry_run:
         return
 
-    # 분할 실행 시 파트별 출력 파일
-    out_path = args.out
-    if args.total_parts > 1:
-        base, ext = os.path.splitext(args.out)
-        out_path = f"{base}_part{args.part}{ext}"
+    # 파트별 출력 파일 (1분할 포함 항상 적용)
+    base, ext = os.path.splitext(args.out)
+    out_path = f"{base}_part{args.part}{ext}"
 
     write_oci_map(out_path, oci_records)
     logger.info(

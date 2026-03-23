@@ -157,25 +157,30 @@ COMMENT ON COLUMN vod_embedding.frame_count IS
 
 -- =============================================================
 -- [3] user_embedding 테이블
---     사용자별 행동 기반 벡터 (watch_history × vod_embedding 가중평균)
+--     사용자별 행동 기반 벡터 (watch_history × vod_embedding + vod_meta_embedding 가중평균)
 --     User_Embedding 브랜치의 build_user_vectors.py가 적재
---     CF_Engine 학습 시 vod_embedding과 함께 입력으로 사용
+--     CF_Engine 학습 시 초기값으로 활용
+--
+--     ※ 초기 설계는 512차원(CLIP only)이었으나,
+--       create_meta_user_embedding_tables.sql에서 896차원(CLIP 512 + META 384)으로 재설계.
+--       실제 DB는 896차원. 이 파일의 정의도 896차원으로 통일.
 -- =============================================================
 
 CREATE TABLE user_embedding (
-    user_embedding_id   BIGINT          GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_emb_id         BIGINT          GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     user_id_fk          VARCHAR(64)     NOT NULL UNIQUE,
 
-    -- 벡터 데이터 (pgvector)
-    embedding           VECTOR(512)     NOT NULL,
+    -- 벡터 (896차원 = CLIP 512 + paraphrase-multilingual 384, L2 정규화 후 concat)
+    embedding           VECTOR(896)     NOT NULL,
 
-    -- 임베딩 메타데이터
-    model_version       VARCHAR(64)     NOT NULL DEFAULT 'clip-ViT-B-32',
-    -- vod_embedding과 동일 모델 기반 가중평균 → 동일 벡터 공간
+    -- 생성 방식
+    model_name          VARCHAR(100)    NOT NULL DEFAULT 'weighted_mean',
+    -- weighted_mean: completion_rate 가중 평균 (User_Embedding 브랜치)
+    -- ALS: 행렬 분해 정제 (CF_Engine 브랜치 — 추후 컬럼 추가)
 
     -- 입력 데이터 품질
     vod_count           INTEGER         NOT NULL DEFAULT 0,
-    -- 임베딩 생성에 사용된 고유 VOD 수 (watch_history 중 clip_embeddings 존재하는 것)
+    -- 임베딩 생성에 사용된 고유 VOD 수 (vod_meta_embedding 존재하는 시청 이력만)
 
     vector_magnitude    DOUBLE PRECISION,
     -- L2 norm (1.0이면 정규화 완료)
@@ -185,7 +190,7 @@ CREATE TABLE user_embedding (
     updated_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
 
     -- 제약
-    CONSTRAINT fk_user_embedding_user
+    CONSTRAINT fk_user_emb_user
         FOREIGN KEY (user_id_fk) REFERENCES "user"(sha2_hash) ON DELETE CASCADE,
     CONSTRAINT chk_user_emb_vod_count
         CHECK (vod_count >= 0)
@@ -213,11 +218,15 @@ CREATE TRIGGER trg_user_embedding_updated_at
 
 -- 코멘트
 COMMENT ON TABLE user_embedding IS
-    '사용자 행동 기반 벡터 임베딩. watch_history의 시청 VOD에 대한 clip embedding 가중평균 (completion_rate 가중치). User_Embedding 브랜치 적재.';
+    'User 임베딩 테이블. completion_rate 가중평균, 896차원. '
+    'VOD 결합 벡터(vod_embedding 512 + vod_meta_embedding 384)와 동일 잠재 공간. '
+    'CF_Engine에서 ALS 학습 시 초기값으로 활용.';
 COMMENT ON COLUMN user_embedding.embedding IS
-    'watch_history × vod_embedding 가중평균 벡터. vod_embedding과 동일한 512차원 CLIP 공간. CF_Engine 학습 입력.';
+    'watch_history × (vod_embedding ∥ vod_meta_embedding) 가중평균 벡터. 896차원(CLIP 512 + META 384). CF_Engine 학습 입력.';
 COMMENT ON COLUMN user_embedding.vod_count IS
-    '임베딩 생성에 사용된 고유 VOD 수. clip_embeddings가 존재하는 시청 이력만 포함.';
+    '임베딩 생성에 사용된 고유 VOD 수. vod_meta_embedding이 존재하는 시청 이력만 포함.';
+COMMENT ON COLUMN user_embedding.model_name IS
+    'weighted_mean(User_Embedding 브랜치) 또는 ALS(CF_Engine 브랜치).';
 COMMENT ON COLUMN user_embedding.vector_magnitude IS
     'L2 norm. 1.0이면 정규화 완료 상태.';
 

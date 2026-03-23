@@ -23,12 +23,14 @@
 | `public.detected_object_clip` | `Object_Detection` | `Shopping_Ad`(읽기) |
 | `public.detected_object_stt` | `Object_Detection` | `Shopping_Ad`(읽기) |
 | `public.seasonal_market` | `Shopping_Ad` | `Shopping_Ad`(읽기) |
-| `public.vod_tag` | `Database_Design`(초기 적재) | `Hybrid_Layer`(읽기) |
+| `public.vod_tag` | `Hybrid_Layer`(적재) | `Hybrid_Layer`(읽기) |
 | `public.user_preference` | `Hybrid_Layer` | `Hybrid_Layer`(읽기), `API_Server`(읽기) |
 | `public.wishlist` | `API_Server` | `API_Server`(읽기/쓰기) |
 | `public.episode_progress` | `API_Server` | `API_Server`(읽기/쓰기) |
 | `public.purchase_history` | `API_Server` | `API_Server`(읽기/쓰기) |
 | `public.point_history` | `API_Server` | `API_Server`(읽기/쓰기) |
+| `public.watch_reservation` | `API_Server` | `API_Server`(읽기/쓰기) |
+| `public.notifications` | `API_Server`, DB 트리거(`fn_notify_new_episode`) | `API_Server`(읽기/쓰기) |
 
 ### Gold 계층 (serving 스키마)
 
@@ -162,7 +164,7 @@
 
 | 방향 | 테이블 | 컬럼 | 타입 | 비고 |
 |------|--------|------|------|------|
-| 읽기 | `public.vod` | `full_asset_id`, `asset_nm`, `genre`, `ct_cl`, `director`, `cast_lead`, `smry`, `poster_url`, `release_date`, `rating`, `series_nm`, `asset_prod` | 각종 VARCHAR/TEXT | VOD 상세/시리즈 조회. `release_date` → `release_year`(연도 int) 변환. `asset_prod='FOD'` → `is_free=true`. `series_nm` 커버링 인덱스 활용 |
+| 읽기 | `public.vod` | `full_asset_id`, `asset_nm`, `genre`, `ct_cl`, `director`, `cast_lead`, `smry`, `poster_url`, `release_date`, `rating`, `series_nm`, `asset_prod`, `disp_rtm_min` | 각종 VARCHAR/TEXT/SMALLINT | VOD 상세/시리즈 조회. `release_date` → `release_year`(연도 int) 변환. `asset_prod='FOD'` → `is_free=true`. `disp_rtm_min` 분 단위 러닝타임. `series_nm` 커버링 인덱스 활용 |
 | 읽기 | `public."user"` | `sha2_hash` | VARCHAR | 사용자 존재 여부 확인 (PK) |
 | 읽기 | `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type`, `expires_at` | VARCHAR/REAL/TIMESTAMPTZ | `/recommend/{user_id}` — `WHERE recommendation_type = 'HYBRID'`, UNIQUE(user_id_fk, vod_id_fk, recommendation_type) |
 | 읽기 | `serving.vod_recommendation` | `source_vod_id`, `vod_id_fk`, `rank`, `score`, `recommendation_type`, `expires_at` | VARCHAR/REAL/TIMESTAMPTZ | `/similar/{asset_id}` — `WHERE source_vod_id = $1 AND recommendation_type = 'CONTENT_BASED'` |
@@ -174,7 +176,10 @@
 | 읽기/쓰기 | `public.wishlist` | `user_id_fk`, `series_nm`, `created_at` | VARCHAR(64)/VARCHAR(255)/TIMESTAMPTZ | 찜 추가/해제/목록 조회. PK=(user_id_fk, series_nm) |
 | 읽기/쓰기 | `public.episode_progress` | `user_id_fk`, `vod_id_fk`, `series_nm`, `completion_rate`, `watched_at` | VARCHAR(64)/VARCHAR(64)/VARCHAR(255)/SMALLINT/TIMESTAMPTZ | 에피소드 진행률. PK=(user_id_fk, vod_id_fk). ON CONFLICT UPDATE |
 | 읽기/쓰기 | `public.purchase_history` | `purchase_id`, `user_id_fk`, `series_nm`, `option_type`, `points_used`, `purchased_at`, `expires_at` | BIGINT/VARCHAR(64)/VARCHAR(255)/VARCHAR(16)/INTEGER/TIMESTAMPTZ/TIMESTAMPTZ | 구매/대여 기록 |
-| 읽기/쓰기 | `public.point_history` | `point_history_id`, `user_id_fk`, `type`, `amount`, `description`, `related_purchase_id`, `created_at` | BIGINT/VARCHAR(64)/VARCHAR(8)/INTEGER/VARCHAR(256)/BIGINT/TIMESTAMPTZ | 포인트 적립/사용. point_balance 실시간 집계 |
+| 읽기/쓰기 | `public.point_history` | `point_history_id`, `user_id_fk`, `type`, `amount`, `description`, `related_purchase_id`, `created_at` | BIGINT/VARCHAR(64)/VARCHAR(8)/INTEGER/VARCHAR(256)/BIGINT/TIMESTAMPTZ | 포인트 적립/사용. DB 트리거가 `user.point_balance` 자동 갱신 + `NOTIFY user_activity` |
+| 읽기 | `public."user"` | `point_balance` | INTEGER | 포인트 잔액 O(1) 조회 (DB 트리거 자동 갱신) |
+| 읽기/쓰기 | `public.watch_reservation` | `reservation_id`, `user_id_fk`, `channel`, `program_name`, `alert_at`, `notified` | SERIAL/VARCHAR(64)/INTEGER/VARCHAR(255)/TIMESTAMPTZ/BOOLEAN | 시청예약 등록/조회/삭제. 30초 주기 background task가 `notified` 갱신 |
+| 읽기/쓰기 | `public.notifications` | `notification_id`, `user_id_fk`, `type`, `title`, `message`, `image_url`, `read`, `created_at` | SERIAL/VARCHAR(64)/VARCHAR(32)/VARCHAR(255)/VARCHAR(512)/TEXT/BOOLEAN/TIMESTAMPTZ | GNB 알림 벨. type: new_episode/reservation/system. 읽음/삭제 관리 |
 
 ---
 
