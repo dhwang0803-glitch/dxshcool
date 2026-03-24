@@ -248,6 +248,8 @@ __marimo__/
 # RAG bulk pipeline 대용량 데이터
 RAG/data/bulk/final_results.jsonl
 RAG/data/bulk/series_cache.json
+RAG/data/fill_episodes_checkpoint.json
+RAG/data/fill_episodes.log
 
 # 개인 작업 메모
 work.md
