@@ -35,6 +35,10 @@ load_dotenv()
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.ensemble import load_config
+from src.db import get_connection
+
+# 에피소드 단위 유지 대상 ct_cl (시리즈 중복 제거 제외)
+_EPISODE_LEVEL_CT_CL = frozenset(["TV 연예/오락"])
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 META_PARQUET = DATA_DIR / "meta_embeddings.parquet"
@@ -72,6 +76,7 @@ def process_batch(
     clip_id2meta_idx,
     alpha, top_n,
     valid_clip_idx, valid_meta_idx,
+    vod_series_map=None,
 ):
     """
     배치 단위 행렬 연산:
@@ -109,14 +114,30 @@ def process_batch(
         # 자기 자신 제외
         final_scores[src_meta_idx] = -1.0
 
-        # TOP-N 추출
-        top_idx = np.argpartition(final_scores, -top_n)[-top_n:]
+        # TOP-N 추출 (시리즈 중복 제거 적용)
+        # 중복 제거 후 top_n 확보를 위해 넉넉하게 후보 추출
+        raw_top_n = min(top_n * 3, len(final_scores))
+        top_idx = np.argpartition(final_scores, -raw_top_n)[-raw_top_n:]
         top_idx = top_idx[np.argsort(final_scores[top_idx])[::-1]]
 
-        for rank, idx in enumerate(top_idx, 1):
+        seen_series: set[str] = set()
+        rank = 0
+        for idx in top_idx:
+            candidate_id = meta_ids[idx]
+            # 시리즈 중복 제거 (vod_series_map 있을 때만)
+            if vod_series_map is not None:
+                series_nm, ct_cl = vod_series_map.get(candidate_id, (candidate_id, ""))
+                if ct_cl not in _EPISODE_LEVEL_CT_CL:
+                    if series_nm in seen_series:
+                        continue
+                    seen_series.add(series_nm)
+
+            rank += 1
+            if rank > top_n:
+                break
             all_rows.append({
                 "source_vod_id": vod_id,
-                "vod_id_fk": meta_ids[idx],
+                "vod_id_fk": candidate_id,
                 "rank": rank,
                 "score": round(float(final_scores[idx]), 6),
                 "clip_score": round(float(clip_score_by_meta[idx]), 6),
@@ -149,6 +170,19 @@ def main():
     print(f"  alpha={alpha}, top_n={top_n}, batch_size={args.batch_size}")
     print(f"  출력: {out_file}")
     print("=" * 60)
+
+    # VOD 시리즈 매핑 로드 (시리즈 중복 제거용)
+    print("[로드] VOD 시리즈 매핑 ...", end=" ", flush=True)
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT full_asset_id, series_nm, ct_cl FROM public.vod")
+    vod_series_map = {
+        row[0]: (row[1] or row[0], row[2] or "")
+        for row in cur.fetchall()
+    }
+    cur.close()
+    conn.close()
+    print(f"{len(vod_series_map):,}건")
 
     # 벡터 로드
     meta_df, meta_vecs, clip_df, clip_vecs, clip_ids = load_embeddings()
@@ -183,6 +217,7 @@ def main():
             clip_ids, clip_vecs, clip_id2meta_idx,
             alpha, top_n,
             valid_clip_idx, valid_meta_idx,
+            vod_series_map=vod_series_map,
         )
         all_rows.extend(rows)
         done = min(start + args.batch_size, total)
