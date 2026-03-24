@@ -15,8 +15,8 @@ import logging
 
 log = logging.getLogger(__name__)
 
-# 태그당 VOD 후보 버퍼 (시청 제외 후 vods_per_tag개를 보장하기 위한 여유분)
-_TAG_VOD_BUFFER = 200
+# 태그당 VOD 후보 버퍼 (시청 제외 + 시리즈 중복제거 후 vods_per_tag개를 보장하기 위한 여유분)
+_TAG_VOD_BUFFER = 500
 
 
 def build_tag_shelves(
@@ -87,7 +87,8 @@ def build_tag_shelves(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT tag_category, tag_value, vod_id_fk
+                SELECT t.tag_category, t.tag_value, t.vod_id_fk,
+                       v.ct_cl, v.series_nm
                 FROM (
                     SELECT vt.tag_category, vt.tag_value, vt.vod_id_fk,
                            ROW_NUMBER() OVER (
@@ -101,12 +102,15 @@ def build_tag_shelves(
                     ) ct ON ct.tag_category = vt.tag_category
                          AND ct.tag_value = vt.tag_value
                 ) t
-                WHERE rn <= %s
+                JOIN public.vod v ON v.full_asset_id = t.vod_id_fk
+                WHERE t.rn <= %s
                 """,
                 (tag_cats, tag_vals, _TAG_VOD_BUFFER),
             )
-            for cat, val, vod_id in cur.fetchall():
-                tag_vod_cache.setdefault((cat, val), []).append(vod_id)
+            for cat, val, vod_id, ct_cl, series_nm in cur.fetchall():
+                tag_vod_cache.setdefault((cat, val), []).append(
+                    (vod_id, ct_cl or "", series_nm or vod_id)
+                )
 
         # 3) 청크 유저의 시청 이력 한 번에 로드
         with conn.cursor() as cur:
@@ -127,9 +131,22 @@ def build_tag_shelves(
             for tag_rank, cat, val, aff in tag_entries:
                 candidate_vods = tag_vod_cache.get((cat, val), [])
                 vod_rank = 0
-                for vod_id in candidate_vods:
+                seen_series: set = set()
+                for vod_id, ct_cl, series_nm in candidate_vods:
                     if vod_id in user_watched:
                         continue
+                    # 에피소드 단위 유지: actor 태그 + TV 연예/오락 조합만
+                    # (특정 배우가 여러 예능에 게스트 출연한 에피소드 몰아보기 용도)
+                    # 그 외 모든 경우(예능 장르 태그 포함)는 시리즈 단위 중복제거
+                    # 에피소드 단위 유지:
+                    # actor_guest(게스트 출연) + TV 연예/오락 → 배우/감독 팬에게 에피소드 몰아보기 제공
+                    # director + TV 연예/오락 → 감독이 게스트 출연한 예능 에피소드 몰아보기
+                    # actor_lead(주연)는 시리즈 중복제거 적용 (같은 예능 레귤러 10편 방지)
+                    is_episode_level = (cat in ("actor_guest", "director") and ct_cl == "TV 연예/오락")
+                    if not is_episode_level:
+                        if series_nm in seen_series:
+                            continue
+                        seen_series.add(series_nm)
                     vod_rank += 1
                     if vod_rank > vods_per_tag:
                         break
