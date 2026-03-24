@@ -170,9 +170,9 @@ def process_batch(
                 "source_vod_id": vod_id,
                 "vod_id_fk": candidate_id,
                 "rank": rank,
-                "score": round(float(final_scores[idx]), 6),
-                "clip_score": round(float(clip_score_by_meta[idx]), 6),
-                "content_score": round(float(content_sim[b_i, idx]), 6),
+                "score": round(min(float(final_scores[idx]), 1.0), 6),
+                "clip_score": round(min(float(clip_score_by_meta[idx]), 1.0), 6),
+                "content_score": round(min(float(content_sim[b_i, idx]), 1.0), 6),
                 "recommendation_type": "CONTENT_BASED",
             })
 
