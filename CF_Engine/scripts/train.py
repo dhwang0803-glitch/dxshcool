@@ -24,7 +24,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 
 from src.data_loader import get_conn, load_matrix
 from src.als_model import train, recommend_all
-from src.recommender import build_records
+from src.recommender import build_records, load_vod_series_map
 from export_to_db import export
 
 logging.basicConfig(
@@ -85,21 +85,25 @@ def load_parquet(parquet_path: Path) -> list[dict]:
 
 
 def run_pipeline(cfg: dict) -> tuple:
-    """DB 로드 → ALS 학습 → 추천 생성 → 레코드 변환. (mat shape 반환)"""
+    """DB 로드 → ALS 학습 → 추천 생성 → 시리즈 중복 제거 → 레코드 변환. (mat shape 반환)"""
     m = cfg["model"]
     r = cfg["recommend"]
+    top_k = r["top_k"]
 
     conn = get_conn()
     log.info("DB 접속 완료")
     mat, user_enc, item_enc, user_dec, item_dec = load_matrix(conn, alpha=m["alpha"])
+    vod_series_map = load_vod_series_map(conn)
     conn.close()
 
     model = train(mat, factors=m["factors"], iterations=m["iterations"],
                   regularization=m["regularization"])
-    user_ids, item_indices, scores = recommend_all(model, mat, top_k=r["top_k"])
+    user_ids, item_indices, scores = recommend_all(model, mat, top_k=top_k)
     records = build_records(user_ids, item_indices, scores,
                             user_dec, item_dec,
-                            recommendation_type=r["recommendation_type"])
+                            recommendation_type=r["recommendation_type"],
+                            top_k=top_k,
+                            vod_series_map=vod_series_map)
 
     return records, mat.shape
 
