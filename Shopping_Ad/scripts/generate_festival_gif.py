@@ -1,7 +1,7 @@
 """
-generate_festival_gif.py — HTML 템플릿 → Playwright 캡처 → GIF 변환
+generate_festival_gif.py — 축제 팝업 HTML → Playwright 캡처 → GIF 변환
 
-1. templates/ 폴더의 축제 HTML을 헤드리스 브라우저로 렌더링
+1. templates/popup_*.html을 헤드리스 브라우저로 렌더링
 2. 프레임별 스크린샷 캡처
 3. Pillow로 GIF 합성
 
@@ -27,15 +27,24 @@ OUTPUT_DIR = PROJECT_ROOT / "data" / "ad_gifs"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── GIF 설정 ──
-VIEWPORT_W = 480
-VIEWPORT_H = 360
+VIEWPORT_W = 520
+VIEWPORT_H = 300
 TOTAL_SEC = 5.0         # 총 캡처 시간
 FRAME_INTERVAL = 100    # ms 간격 → 10fps
 GIF_DURATION = 100      # GIF 프레임 재생 속도 (ms)
 INIT_WAIT = 3000        # 초기 렌더링 대기 (폰트+JS+CSS 애니메이션 시작)
 
+POPUP_FESTIVALS = [
+    ("popup_cherry_blossom.html", "popup_창원_진해군항제.gif"),
+    ("popup_danjong.html",        "popup_영월_단종문화제.gif"),
+    ("popup_jejuma.html",         "popup_제주_제주마입목문화축제.gif"),
+    ("popup_haeundae.html",       "popup_부산_해운대모래축제.gif"),
+    ("popup_mulbit.html",         "popup_대전_대덕물빛축제.gif"),
+    ("popup_mime.html",           "popup_춘천_춘천마임축제.gif"),
+]
 
-def capture_html_frames(html_path):
+
+def capture_frames(html_path):
     """HTML → Playwright 프레임 캡처 → PIL Image 리스트"""
     num_frames = int(TOTAL_SEC * 1000 / FRAME_INTERVAL)
     file_url = html_path.resolve().as_uri()
@@ -49,7 +58,6 @@ def capture_html_frames(html_path):
         )
 
         page.goto(file_url, wait_until="networkidle")
-        # 폰트 + CSS 애니메이션 시작 대기
         page.wait_for_timeout(INIT_WAIT)
 
         print(f"  {num_frames}프레임 캡처 중...")
@@ -68,11 +76,11 @@ def capture_html_frames(html_path):
     return frames
 
 
-def save_gif(frames, output_path, bg_color=(5, 5, 5)):
-    """RGBA 프레임 → GIF 저장"""
+def save_gif(frames, output_path):
+    """RGBA 프레임 → GIF 저장 (흰색 배경)"""
     rgb = []
     for f in frames:
-        bg = Image.new("RGB", f.size, bg_color)
+        bg = Image.new("RGB", f.size, (255, 255, 255))
         bg.paste(f, mask=f.split()[3])
         rgb.append(bg)
 
@@ -87,23 +95,24 @@ def save_gif(frames, output_path, bg_color=(5, 5, 5)):
 
 
 def main():
-    html_path = TEMPLATE_DIR / "overlay_cherry_blossom.html"
-    if not html_path.exists():
-        print(f"템플릿 없음: {html_path}")
-        return
+    print(f"\n{'='*50}")
+    print(f"[팝업 GIF 생성] {VIEWPORT_W}x{VIEWPORT_H}, {TOTAL_SEC}초, {FRAME_INTERVAL}ms 간격")
+    print(f"초기 대기: {INIT_WAIT}ms\n")
 
-    output_path = OUTPUT_DIR / "festival_changwon.gif"
+    for html_name, gif_name in POPUP_FESTIVALS:
+        html_path = TEMPLATE_DIR / html_name
+        if not html_path.exists():
+            print(f"[SKIP] 템플릿 없음: {html_name}")
+            continue
 
-    print(f"템플릿: {html_path.name}")
-    print(f"뷰포트: {VIEWPORT_W}x{VIEWPORT_H}, {TOTAL_SEC}초, {FRAME_INTERVAL}ms 간격")
-    print(f"초기 대기: {INIT_WAIT}ms (폰트/애니메이션 로딩)")
+        output_path = OUTPUT_DIR / gif_name
+        print(f"--- {html_name} -> {gif_name} ---")
 
-    frames = capture_html_frames(html_path)
-    save_gif(frames, output_path)
+        frames = capture_frames(html_path)
+        save_gif(frames, output_path)
 
-    size_kb = output_path.stat().st_size / 1024
-    print(f"\nGIF 생성: {output_path}")
-    print(f"크기: {size_kb:.1f} KB, 프레임: {len(frames)}장")
+        size_kb = output_path.stat().st_size / 1024
+        print(f"  GIF 생성: {size_kb:.1f} KB, {len(frames)}장\n")
 
 
 if __name__ == "__main__":

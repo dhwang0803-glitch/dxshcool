@@ -86,14 +86,20 @@ Shopping_Ad/
 │   ├── crawl_seasonal_market.py ← LG헬로비전 제철장터 크롤링
 │   ├── build_vod_summary.py     ← parquet 4종 → VOD 요약 집계
 │   ├── run_ad_matching.py       ← 축제+제철장터 통합 매칭
+│   ├── generate_festival_gif.py ← 팝업 HTML → Playwright → GIF 일괄 생성
+│   ├── insert_ad_to_vod.py      ← GIF → VOD 영상 삽입 샘플 (FFmpeg)
 │   └── test_festival_match.py   ← E2E 매칭 검증
+├── templates/
+│   ├── popup_*.html             ← 축제 팝업 광고 HTML (가로형 520x300)
+│   └── images/                  ← 축제 배경 사진 6장
 ├── config/
 ├── data/                        ← (gitignore)
 │   ├── festivals.json
 │   ├── region_festivals.yaml
 │   ├── seasonal_market.json
 │   ├── vod_ad_summary.parquet
-│   └── shopping_ad_candidates.parquet
+│   ├── shopping_ad_candidates.parquet
+│   └── ad_gifs/                 ← 생성된 팝업 GIF (popup_*.gif)
 └── docs/
 ```
 
@@ -119,7 +125,7 @@ Shopping_Ad/
 
 ---
 
-## 현재 상태 (2026-03-23)
+## 현재 상태 (2026-03-24)
 
 | 항목 | 상태 |
 |------|------|
@@ -128,7 +134,9 @@ Shopping_Ad/
 | festival_matcher | ✅ 완료 |
 | seasonal_matcher | ✅ 실제 상품 매칭 |
 | VOD 요약 집계 (도시 우선순위) | ✅ 완료 |
-| 통합 매칭 파이프라인 | ✅ 축제 6건 + 제철장터 4건 = 10건 (VOD당 1건, Top3, 메타데이터 기반) |
+| 통합 매칭 파이프라인 | ✅ 축제 6건 + 제철장터 4건 = 10건 |
+| 축제 팝업 GIF 생성 | ✅ 6건 완료 (팝업 가로형, 사진 배경) |
+| VOD 영상 삽입 샘플 | ✅ FFmpeg 페이드인/아웃 (진해군항제) |
 | DB 적재 | 🔲 serving DDL 대기 |
 
 ---
