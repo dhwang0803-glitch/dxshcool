@@ -5,7 +5,8 @@ from app.services.db import get_pool
 # pattern_reason 생성용 템플릿
 _REASON_TEMPLATES = {
     "director": "{value} 감독 작품을 즐겨 보셨어요",
-    "actor": "{value} 배우 출연작을 자주 보셨어요",
+    "actor_lead": "{value} 배우 출연작을 자주 보셨어요",
+    "actor_guest": "{value} 게스트 출연 회차를 즐겨 보셨어요",
     "genre": "{value} 장르를 자주 시청하셨네요",
     "genre_detail": "{value} 장르를 즐겨 보시네요",
     "rating": "{value} 등급 콘텐츠를 선호하시네요",

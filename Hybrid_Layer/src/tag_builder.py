@@ -1,7 +1,7 @@
 """Phase 1: VOD 메타데이터에서 해석 가능 태그 추출.
 
 public.vod → public.vod_tag
-태그 카테고리: director, actor, genre, genre_detail, rating
+태그 카테고리: director, actor_lead, actor_guest, genre, genre_detail, rating
 
 confidence 계산:
     log(vote_count+1) / log(MAX_VOTE_COUNT+1) × vote_average/10
@@ -76,14 +76,13 @@ def extract_tags_from_row(row: dict) -> list[tuple[str, str, str, float]]:
     for d in parse_director(row.get("director")):
         tags.append((vod_id, "director", d, conf))
 
-    # actor (cast_lead + cast_guest)
-    actors = set()
+    # actor_lead (주연)
     for name in parse_cast(row.get("cast_lead")):
-        actors.add(name)
+        tags.append((vod_id, "actor_lead", name, conf))
+
+    # actor_guest (게스트 출연)
     for name in parse_cast(row.get("cast_guest")):
-        actors.add(name)
-    for a in actors:
-        tags.append((vod_id, "actor", a, conf))
+        tags.append((vod_id, "actor_guest", name, conf))
 
     # genre
     genre = row.get("genre")

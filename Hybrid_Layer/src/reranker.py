@@ -13,28 +13,35 @@ log = logging.getLogger(__name__)
 
 
 def _fetch_user_candidates(cur, user_id: str) -> list[dict]:
-    """유저의 vod_recommendation 후보 조회 (CF + Vector + Content-based)."""
+    """유저의 vod_recommendation 후보 조회 (CF + Vector + Content-based).
+
+    시리즈 단위 중복 제거: 같은 series_nm의 에피소드 중 최고 score 1건만 유지.
+    """
     cur.execute(
         """
-        SELECT vod_id_fk, score, recommendation_type
-        FROM serving.vod_recommendation
-        WHERE user_id_fk = %s
-          AND (expires_at IS NULL OR expires_at > NOW())
-        ORDER BY score DESC
+        SELECT r.vod_id_fk, r.score, r.recommendation_type,
+               v.series_nm
+        FROM serving.vod_recommendation r
+        JOIN public.vod v ON r.vod_id_fk = v.full_asset_id
+        WHERE r.user_id_fk = %s
+          AND (r.expires_at IS NULL OR r.expires_at > NOW())
+        ORDER BY r.score DESC
         """,
         (user_id,),
     )
-    seen = set()
+    seen_series: set[str] = set()
     candidates = []
     for row in cur.fetchall():
-        vid = row[0]
-        if vid not in seen:
-            seen.add(vid)
-            candidates.append({
-                "vod_id_fk": vid,
-                "score": row[1],
-                "recommendation_type": row[2],
-            })
+        vid, score, rec_type, series_nm = row
+        nm = series_nm or vid
+        if nm in seen_series:
+            continue
+        seen_series.add(nm)
+        candidates.append({
+            "vod_id_fk": vid,
+            "score": score,
+            "recommendation_type": rec_type,
+        })
     return candidates
 
 

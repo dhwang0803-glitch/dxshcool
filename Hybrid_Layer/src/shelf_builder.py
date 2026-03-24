@@ -79,7 +79,8 @@ def build_tag_shelves(
 
         # 2) 청크 내 고유 태그별 상위 VOD를 한 번만 조회 (캐시)
         #    인기 태그(드라마 등) 수만 건 중 상위 _TAG_VOD_BUFFER개만 가져옴
-        tag_vod_cache: dict[tuple, list[str]] = {}
+        #    series_nm도 함께 가져와서 시리즈 중복 제거에 활용
+        tag_vod_cache: dict[tuple, list[tuple[str, str, str]]] = {}  # (vod_id, series_nm, ct_cl)
         tag_list = list(unique_tags)
         tag_cats = [t[0] for t in tag_list]
         tag_vals = [t[1] for t in tag_list]
@@ -87,14 +88,16 @@ def build_tag_shelves(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT tag_category, tag_value, vod_id_fk
+                SELECT tag_category, tag_value, vod_id_fk, series_nm, ct_cl
                 FROM (
                     SELECT vt.tag_category, vt.tag_value, vt.vod_id_fk,
+                           v.series_nm, v.ct_cl,
                            ROW_NUMBER() OVER (
                                PARTITION BY vt.tag_category, vt.tag_value
                                ORDER BY vt.confidence DESC
                            ) AS rn
                     FROM public.vod_tag vt
+                    JOIN public.vod v ON vt.vod_id_fk = v.full_asset_id
                     JOIN (
                         SELECT unnest(%s::varchar[]) AS tag_category,
                                unnest(%s::varchar[]) AS tag_value
@@ -105,8 +108,10 @@ def build_tag_shelves(
                 """,
                 (tag_cats, tag_vals, _TAG_VOD_BUFFER),
             )
-            for cat, val, vod_id in cur.fetchall():
-                tag_vod_cache.setdefault((cat, val), []).append(vod_id)
+            for cat, val, vod_id, series_nm, ct_cl in cur.fetchall():
+                tag_vod_cache.setdefault((cat, val), []).append(
+                    (vod_id, series_nm or vod_id, ct_cl or "")
+                )
 
         # 3) 청크 유저의 시청 이력 한 번에 로드
         with conn.cursor() as cur:
@@ -127,9 +132,16 @@ def build_tag_shelves(
             for tag_rank, cat, val, aff in tag_entries:
                 candidate_vods = tag_vod_cache.get((cat, val), [])
                 vod_rank = 0
-                for vod_id in candidate_vods:
+                seen_series: set[str] = set()
+                # actor_guest → 에피소드 단위 (게스트 출연, 회차별 다름)
+                # 그 외 → series_nm 기준 중복 제거
+                for vod_id, series_nm, ct_cl in candidate_vods:
                     if vod_id in user_watched:
                         continue
+                    if cat != "actor_guest":
+                        if series_nm in seen_series:
+                            continue
+                        seen_series.add(series_nm)
                     vod_rank += 1
                     if vod_rank > vods_per_tag:
                         break
