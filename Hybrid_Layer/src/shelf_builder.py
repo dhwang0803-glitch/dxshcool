@@ -1,8 +1,9 @@
 """Phase 4: 선호 태그별 VOD 추천 선반 생성.
 
-user_preference → 유저별 top 5 태그
-→ 태그별 vod_tag 매칭 + 시청 제외 + 랭킹
-→ 태그별 top 10 VOD 선별
+user_preference → 유저별 태그 (affinity 내림차순)
+→ 태그별 vod_tag 매칭 + 시청 제외 + 시리즈 중복 제거
+→ vods_per_tag개 이상 채울 수 있는 태그만 선정 (미달 태그 스킵)
+→ 유효 태그 top_tags개까지 선별
 → serving.tag_recommendation 적재
 
 최적화 전략:
@@ -49,7 +50,8 @@ def build_tag_shelves(
         chunk = user_ids[chunk_start: chunk_start + user_chunk_size]
 
         with conn.cursor() as cur:
-            # 1) 청크 유저의 top N 태그 한 번에 조회
+            # 1) 청크 유저의 태그를 affinity 내림차순으로 전체 조회
+            #    (top_tags 제한은 선반 조립 시 유효 태그 기준으로 적용)
             cur.execute(
                 """
                 SELECT user_id_fk, tag_category, tag_value, affinity,
@@ -63,12 +65,10 @@ def build_tag_shelves(
             )
             rows = cur.fetchall()
 
-        # user → [(tag_rank, cat, val, aff), ...]
+        # user → [(tag_rank, cat, val, aff), ...] (affinity 내림차순 전체)
         user_tags: dict[str, list] = {}
         unique_tags: set[tuple] = set()
         for user_id, cat, val, aff, tag_rank in rows:
-            if tag_rank > top_tags:
-                continue
             user_tags.setdefault(user_id, []).append((tag_rank, cat, val, aff))
             unique_tags.add((cat, val))
 
@@ -124,30 +124,43 @@ def build_tag_shelves(
                 watched.setdefault(user_id, set()).add(vod_id)
 
         # 4) 유저별 선반 조립 (메모리 연산, DB 왕복 없음)
+        #    vods_per_tag개 이상 채울 수 있는 태그만 선정, 유효 top_tags개까지
         batch_rows = []
         for user_id, tag_entries in user_tags.items():
             user_watched = watched.get(user_id, set())
-            tag_entries.sort(key=lambda x: x[0])  # tag_rank 순
+            tag_entries.sort(key=lambda x: x[0])  # affinity 내림차순 (tag_rank 순)
 
-            for tag_rank, cat, val, aff in tag_entries:
+            valid_tag_count = 0
+            for _, cat, val, aff in tag_entries:
+                if valid_tag_count >= top_tags:
+                    break
+
+                # 후보 VOD 수집 (시청 제외 + 시리즈 중복 제거)
                 candidate_vods = tag_vod_cache.get((cat, val), [])
-                vod_rank = 0
+                tag_vods: list[tuple] = []
                 seen_series: set[str] = set()
-                # actor_guest → 에피소드 단위 (게스트 출연, 회차별 다름)
-                # 그 외 → series_nm 기준 중복 제거
                 for vod_id, series_nm, ct_cl in candidate_vods:
                     if vod_id in user_watched:
                         continue
+                    # actor_guest → 에피소드 단위 (게스트 출연, 회차별 다름)
+                    # 그 외 → series_nm 기준 중복 제거
                     if cat != "actor_guest":
                         if series_nm in seen_series:
                             continue
                         seen_series.add(series_nm)
-                    vod_rank += 1
-                    if vod_rank > vods_per_tag:
+                    tag_vods.append((vod_id,))
+                    if len(tag_vods) >= vods_per_tag:
                         break
+
+                # vods_per_tag 미달 → 이 태그 스킵, 다음 태그로
+                if len(tag_vods) < vods_per_tag:
+                    continue
+
+                valid_tag_count += 1
+                for vod_rank, (vod_id,) in enumerate(tag_vods, 1):
                     vod_score = min(round(aff, 6), 1.0)
                     batch_rows.append((
-                        user_id, cat, val, tag_rank, round(aff, 6),
+                        user_id, cat, val, valid_tag_count, round(aff, 6),
                         vod_id, vod_rank, vod_score,
                     ))
 
