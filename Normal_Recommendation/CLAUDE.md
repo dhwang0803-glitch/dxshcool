@@ -4,11 +4,20 @@
 
 ## 모듈 역할
 
-Cold Start 유저 및 비개인화 추천 대응을 위한 **일반 추천 엔진**.
-시청 이력이 없는 신규 유저에게 CT_CL별 인기 VOD를 추천하고,
-결과를 DB에 저장하여 API_Server가 실시간으로 서빙할 수 있게 한다.
+Cold Start 유저 및 비개인화 추천 대응을 위한 **일반 추천 엔진** +
+로그인 유저 대상 **개인화 배너 추천** 생성.
 
+### Pipeline A — 비개인화 인기 추천 (기존, 구현 완료)
+
+시청 이력이 없는 신규 유저에게 CT_CL별 인기 VOD를 추천.
 **추천 대상 CT_CL (고정 4개)**: 영화 / TV드라마 / TV 연예/오락 / TV애니메이션 — 각 Top-20
+→ `serving.popular_recommendation` 적재
+
+### Pipeline B — 개인화 배너 추천 (신규, 미구현)
+
+로그인 유저의 시청 이력(`watch_history`)을 분석하여 **유저별 배너 Top 5** 생성.
+프론트엔드 히어로 배너 캐러셀에 표시되며, 비로그인/신규 유저는 Pipeline A로 fallback.
+→ `serving.personalized_banner` 적재
 
 ## 파일 위치 규칙 (MANDATORY)
 
@@ -21,14 +30,16 @@ Normal_Recommendation/
 └── docs/      ← 설계 문서, 실험 리포트
 ```
 
-| 파일 종류 | 저장 위치 |
-|-----------|-----------|
-| 인기 VOD 집계 로직 | `src/popularity.py` |
-| DB 연결 공통 모듈 | `src/db.py` |
-| 추천 결과 생성 실행 | `scripts/run_pipeline.py` |
-| 추천 결과 DB 적재 | `scripts/export_to_db.py` |
-| pytest | `tests/` |
-| 설정값 (top_n 등) | `config/recommend_config.yaml` |
+| 파일 종류 | 저장 위치 | Pipeline |
+|-----------|-----------|----------|
+| 인기 VOD 집계 로직 | `src/popularity.py` | A |
+| 개인화 배너 추천 로직 | `src/personalized_banner.py` | B (신규) |
+| DB 연결 공통 모듈 | `src/db.py` | 공통 |
+| 인기 추천 결과 생성 | `scripts/run_pipeline.py` | A |
+| 개인화 배너 결과 생성 | `scripts/run_personalized_banner.py` | B (신규) |
+| 추천 결과 DB 적재 | `scripts/export_to_db.py` | A |
+| pytest | `tests/` | 공통 |
+| 설정값 (top_n 등) | `config/recommend_config.yaml` | 공통 |
 
 **`Normal_Recommendation/` 루트 또는 프로젝트 루트에 `.py` 파일 직접 생성 금지.**
 
@@ -42,6 +53,8 @@ from dotenv import load_dotenv
 
 ## 추천 파이프라인
 
+### Pipeline A — 비개인화 인기 추천 (구현 완료)
+
 ```
 vod 테이블 (tmdb_vote_average, tmdb_vote_count, release_date, series_nm) 로드
 watch_history 시청 통계 집계 (watch_count, watch_count_7d, completion_rate, satisfaction)
@@ -50,6 +63,29 @@ watch_history 시청 통계 집계 (watch_count, watch_count_7d, completion_rate
     → CT_CL별(영화/TV드라마/TV 연예/오락/TV애니메이션) Top-20 생성
     → parquet 저장 → 조장에게 전달 → DB 적재
 ```
+
+### Pipeline B — 개인화 배너 추천 (미구현)
+
+```
+유저별 watch_history 시청 이력 로드
+    → 유저별 선호 장르(genre) 분포 집계 (시청 횟수 기반)
+    → 선호 장르 내 인기 VOD 후보 풀 구성 (Pipeline A의 인기 점수 활용)
+    → 유저별 시청 완료 콘텐츠 제외
+    → 개인화 점수 계산:
+        personalized_score = α × popularity_score + (1 - α) × genre_affinity
+    → 유저별 Top 5 선별
+    → serving.personalized_banner 적재
+```
+
+**개인화 점수 파라미터 (미확정, 실험 필요)**:
+| 파라미터 | 초기값 | 설명 |
+|---------|--------|------|
+| `α` (alpha) | 0.5 | 인기도 vs 장르 친밀도 가중치 |
+| `banner_top_n` | 5 | 유저별 배너 추천 개수 |
+| `genre_affinity` | 시청비중 | 해당 장르 시청 횟수 / 전체 시청 횟수 |
+
+**Pipeline B 대상 유저**: `watch_history`에 시청 이력이 1건 이상 있는 유저.
+시청 이력이 없는 유저는 API_Server에서 Pipeline A(`popular_recommendation`) top 5로 fallback.
 
 ## 인기 점수 계산 방식
 
@@ -107,20 +143,33 @@ score_warm = 0.45 * watch_heat + 0.25 * quality + 0.15 * vote_score + 0.15 * fre
 
 ## 업데이트 주기
 
-- **1주일 1회** 수동 실행 (조장이 매주 parquet 생성 후 DB 적재)
-- 실행 시점: 매주 월요일 오전 권장
+| Pipeline | 주기 | 비고 |
+|----------|------|------|
+| A (인기 추천) | 1주일 1회 수동 실행 | 매주 월요일 오전 권장 |
+| B (개인화 배너) | 1주일 1회 수동 실행 | Pipeline A 실행 후 순차 실행 (인기 점수 의존) |
 
 ## 인터페이스
 
 ### 업스트림 (읽기)
 
-| 테이블 | 컬럼 | 용도 |
-|--------|------|------|
-| `public.vod` | `full_asset_id`, `genre`, `ct_cl`, `release_date`, `series_nm`, `tmdb_vote_average`, `tmdb_vote_count` | 인기 기준 VOD 목록 |
-| `public.watch_history` | `vod_id_fk`, `strt_dt`, `completion_rate`, `satisfaction` | 시청 통계 집계 |
+| 테이블 | 컬럼 | 용도 | Pipeline |
+|--------|------|------|----------|
+| `public.vod` | `full_asset_id`, `genre`, `ct_cl`, `release_date`, `series_nm`, `tmdb_vote_average`, `tmdb_vote_count`, `poster_url`, `asset_nm` | VOD 메타데이터 | A, B |
+| `public.watch_history` | `user_id_fk`, `vod_id_fk`, `strt_dt`, `completion_rate`, `satisfaction` | 시청 통계 집계 | A, B |
+| `serving.popular_recommendation` | `vod_id_fk`, `score` | Pipeline A 인기 점수를 B에서 재활용 | B |
 
 ### 다운스트림 (쓰기)
 
-| 테이블 | 컬럼 | 비고 |
-|--------|------|------|
-| `serving.popular_recommendation` | `ct_cl`, `rank`, `vod_id_fk`, `score`, `recommendation_type`, `expires_at` | UNIQUE(ct_cl, rank), TTL=7일 |
+| 테이블 | 컬럼 | 비고 | Pipeline |
+|--------|------|------|----------|
+| `serving.popular_recommendation` | `ct_cl`, `rank`, `vod_id_fk`, `score`, `recommendation_type`, `expires_at` | UNIQUE(ct_cl, rank), TTL=7일 | A |
+| `serving.personalized_banner` | `user_id_fk`, `rank`, `vod_id_fk`, `score`, `genre`, `expires_at` | UNIQUE(user_id_fk, rank), TTL=7일 | B (신규 테이블) |
+
+### API_Server 소비 관계
+
+| API 엔드포인트 | 배너 3단 구조 | 소스 |
+|---------------|---------------|------|
+| `GET /home/banner` (로그인) | 1단: personalized_banner(5) + 2단: popular(5) + 3단: hybrid(10) | JWT 선택적 인증 |
+| `GET /home/banner` (비로그인) | 2단: popular(5)만 | 인증 불요 |
+| `GET /home/sections` | — | `serving.popular_recommendation` (CT_CL × top 20) |
+| `GET /home/sections/{user_id}` | — | `serving.popular_recommendation` + `watch_history` 장르 비중 |

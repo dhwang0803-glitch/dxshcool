@@ -23,7 +23,7 @@
 | `public.detected_object_clip` | `Object_Detection` | `Shopping_Ad`(읽기) |
 | `public.detected_object_stt` | `Object_Detection` | `Shopping_Ad`(읽기) |
 | `public.seasonal_market` | `Shopping_Ad` | `Shopping_Ad`(읽기) |
-| `public.vod_tag` | `Database_Design`(초기 적재) | `Hybrid_Layer`(읽기) |
+| `public.vod_tag` | `Hybrid_Layer`(적재) | `Hybrid_Layer`(읽기) |
 | `public.user_preference` | `Hybrid_Layer` | `Hybrid_Layer`(읽기), `API_Server`(읽기) |
 | `public.wishlist` | `API_Server` | `API_Server`(읽기/쓰기) |
 | `public.episode_progress` | `API_Server` | `API_Server`(읽기/쓰기) |
@@ -164,7 +164,7 @@
 
 | 방향 | 테이블 | 컬럼 | 타입 | 비고 |
 |------|--------|------|------|------|
-| 읽기 | `public.vod` | `full_asset_id`, `asset_nm`, `genre`, `ct_cl`, `director`, `cast_lead`, `smry`, `poster_url`, `release_date`, `rating`, `series_nm`, `asset_prod` | 각종 VARCHAR/TEXT | VOD 상세/시리즈 조회. `release_date` → `release_year`(연도 int) 변환. `asset_prod='FOD'` → `is_free=true`. `series_nm` 커버링 인덱스 활용 |
+| 읽기 | `public.vod` | `full_asset_id`, `asset_nm`, `genre`, `ct_cl`, `director`, `cast_lead`, `smry`, `poster_url`, `release_date`, `rating`, `series_nm`, `asset_prod`, `disp_rtm_min` | 각종 VARCHAR/TEXT/SMALLINT | VOD 상세/시리즈 조회. `release_date` → `release_year`(연도 int) 변환. `asset_prod='FOD'` → `is_free=true`. `disp_rtm_min` 분 단위 러닝타임. `series_nm` 커버링 인덱스 활용 |
 | 읽기 | `public."user"` | `sha2_hash` | VARCHAR | 사용자 존재 여부 확인 (PK) |
 | 읽기 | `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type`, `expires_at` | VARCHAR/REAL/TIMESTAMPTZ | `/recommend/{user_id}` — `WHERE recommendation_type = 'HYBRID'`, UNIQUE(user_id_fk, vod_id_fk, recommendation_type) |
 | 읽기 | `serving.vod_recommendation` | `source_vod_id`, `vod_id_fk`, `rank`, `score`, `recommendation_type`, `expires_at` | VARCHAR/REAL/TIMESTAMPTZ | `/similar/{asset_id}` — `WHERE source_vod_id = $1 AND recommendation_type = 'CONTENT_BASED'` |

@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 
 from app.models.recommend import SimilarVodResponse, SimilarVodItem
+from app.services.exceptions import SIMILAR_NOT_FOUND
 from app.services.similar_service import get_similar_vods
 
 router = APIRouter()
@@ -13,7 +14,7 @@ async def similar_vods(
 ):
     result = await get_similar_vods(asset_id, limit)
     if not result["items"]:
-        raise HTTPException(status_code=404, detail="No similar VOD found")
+        raise SIMILAR_NOT_FOUND()
     items = [SimilarVodItem(**item) for item in result["items"]]
     return SimilarVodResponse(
         base_asset_id=asset_id,

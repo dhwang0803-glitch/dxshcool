@@ -52,6 +52,7 @@ CREATE TABLE vod (
     ct_cl               VARCHAR(32)     NOT NULL,
     disp_rtm            VARCHAR(8),
     disp_rtm_sec        INTEGER,
+    disp_rtm_min        SMALLINT,
     genre               VARCHAR(64),
     director            VARCHAR(255),
     asset_prod          VARCHAR(64),
@@ -173,6 +174,7 @@ COMMENT ON COLUMN vod.asset_nm          IS 'VOD 콘텐츠명';
 COMMENT ON COLUMN vod.ct_cl             IS '콘텐츠 대분류 (예: 영화, 라이프, 키즈)';
 COMMENT ON COLUMN vod.disp_rtm         IS '표시 상영시간 원본값 (HH:MM 형식)';
 COMMENT ON COLUMN vod.disp_rtm_sec     IS '상영시간 초 단위 변환값 (마이그레이션 시 계산)';
+COMMENT ON COLUMN vod.disp_rtm_min     IS '상영시간 분 단위 변환값 (disp_rtm_sec / 60 반올림). Frontend 응답용.';
 COMMENT ON COLUMN vod.genre             IS '장르';
 COMMENT ON COLUMN vod.director          IS '감독명 (NULL 허용 - RAG로 보완 예정, 약 313건 누락)';
 COMMENT ON COLUMN vod.asset_prod        IS '제작사/배급사';

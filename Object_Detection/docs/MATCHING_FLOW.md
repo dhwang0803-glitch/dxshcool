@@ -88,13 +88,13 @@ OCR:  없음                           → 0
     │         │
     │         └──→ [OCR]      자막 텍스트 추출       → +2점
     │                              │
-    │                              └──→ keyword_mapper (stt_keywords.yaml, 599개)
+    │                              └──→ keyword_mapper (stt_keywords.yaml, 639개)
     │
     └──→ [오디오 추출] ffmpeg 16kHz WAV
               │
               └──→ [STT]      음성→텍스트           → +3점
                                    │
-                                   └──→ keyword_mapper (stt_keywords.yaml, 599개)
+                                   └──→ keyword_mapper (stt_keywords.yaml, 639개)
 
     ──→ [멀티시그널 스코어링] 10초 구간 단위
               │
@@ -240,7 +240,7 @@ WAV 오디오
 
 > STT와 OCR이 **동일한** keyword_mapper를 사용
 
-### yaml 구조 (`config/stt_keywords.yaml`, 599개)
+### yaml 구조 (`config/stt_keywords.yaml`, 639개)
 
 ```yaml
 음식:              # ad_category = "음식"
@@ -252,7 +252,7 @@ WAV 오디오
     ad_hints: ["전주 한옥마을 관광"]
 ```
 
-### 키워드 3단 계층 (599개)
+### 키워드 3단 계층 (639개)
 
 ```
 ┌─ 음식 (약 400개) ─────────────────────────────────────────────┐
@@ -507,7 +507,7 @@ CLIP record 1건 (frame_ts, concept, clip_score, ad_category)
 |------|------|---------|
 | `config/detection_config.yaml` | YOLO conf/iou/fps | conf=0.5, fps=1 |
 | `config/clip_queries_ko.yaml` | CLIP 쿼리 | 115개 (음식59+관광지30+negative) |
-| `config/stt_keywords.yaml` | STT/OCR 키워드 | **599개** (음식400+관광지200) |
+| `config/stt_keywords.yaml` | STT/OCR 키워드 | **639개** (음식400+관광지200) |
 
 ## 모델 파일
 
@@ -526,7 +526,7 @@ CLIP record 1건 (frame_ts, concept, clip_score, ad_category)
 | `src/clip_scorer.py` | CLIP 장면 분류 |
 | `src/stt_scorer.py` | Whisper STT |
 | `src/ocr_scorer.py` | EasyOCR 자막 추출 |
-| `src/keyword_mapper.py` | 키워드 매칭 (599개, 긴 것 우선) |
+| `src/keyword_mapper.py` | 키워드 매칭 (639개, 긴 것 우선) |
 | `src/context_filter.py` | Brand Safety + 음식 컨텍스트 필터 (batch_clip_score용) |
 | `src/location_tagger.py` | 위경도→지역명 (배치 시 랜덤 시뮬, 실서비스 시 GPS 대체) |
 | `src/vod_filter.py` | DB ct_cl 조건 VOD 필터링 |
