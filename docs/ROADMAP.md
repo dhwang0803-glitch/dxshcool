@@ -266,7 +266,9 @@ Hybrid_Layer/
     └── hybrid_config.yaml        ← β=0.6, top_n=10 등
 ```
 
-> ⚠️ **데이터 적재 대기**: CF_Engine/Vector_Search가 `serving.vod_recommendation`에 COLLABORATIVE/VISUAL_SIMILARITY 데이터를 적재한 후 Phase 3~4 실행 가능. 현재 CONTENT_BASED(2,394,600건)만 존재.
+> **데이터 현황 (2026-03-22)**: COLLABORATIVE 4,854,040건 + CONTENT_BASED 2,394,600건 적재 완료.
+> Phase 1(vod_tag 1,331,164건) 완료. Phase 2(user_preference) 실행 중 → Phase 3~4 대기.
+> 상세 현황: `docs/DATA_PIPELINE_STATUS.md`
 
 ---
 

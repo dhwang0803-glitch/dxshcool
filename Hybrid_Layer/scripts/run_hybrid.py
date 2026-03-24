@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 
 def main():
     # config 로드
-    with open("Hybrid_Layer/config/hybrid_config.yaml") as f:
+    with open("Hybrid_Layer/config/hybrid_config.yaml", encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
     rr = config.get("reranking", {})
