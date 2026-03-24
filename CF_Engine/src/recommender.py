@@ -7,7 +7,6 @@ STEP 3: ALS 출력 → DB 저장 형식 변환
 """
 
 import logging
-import numpy as np
 
 log = logging.getLogger(__name__)
 
