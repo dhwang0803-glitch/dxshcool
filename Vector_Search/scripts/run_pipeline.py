@@ -1,34 +1,22 @@
 """
-Vector Search 전체 파이프라인 자동 실행 (배치 행렬 연산)
+Vector Search 전체 파이프라인 (배치 행렬 연산 → DB 직접 적재)
 
-PLAN_01 (content_score) + PLAN_02 (clip_score) + PLAN_03 (앙상블) + PLAN_04 (parquet 저장)
-
-사전 조건:
-    python Vector_Search/scripts/dump_embeddings.py  ← 최초 1회 실행 필요
+PLAN_01 (content_score) + PLAN_02 (clip_score) + PLAN_03 (앙상블) + DB INSERT
 
 사용법:
-    # 전체 VOD 실행
-    python scripts/run_pipeline.py
-
-    # 특정 VOD만
-    python scripts/run_pipeline.py --vod-id <full_asset_id>
-
-    # 테스트용 (100건만)
-    python scripts/run_pipeline.py --limit 100
-
-    # alpha override
-    python scripts/run_pipeline.py --alpha 0.6
-
-    # 배치 크기 조정 (메모리 부족 시 줄이기)
-    python scripts/run_pipeline.py --batch-size 500
+    python scripts/run_pipeline.py                # 전체 VOD 실행 + DB 적재
+    python scripts/run_pipeline.py --dry-run      # DB 저장 없이 결과만 확인
+    python scripts/run_pipeline.py --limit 100    # 테스트용 (100건만)
+    python scripts/run_pipeline.py --alpha 0.6    # CLIP 가중치 override
+    python scripts/run_pipeline.py --batch-size 500  # 배치 크기 조정
 """
 import argparse
 import sys
 from pathlib import Path
-from datetime import datetime
 
 import numpy as np
 import pandas as pd
+import psycopg2.extras
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -45,12 +33,55 @@ META_PARQUET = DATA_DIR / "meta_embeddings.parquet"
 CLIP_PARQUET = DATA_DIR / "clip_embeddings.parquet"
 
 
+def dump_embeddings_if_needed():
+    """로컬 parquet 없으면 DB에서 자동 dump."""
+    if META_PARQUET.exists() and CLIP_PARQUET.exists():
+        return
+
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    print("[dump] 임베딩 parquet 없음 → DB에서 다운로드")
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+
+        print("[dump 1/2] vod_meta_embedding ...", end=" ", flush=True)
+        cur.execute("""
+            SELECT vme.vod_id_fk, vme.embedding
+            FROM vod_meta_embedding vme
+            JOIN vod v ON vme.vod_id_fk = v.full_asset_id
+            JOIN vod_embedding ve ON vme.vod_id_fk = ve.vod_id_fk AND ve.model_name = 'clip-ViT-B-32'
+            WHERE v.poster_url IS NOT NULL AND v.poster_url != ''
+            ORDER BY vme.vod_id_fk
+        """)
+        rows = cur.fetchall()
+        df = pd.DataFrame(rows, columns=["vod_id_fk", "embedding"])
+        df["embedding"] = df["embedding"].apply(list)
+        df.to_parquet(META_PARQUET, index=False)
+        print(f"{len(df):,}건")
+
+        print("[dump 2/2] vod_embedding (CLIP) ...", end=" ", flush=True)
+        cur.execute("""
+            SELECT ve.vod_id_fk, ve.embedding
+            FROM vod_embedding ve
+            JOIN vod v ON ve.vod_id_fk = v.full_asset_id
+            WHERE ve.model_name = 'clip-ViT-B-32'
+              AND v.poster_url IS NOT NULL AND v.poster_url != ''
+            ORDER BY ve.vod_id_fk
+        """)
+        rows = cur.fetchall()
+        df = pd.DataFrame(rows, columns=["vod_id_fk", "embedding"])
+        df["embedding"] = df["embedding"].apply(list)
+        df.to_parquet(CLIP_PARQUET, index=False)
+        print(f"{len(df):,}건")
+
+        cur.close()
+    finally:
+        conn.close()
+
+
 def load_embeddings():
-    """로컬 parquet에서 벡터 로드 후 numpy 정규화"""
-    if not META_PARQUET.exists() or not CLIP_PARQUET.exists():
-        print("[오류] 임베딩 parquet 파일 없음. 먼저 실행하세요:")
-        print("  python Vector_Search/scripts/dump_embeddings.py")
-        sys.exit(1)
+    """로컬 parquet에서 벡터 로드 후 numpy 정규화."""
+    dump_embeddings_if_needed()
 
     print("[로드] meta_embeddings.parquet ...", end=" ", flush=True)
     meta_df = pd.read_parquet(META_PARQUET)
@@ -148,12 +179,46 @@ def process_batch(
     return all_rows
 
 
+def export_to_db(records: list[dict], batch_size: int = 1000):
+    """추천 결과를 serving.vod_recommendation에 직접 적재 (DELETE + INSERT)."""
+    if not records:
+        print("[DB] 저장할 레코드 없음")
+        return
+
+    conn = get_connection()
+    cur = conn.cursor()
+
+    # 기존 CONTENT_BASED 추천 삭제
+    print("[DB] 기존 CONTENT_BASED 추천 삭제 중...")
+    cur.execute("DELETE FROM serving.vod_recommendation WHERE recommendation_type = 'CONTENT_BASED'")
+    print(f"  삭제: {cur.rowcount:,}건")
+
+    # INSERT
+    insert_sql = """
+        INSERT INTO serving.vod_recommendation
+            (source_vod_id, vod_id_fk, rank, score, recommendation_type)
+        VALUES (%(source_vod_id)s, %(vod_id_fk)s, %(rank)s, %(score)s, %(recommendation_type)s)
+    """
+    total = 0
+    for i in range(0, len(records), batch_size):
+        batch = records[i:i + batch_size]
+        psycopg2.extras.execute_batch(cur, insert_sql, batch, page_size=batch_size)
+        total += len(batch)
+        if total % 100000 < batch_size:
+            print(f"  [{total:,}/{len(records):,}]")
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    print(f"[DB] 적재 완료: {total:,}건")
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Vector Search 전체 파이프라인 (배치 행렬 연산)")
+    parser = argparse.ArgumentParser(description="Vector Search 전체 파이프라인 (배치 행렬 연산 → DB 적재)")
     parser.add_argument("--vod-id", default=None, help="특정 VOD만 처리")
     parser.add_argument("--limit", type=int, default=None, help="처리할 VOD 수 제한")
     parser.add_argument("--alpha", type=float, default=None, help="CLIP 가중치 override")
-    parser.add_argument("--out-file", default=None, help="출력 parquet 경로")
+    parser.add_argument("--dry-run", action="store_true", help="DB 저장 없이 결과만 확인")
     parser.add_argument("--batch-size", type=int, default=1000, help="배치 크기 (기본 1000)")
     args = parser.parse_args()
 
@@ -161,14 +226,9 @@ def main():
     alpha = args.alpha if args.alpha is not None else config["ensemble"]["alpha"]
     top_n = config["ensemble"]["top_n"]
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_file = args.out_file or str(DATA_DIR / f"recommendations_{timestamp}.parquet")
-    Path(out_file).parent.mkdir(parents=True, exist_ok=True)
-
     print("=" * 60)
     print("Vector Search 파이프라인 시작 (배치 행렬 연산)")
     print(f"  alpha={alpha}, top_n={top_n}, batch_size={args.batch_size}")
-    print(f"  출력: {out_file}")
     print("=" * 60)
 
     # VOD 시리즈 매핑 로드 (시리즈 중복 제거용)
@@ -184,7 +244,7 @@ def main():
     conn.close()
     print(f"{len(vod_series_map):,}건")
 
-    # 벡터 로드
+    # 벡터 로드 (로컬 parquet 없으면 자동 dump)
     meta_df, meta_vecs, clip_df, clip_vecs, clip_ids = load_embeddings()
     meta_ids = meta_df["vod_id_fk"].values
 
@@ -207,7 +267,7 @@ def main():
             indices = indices[: args.limit]
 
     total = len(indices)
-    print(f"\n[PLAN_01~03] 유사도 계산 시작 - 대상 {total:,}건")
+    print(f"\n[유사도 계산] 대상 {total:,}건")
 
     all_rows = []
     for start in range(0, total, args.batch_size):
@@ -221,18 +281,16 @@ def main():
         )
         all_rows.extend(rows)
         done = min(start + args.batch_size, total)
-        print(f"  [{done}/{total}] 누적 {len(all_rows):,}건")
-
-    # PLAN_04: parquet 저장
-    print(f"\n[PLAN_04] parquet 저장 중...")
-    df = pd.DataFrame(all_rows)
-    df.to_parquet(out_file, index=False)
+        print(f"  [{done:,}/{total:,}] 누적 {len(all_rows):,}건")
 
     print("=" * 60)
-    print(f"파이프라인 완료")
-    print(f"  처리 VOD: {total:,}건")
-    print(f"  추천 결과: {len(df):,}건")
-    print(f"  출력 파일: {out_file}")
+    print(f"유사도 계산 완료: {len(all_rows):,}건")
+
+    if args.dry_run:
+        print("dry-run 모드 — DB 저장 생략")
+    else:
+        export_to_db(all_rows)
+
     print("=" * 60)
 
 
