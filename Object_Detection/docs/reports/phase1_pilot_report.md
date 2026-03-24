@@ -1,0 +1,196 @@
+> ℹ️ Phase 1 기록. 현재는 best.pt(파인튜닝) + DetectorV2(2단계) 사용.
+> 최신 → `docs/MATCHING_FLOW.md`
+
+# Object_Detection Phase 1 파일럿 리포트
+
+**작성일**: 2026-03-14
+**작성자**: 박아름
+**모델**: YOLO11s (yolo11s.pt, 18.4MB)
+**환경**: Python 3.13, CPU, Windows 11
+
+---
+
+## 1. 테스트 결과 (TDD)
+
+| 구분 | 결과 |
+|------|------|
+| 전체 테스트 | **13 / 13 PASS** |
+| 실행 시간 | 15.26s |
+| 환경 | base conda (Python 3.13) |
+
+| 테스트 ID | 항목 | 결과 |
+|-----------|------|------|
+| P1_01 | cv2 설치 확인 | ✅ PASS |
+| P1_02 | ultralytics 설치 확인 | ✅ PASS |
+| P1_03 | extract_frames → (list, list) 반환 | ✅ PASS |
+| P1_04 | frames / timestamps 길이 일치 | ✅ PASS |
+| P1_05 | max_frames 제한 적용 | ✅ PASS |
+| P1_06 | 존재하지 않는 영상 → ValueError | ✅ PASS |
+| P1_07 | list_video_files → mp4 목록 반환 | ✅ PASS |
+| P1_08 | 영상 없는 디렉터리 → 빈 리스트 | ✅ PASS |
+| P1_09 | Detector 초기화 | ✅ PASS |
+| P1_10 | infer → list 반환 | ✅ PASS |
+| P1_11 | to_records 5컬럼 스키마 | ✅ PASS |
+| P1_12 | confidence < 0.5 필터링 | ✅ PASS |
+| P1_13 | parquet 저장 및 컬럼 검증 | ✅ PASS |
+
+---
+
+## 2. 파일럿 실행 결과
+
+**대상**: `VOD_Embedding/data/trailers_아름` 랜덤 10건
+**설정**: fps=1.0, conf=0.5, model=yolo11s.pt, device=cpu
+
+### 2.1 영상별 처리 결과
+
+| 파일 | 프레임 수 | 탐지 건수 | 탐지율(건/프레임) |
+|------|-----------|-----------|-----------------|
+| CmKiCtj-_Gs.mp4 | 158 | 596 | 3.77 |
+| kPRuY2u7LOM.mp4 | 201 | 525 | 2.61 |
+| fGswTn_1AkY.mp4 | 256 | 925 | 3.61 |
+| qvA2Ke-sDLo.mp4 | 49 | 46 | 0.94 |
+| 9MDYe8APSzg.mp4 | 197 | 62 | 0.31 |
+| DpxYDKDQcZU.mp4 | 74 | 226 | 3.05 |
+| dvdRhAYVKTA.mp4 | 221 | 458 | 2.07 |
+| V7GKE08oayY.mp4 | 78 | 91 | 1.17 |
+| IkR_IEt6c9k.mp4 | 209 | 416 | 1.99 |
+| NFbi1OO5JWE.mp4 | 75 | 169 | 2.25 |
+| **합계** | **1,518** | **3,514** | **평균 2.31** |
+
+- **성공**: 10 / 실패: 0
+- **처리 시간**: 약 5분 35초 (CPU 기준)
+- **처리 속도**: 약 10.5 프레임/초
+
+### 2.2 탐지 통계
+
+| 항목 | 값 |
+|------|-----|
+| 총 탐지 건수 | **3,514건** |
+| 고유 라벨 수 | **48종** (COCO 80종 중 60% 커버) |
+| person 비율 | 68.4% (2,404 / 3,514) |
+
+### 2.3 상위 10개 탐지 라벨
+
+| 순위 | 라벨 | 건수 | 비율 | 카테고리 분류 |
+|------|------|------|------|--------------|
+| 1 | person | 2,404 | 68.4% | 사람 |
+| 2 | bowl | 207 | 5.9% | 음식/식기 |
+| 3 | chair | 128 | 3.6% | 가구 |
+| 4 | bottle | 124 | 3.5% | 식품/용기 |
+| 5 | tv | 91 | 2.6% | 가전 |
+| 6 | cup | 89 | 2.5% | 식기 |
+| 7 | dining table | 54 | 1.5% | 가구 |
+| 8 | potted plant | 49 | 1.4% | 인테리어 |
+| 9 | bed | 42 | 1.2% | 가구 |
+| 10 | laptop | 37 | 1.1% | 가전/IT |
+
+---
+
+## 3. PLAN_01 카테고리별 인식률 분석
+
+| 카테고리 | 탐지 VOD | 비율 | 평가 |
+|---------|---------|------|------|
+| 음식/식기 | 9 / 10 | **90%** | VOD 커버율 높음. 단, 서양 식기류(bowl/bottle/cup)만 — 한식 0건 |
+| 옷/사람 | 10 / 10 | **100%** | person 100% 탐지. 의류 스타일 구분 불가 (tie/suitcase/handbag만) |
+| 가구/가전 | 6 / 10 | **60%** | chair, tv, bed, laptop, refrigerator 등 홈쇼핑 연동에 가장 유리 |
+
+### 음식 라벨 상세
+```
+bowl 207 / bottle 124 / cup 89 / banana 8 / hot dog 6 / carrot 4 / apple 4 / pizza 3 / sandwich 3 / donut 2
+→ 한식(김치찌개, 비빔밥 등) 탐지 0건 — COCO 구조적 한계
+```
+
+### 옷/사람 라벨 상세
+```
+person 2,404 / tie 17 / suitcase 2 / backpack 2 / handbag 1
+→ 의류 스타일·색상 구분 불가, person 탐지만으로는 광고 연동 어려움
+```
+
+### 가구/가전 라벨 상세
+```
+chair 128 / tv 91 / dining table 54 / bed 42 / laptop 37
+refrigerator 29 / couch 26 / clock 16 / vase 10 / cell phone 5
+→ Shopping_Ad 연동 가장 적합한 카테고리
+```
+
+---
+
+## 4. 분석 및 평가
+
+### 3.1 긍정적 지표
+
+- **인식 성공률 100%**: 10건 모두 오류 없이 완료
+- **48종 다양한 객체 탐지**: COCO 80종의 60% 커버
+- **실용적 라벨 확인**: tv, laptop, bed, chair 등 홈쇼핑 광고 연동 가능 객체 포함
+- **배치 파이프라인 정상 동작**: 체크포인트(detect_status.json) + parquet append 저장
+
+### 3.2 한계 및 주의사항
+
+| 한계 | 내용 |
+|------|------|
+| person 편중 | 전체 탐지의 68.4% — 예능 특성상 사람 클로즈업 多 |
+| 음식 라벨 한계 | bowl/cup/bottle만 인식, 요리명·메뉴 미인식 (COCO 구조적 한계) |
+| 의류 미탐지 | COCO에 clothes 없음, 상품 광고 연동 불가 |
+| mmco 경고 | h264 디코딩 경고 발생 (처리에는 영향 없음, yt-dlp 다운로드 품질 문제) |
+| CPU 속도 | 10.5 프레임/초 — 전체 VOD 대량 처리 시 GPU 필요 |
+
+### 3.3 카테고리별 탐지 가능성 (PLAN_01 예측 대비)
+
+| 카테고리 | 예측 | 실측 | 평가 |
+|---------|------|------|------|
+| 가전/가구 | 70% | ✅ tv, laptop, bed, chair 탐지 | 예측 적중 |
+| 음식/식기 | 40% | ⚠️ bowl, bottle, cup만 (요리명 X) | 부분 적중 |
+| 의류 | 10% | ❌ 탐지 없음 | 예측 적중 (한계 확인) |
+| 장소 | 20% | ⚠️ potted plant, dining table 등 간접 추정 | 제한적 |
+
+---
+
+## 5. PLAN_01 완료 판정
+
+| 완료 기준 | 결과 |
+|---------|------|
+| frame_extractor.py 구현 + 테스트 PASS | ✅ |
+| detector.py 구현 + 테스트 PASS | ✅ |
+| batch_detect.py 파일럿 10건 성공 | ✅ |
+| 카테고리별 인식률 수치 출력 | ✅ |
+| **다음 방향** | **가구/가전 60% → Shopping_Ad 연동(PLAN_02) 진행** |
+
+---
+
+## 5. Shopping_Ad 연동 가능성 평가
+
+파일럿 결과 기준 홈쇼핑 광고 트리거 가능 객체:
+
+| 탐지 객체 | 광고 연동 상품 예시 |
+|-----------|-------------------|
+| tv | TV, 스트리밍 기기 |
+| laptop | 노트북, 태블릿 |
+| bed | 침구류, 매트리스 |
+| chair | 의자, 소파 |
+| bottle | 음료, 주방용품 |
+| potted plant | 원예, 인테리어 |
+| cup | 텀블러, 커피용품 |
+
+→ **7종 객체**가 Shopping_Ad 상품 매핑 후보로 즉시 활용 가능
+
+---
+
+## 5. 다음 단계 (Phase 2)
+
+1. **전체 배치 실행**: `trailers_아름` 전체 (크롤링 완료 후)
+2. **인식률 측정**: 예능 카테고리별 탐지 분포 분석
+3. **Shopping_Ad 연동**: 탐지 라벨 → 상품 카테고리 매핑 테이블 설계
+4. **GPU 환경 테스트**: YOLO11s CPU 대비 속도 개선 측정
+
+---
+
+## 6. 산출물
+
+| 파일 | 경로 | 설명 |
+|------|------|------|
+| vod_detected_object.parquet | `data/` | 10건 탐지 결과 (3,514행) |
+| detect_status.json | `data/` | 처리 체크포인트 |
+| frame_extractor.py | `src/` | 프레임 추출 모듈 |
+| detector.py | `src/` | YOLO 추론 래퍼 |
+| batch_detect.py | `scripts/` | 배치 실행 스크립트 |
+| test_phase1_setup.py | `tests/` | 13개 단위 테스트 |

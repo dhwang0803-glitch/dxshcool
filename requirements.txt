@@ -1,0 +1,48 @@
+# ============================================================
+# 실행 환경: conda activate myenv  (Python 3.12)
+# 최초 설치: pip install -r requirements.txt
+#
+# ⚠️  PyTorch GPU 버전이 필요한 경우 torch는 별도 설치:
+#     https://pytorch.org/get-started/locally/
+#     CPU 버전은 아래 항목으로 자동 설치됨
+#
+# ⚠️  CLIP (OpenAI) — PyPI 미등록, 별도 설치 필요:
+#     pip install git+https://github.com/openai/CLIP.git
+# ============================================================
+
+# --- DB / 인프라 ---
+psycopg2-binary        # PostgreSQL 연결
+pgvector               # psycopg2 vector 타입 파싱 (클라이언트 측)
+python-dotenv          # .env 로드
+
+# --- 데이터 처리 ---
+numpy
+pandas
+pyarrow                # Parquet 읽기/쓰기
+scipy                  # 희소 행렬 (CF_Engine ALS)
+scikit-learn           # 유틸리티
+
+# --- 임베딩 / ML ---
+sentence-transformers  # paraphrase-multilingual-MiniLM-L12-v2 (메타데이터 임베딩)
+# torch — sentence-transformers 의존성으로 자동 설치 (CPU 버전)
+# openai/CLIP — 위 주석 참조 (CLIP ViT-B/32 영상 임베딩)
+implicit               # ALS 행렬 분해 (CF_Engine)
+
+# --- 크롤링 / 수집 ---
+yt-dlp                 # YouTube 트레일러 수집 (VOD_Embedding)
+requests               # HTTP API 호출 (RAG, Poster_Collection, Shopping_Ad)
+playwright             # 홈쇼핑 편성표 크롤링 (Shopping_Ad)
+curl-cffi              # 비동기 스크래핑 (RAG)
+beautifulsoup4         # HTML 파싱 (RAG)
+
+# --- 영상 처리 ---
+opencv-python          # 프레임 추출 (VOD_Embedding CLIP)
+Pillow                 # 이미지 처리 (VOD_Embedding)
+
+# --- API 서버 (Phase 4) ---
+fastapi
+uvicorn[standard]
+python-jose[cryptography]  # JWT 인증
+
+# --- 유틸 ---
+tqdm                   # 진행 표시

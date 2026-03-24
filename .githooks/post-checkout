@@ -22,8 +22,14 @@ BRANCH_CHECKOUT=$3
 # 파일 단위 checkout은 무시
 [ "$BRANCH_CHECKOUT" != "1" ] && exit 0
 
-# 동일 커밋으로의 이동은 무시
-[ "$PREV_HEAD" = "$NEW_HEAD" ] && exit 0
+# 새 브랜치 생성(git checkout -b / git switch -c)만 처리
+# 새 브랜치 = PREV_HEAD와 NEW_HEAD가 동일한 커밋 + 브랜치명이 변경된 경우
+# 기존 브랜치 checkout(커밋이 다름)은 스캐폴딩 불필요 → 즉시 종료
+[ "$PREV_HEAD" != "$NEW_HEAD" ] && exit 0
+
+PREV_BRANCH=$(git name-rev --name-only "$PREV_HEAD" 2>/dev/null | sed 's/~.*//')
+CURR_BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null)
+[ "$PREV_BRANCH" = "$CURR_BRANCH" ] && exit 0
 
 BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null)
 [ -z "$BRANCH" ] && exit 0

@@ -1,0 +1,210 @@
+╔════════════════════════════════════════════════════════════════════╗
+║                                                                    ║
+║   VOD 추천 시스템 - 전체 프로젝트 설정 완료! 🎉                  ║
+║                                                                    ║
+║   Database Design + RAG Pipeline Design                           ║
+║   + Skills 문서 5개                                               ║
+║                                                                    ║
+╚════════════════════════════════════════════════════════════════════╝
+
+📋 생성된 모든 파일 정리
+
+═════════════════════════════════════════════════════════════════════
+
+🎯 핵심 가이드 문서 (4개)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. START_HERE.txt
+   └─ 가장 먼저 읽을 문서 (현재 읽는 중)
+
+2. 00_FINAL_EXECUTION_GUIDE.md
+   └─ 실행 방법 (prepare_for_claude_code.py + generate_rag_metadata.py)
+
+3. HOW_TO_RUN_SCRIPTS.md
+   └─ Python 스크립트 실행 방법 상세 가이드
+
+═════════════════════════════════════════════════════════════════════
+
+🤖 Claude Code 프로젝트 지침 (2개)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PROJECT 1: Database Design
+├─ 파일: claude_md_database_design.md
+├─ 위치: database-design/.claude/claude.md
+├─ 목표: PostgreSQL 스키마 설계 (3개 테이블)
+├─ 기간: 1-2주
+└─ 우선순위: 1순위
+
+PROJECT 2: RAG Pipeline Design
+├─ 파일: claude_md_rag_pipeline.md
+├─ 위치: rag-pipeline-design/.claude/claude.md
+├─ 목표: 로컬 LLM 기반 결측치 채우기 파이프라인
+├─ 기간: 2-3주
+└─ 우선순위: 2순위 (병렬 가능)
+
+═════════════════════════════════════════════════════════════════════
+
+🔧 자동화 스크립트 (2개)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. prepare_for_claude_code.py
+   - 용도: 데이터 정규화 + 샘플 생성
+   - 실행: python prepare_for_claude_code.py --input integrated_data_jan.csv
+   - 산출: prepared_data/ 폴더 (9개 파일)
+   - 기간: 10-15분
+
+2. generate_rag_metadata.py
+   - 용도: RAG 결측치 메타데이터 생성
+   - 실행: python generate_rag_metadata.py --input integrated_data_jan.csv
+   - 산출: rag_analysis/ 폴더 (5개 파일)
+   - 기간: 2-3분
+
+═════════════════════════════════════════════════════════════════════
+
+📚 RAG 파이프라인 Skills 문서 (5개) ⭐ 가장 중요!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+위치: rag-pipeline-design/.claude/skills/
+
+1. SKILL_01_LOCAL_LLM_SETUP.md
+   - 로컬 LLM 설치 및 최적화
+   - Kullm-12B, Ollama, 양자화, 한국어 처리
+
+2. SKILL_02_VECTOR_DB_FOR_RAG.md
+   - 벡터 DB 및 임베딩
+   - ko-sbert, Chroma, 유사도 검색, 하이브리드 검색
+
+3. SKILL_03_LOCAL_RAG_PIPELINE.md
+   - 엔드-투-엔드 파이프라인
+   - director/cast/rating 추출, 배치 처리, 체크포인팅
+
+4. SKILL_04_LOCAL_LLM_PROMPTING.md
+   - 프롬프트 엔지니어링
+   - 한국어 프롬프트, 구조화된 출력, 신뢰도 평가
+
+5. SKILL_05_LOCAL_RAG_EVALUATION.md
+   - 품질 평가 및 최적화
+   - 샘플 검증, 성능 벤치마킹, 모니터링
+
+학습 순서: 1 → 2 → 3 → 4 → 5
+
+═════════════════════════════════════════════════════════════════════
+
+📖 참고 및 이해 문서 (5개)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. BAYESIAN_SCORE_APPROACH_GUIDE.md
+   └─ Bayesian Score 계산 방식 선택 가이드
+
+2. CLAUDE_CODE_PREPREP_GUIDE.md
+   └─ Claude Code 활용 전 4단계 준비 작업 상세 가이드
+
+3. FINAL_PREPARATION_CHECKLIST.md
+   └─ 최종 체크리스트 (참고용)
+
+4. RAG_MISSING_DATA_STRATEGY.md
+   └─ RAG 기반 결측치 처리 전략 (배경 이해)
+
+5. README_BEFORE_CLAUDE_CODE.md
+   └─ 준비 완료 패키지 설명
+
+═════════════════════════════════════════════════════════════════════
+
+🎯 지금부터 해야 할 일 (순서)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1️⃣  데이터 준비 (5분)
+   $ python prepare_for_claude_code.py --input integrated_data_jan.csv
+   → prepared_data/ 생성
+
+2️⃣  RAG 메타데이터 생성 (5분)
+   $ python generate_rag_metadata.py --input integrated_data_jan.csv
+   → rag_analysis/ 생성
+
+3️⃣  Database Design 프로젝트 시작 (1-2주)
+   └─ Claude Code에서 database-design/ 폴더 열기
+   └─ .claude/claude.md 로드
+   └─ DDL 스크립트 생성
+
+4️⃣  RAG Pipeline Design 프로젝트 시작 (2-3주)
+   └─ Claude Code에서 rag-pipeline-design/ 폴더 열기
+   └─ .claude/claude.md + skills/ 가이드
+   └─ 로컬 LLM 파이프라인 구현
+
+═════════════════════════════════════════════════════════════════════
+
+📂 최종 폴더 구조
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+project-root/
+│
+├── prepared_data/                 (이미 생성됨 또는 생성 예정)
+│   ├── 02_data_summary.json       ← Claude에 제시
+│   ├── user_sample_100rows.csv    ← Claude에 제시
+│   ├── vod_sample_100rows.csv     ← Claude에 제시
+│   └── watch_history_sample_100rows.csv ← Claude에 제시
+│
+├── rag_analysis/                  (이미 생성됨 또는 생성 예정)
+│   └── 05_claude_prompt.md        ← Claude에 제시
+│
+├── database-design/               (생성 필요)
+│   └── .claude/
+│       └── claude.md              ← claude_md_database_design.md 복사
+│
+├── rag-pipeline-design/           (생성 필요)
+│   └── .claude/
+│       ├── claude.md              ← claude_md_rag_pipeline.md 복사
+│       └── skills/                ← 아래 5개 파일
+│           ├── SKILL_01_LOCAL_LLM_SETUP.md
+│           ├── SKILL_02_VECTOR_DB_FOR_RAG.md
+│           ├── SKILL_03_LOCAL_RAG_PIPELINE.md
+│           ├── SKILL_04_LOCAL_LLM_PROMPTING.md
+│           └── SKILL_05_LOCAL_RAG_EVALUATION.md
+│
+└── 모든 문서들 (reference 용도)
+
+═════════════════════════════════════════════════════════════════════
+
+🔑 핵심 포인트
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ DO:
+- 2개 프로젝트를 별도의 Claude Code 윈도우에서 열기
+- 각 프로젝트의 .claude/claude.md 사용하기
+- Skills 문서 순서대로 학습하기 (1→2→3→4→5)
+- Database Design을 먼저 완료하기
+
+❌ DON'T:
+- 한 윈도우에서 두 프로젝트 동시 처리하기
+- 파일명이나 경로 변경하기
+- 전체 4백만 행 데이터를 Claude에 제시하기
+- Skills 문서의 내용을 임의로 수정하기
+
+═════════════════════════════════════════════════════════════════════
+
+📊 예상 타이밍
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+데이터 준비:              30분
+Database Design:         1-2주
+RAG Pipeline Design:     2-3주 (Database Design과 병렬)
+───────────────────────────────────
+총 프로젝트 기간:        3-4주
+
+═════════════════════════════════════════════════════════════════════
+
+🚀 시작하기
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+이제 다음을 수행하세요:
+
+1. 00_FINAL_EXECUTION_GUIDE.md 읽기
+2. prepare_for_claude_code.py 실행
+3. generate_rag_metadata.py 실행
+4. DATABASE DESIGN 프로젝트 시작
+
+행운을 빕니다! 🎉
+
+═════════════════════════════════════════════════════════════════════
+
+문제가 있으면 SKILL_05_LOCAL_RAG_EVALUATION.md의 모니터링 섹션을 참고해주세요!

@@ -1,0 +1,15 @@
+model:
+  factors: 128
+  iterations: 20
+  regularization: 0.01
+  alpha: 40
+
+recommend:
+  top_k: 20
+  # DB CHECK 제약 허용값: 'VISUAL_SIMILARITY' | 'COLLABORATIVE' | 'HYBRID'
+  # (Database_Design/schemas/create_embedding_tables.sql chk_rec_type 참조)
+  recommendation_type: "COLLABORATIVE"
+
+db:
+  batch_size: 1000
+

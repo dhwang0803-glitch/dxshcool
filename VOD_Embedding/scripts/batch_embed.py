@@ -18,9 +18,11 @@ import json
 import pickle
 import argparse
 import logging
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
+import torch  # sentence_transformers 보다 먼저 로드해야 shm.dll 정상 초기화
 import numpy as np
 
 sys.stdout.reconfigure(encoding='utf-8')
@@ -28,7 +30,8 @@ sys.stdout.reconfigure(encoding='utf-8')
 PROJECT_ROOT         = Path(__file__).parent.parent
 DATA_DIR             = PROJECT_ROOT / "data"
 DEFAULT_TRAILERS_DIR = Path("C:/Users/daewo/DX_prod_2nd/trailers")
-STATUS_FILE          = DATA_DIR / "embed_status.json"
+STATUS_FILE          = DATA_DIR / "embed_status.json"   # --embed-status-file 인자로 덮어씀
+CRAWL_STATUS_FILE    = DATA_DIR / "crawl_status.json"   # --crawl-status-file 인자로 덮어씀
 
 BATCH_SIZE    = 100
 N_FRAMES      = 10
@@ -98,9 +101,9 @@ def check_vector_quality(vec: np.ndarray) -> bool:
     return 0.01 <= mag <= 100.0
 
 
-def load_status() -> dict:
-    if STATUS_FILE.exists():
-        with open(STATUS_FILE, encoding='utf-8') as f:
+def load_status(status_file: Path) -> dict:
+    if status_file.exists():
+        with open(status_file, encoding='utf-8') as f:
             return json.load(f)
     return {
         "last_updated": None,
@@ -113,18 +116,17 @@ def load_status() -> dict:
     }
 
 
-def save_status(status: dict):
+def save_status(status: dict, status_file: Path):
     status["last_updated"] = datetime.now().isoformat()
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with open(STATUS_FILE, 'w', encoding='utf-8') as f:
+    with open(status_file, 'w', encoding='utf-8') as f:
         json.dump(status, f, ensure_ascii=False, indent=2)
 
 
-def load_crawl_status() -> dict:
+def load_crawl_status(crawl_status_file: Path) -> dict:
     """PLAN_01 결과 읽기 (vod_id → filename 매핑)"""
-    crawl_file = DATA_DIR / "crawl_status.json"
-    if crawl_file.exists():
-        with open(crawl_file, encoding='utf-8') as f:
+    if crawl_status_file.exists():
+        with open(crawl_status_file, encoding='utf-8') as f:
             data = json.load(f)
         return data.get("vods", {})
     return {}
@@ -144,6 +146,15 @@ def build_work_list(crawl_vods: dict, done_vod_ids: set, trailers_dir: Path) -> 
             continue
         filename = info.get("filename", "")
         filepath = trailers_dir / filename
+        # yt-dlp이 worst[ext=webm]/worst 폴백으로 mp4 등 다른 확장자로 저장할 수 있음
+        if not filepath.exists():
+            stem = Path(filename).stem
+            for alt_ext in ('mp4', 'webm', 'mkv', 'm4v', 'mov'):
+                alt = trailers_dir / f"{stem}.{alt_ext}"
+                if alt.exists():
+                    filepath = alt
+                    filename  = alt.name
+                    break
         if filepath.exists():
             work.append({
                 "vod_id":    vod_id,
@@ -238,11 +249,17 @@ def main():
                         help='출력 포맷: pkl(기본, DB 적재용) / parquet(팀원 제출용)')
     parser.add_argument('--out-file', type=str, default='',
                         help='parquet 출력 파일명 (기본: data/embeddings_output.parquet)')
+    parser.add_argument('--crawl-status-file', type=str, default='',
+                        help='크롤 상태 파일 경로 (기본: data/crawl_status.json). 병렬 실행 시 파티션별 지정')
+    parser.add_argument('--embed-status-file', type=str, default='',
+                        help='임베딩 상태 파일 경로 (기본: data/embed_status.json). 병렬 실행 시 파티션별 지정')
     args = parser.parse_args()
+    CRAWL_STATUS_FILE = Path(args.crawl_status_file) if args.crawl_status_file else DATA_DIR / "crawl_status.json"
+    STATUS_FILE       = Path(args.embed_status_file)  if args.embed_status_file  else DATA_DIR / "embed_status.json"
     TRAILERS_DIR = Path(args.trailers_dir)
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    status = load_status()
+    status = load_status(STATUS_FILE)
 
     if args.status:
         print_status(status)
@@ -252,12 +269,12 @@ def main():
     done_ids = already_embedded_vod_ids(status)
 
     # PLAN_01 결과 로드
-    crawl_vods = load_crawl_status()
+    crawl_vods = load_crawl_status(CRAWL_STATUS_FILE)
     if not crawl_vods:
         # PLAN_01 미완료 시 trailers/ 폴더에서 직접 스캔
         log.warning("crawl_status.json 없음 — trailers/ 폴더 직접 스캔")
         crawl_vods = {}
-        for f in TRAILERS_DIR.glob("*.webm"):
+        for f in TRAILERS_DIR.glob("*.*"):
             vod_id = f.stem   # filename without extension
             crawl_vods[vod_id] = {
                 "status": "success",
@@ -267,7 +284,13 @@ def main():
 
     work_list = build_work_list(crawl_vods, done_ids, TRAILERS_DIR)
     status["total_trailers"] = len(crawl_vods)
-    log.info(f"임베딩 대상: {len(work_list):,}개")
+
+    # filename 기준으로 그룹핑 — 같은 YouTube 영상을 참조하는 vod_id들을 묶음
+    file_groups: dict[str, list] = defaultdict(list)
+    for item in work_list:
+        file_groups[item["filename"]].append(item)
+    total_files = len(file_groups)
+    log.info(f"임베딩 대상: {len(work_list):,}개 vod_id / {total_files:,}개 고유 파일")
 
     if not work_list:
         log.info("처리할 새 항목 없음")
@@ -287,56 +310,60 @@ def main():
     batch_num   = max(args.start_batch, completed_batches + 1)
     batch_data  = []
 
-    for i, item in enumerate(work_list):
+    for file_idx, (filename, items) in enumerate(file_groups.items()):
         # end-batch 제한 (pkl 모드 전용)
         if not use_parquet and args.end_batch > 0 and batch_num > args.end_batch:
             log.info(f"--end-batch {args.end_batch} 도달, 중단")
             break
 
-        vod_id    = item["vod_id"]
-        filepath  = item["filepath"]
+        filepath = items[0]["filepath"]
 
-        embed_ok = False
         try:
             vec = get_video_embedding(filepath, model)
             if not check_vector_quality(vec):
                 raise ValueError(f"이상 벡터 (magnitude={float(np.linalg.norm(vec)):.4f})")
 
-            record = {
-                "vod_id":       vod_id,
-                "title":        item["title"],
-                "video_file":   item["filename"],
-                "vector":       vec,
-                "magnitude":    float(np.linalg.norm(vec)),
-                "embedded_at":  datetime.now().isoformat(),
-                "ct_cl":        item.get("ct_cl"),
-                "series_nm":    item.get("series_nm"),
-            }
-            if use_parquet:
-                parquet_results.append(record)
-            else:
-                batch_data.append(record)
+            # 동일 파일을 참조하는 모든 vod_id에 같은 벡터 복사 (vod_id마다 독립 행)
+            now = datetime.now().isoformat()
+            mag = float(np.linalg.norm(vec))
+            for item in items:
+                record = {
+                    "vod_id":      item["vod_id"],
+                    "title":       item["title"],
+                    "video_file":  filename,
+                    "vector":      vec,
+                    "magnitude":   mag,
+                    "embedded_at": now,
+                    "ct_cl":       item.get("ct_cl"),
+                    "series_nm":   item.get("series_nm"),
+                }
+                if use_parquet:
+                    parquet_results.append(record)
+                else:
+                    batch_data.append(record)
 
-            status["success"] = status.get("success", 0) + 1
-            log.info(f"[{i+1}/{len(work_list)}] OK  {vod_id}")
-            embed_ok = True
+            status["success"] = status.get("success", 0) + len(items)
+            shared_note = f" (벡터 공유 {len(items)}건)" if len(items) > 1 else ""
+            log.info(f"[{file_idx+1}/{total_files}] OK  {filename}{shared_note}")
+
+            # 파일 삭제는 모든 vod_id 처리 완료 후 1회만
+            if args.delete_after_embed:
+                delete_video_file(filepath)
 
         except Exception as e:
-            status["failed"] = status.get("failed", 0) + 1
-            status.setdefault("failed_vods", {})[vod_id] = str(e)
-            log.warning(f"[{i+1}/{len(work_list)}] FAIL {vod_id}: {e}")
+            status["failed"] = status.get("failed", 0) + len(items)
+            err_msg = str(e)
+            for item in items:
+                status.setdefault("failed_vods", {})[item["vod_id"]] = err_msg
+            log.warning(f"[{file_idx+1}/{total_files}] FAIL {filename}: {e} ({len(items)}건 영향)")
 
-        # 임베딩 성공 후 영상 삭제 (--delete-after-embed 옵션)
-        if embed_ok and args.delete_after_embed:
-            delete_video_file(filepath)
-
-        status["processed"] = status.get("processed", 0) + 1
+        status["processed"] = status.get("processed", 0) + len(items)
 
         # pkl 모드: 배치 단위 저장
         if not use_parquet and len(batch_data) >= BATCH_SIZE:
             fname = save_batch(batch_data, batch_num)
             status.setdefault("batches_completed", []).append(fname)
-            save_status(status)
+            save_status(status, STATUS_FILE)
             batch_data = []
             batch_num  += 1
 
@@ -350,7 +377,7 @@ def main():
         out_file = args.out_file or str(DATA_DIR / "embeddings_output.parquet")
         save_parquet(parquet_results, out_file)
 
-    save_status(status)
+    save_status(status, STATUS_FILE)
     print_status(status)
     log.info("배치 임베딩 완료")
 
