@@ -1,9 +1,9 @@
 """
 run_ad_matching.py — VOD 요약 → 축제 + 제철장터 통합 매칭
 
-매칭 규칙 (2026-03-23 확정):
-  - 제철장터: Top 3 키워드만 매칭 (곁들이 제거)
-  - 상품명 지역 파싱 → VOD 지역과 우선 매칭
+매칭 규칙 (2026-03-24 업데이트):
+  - 제철장터: Top 3 키워드 + smry 보강 키워드 매칭
+  - 스코어링: 지역 일치 + smry 언급 가산 → 최고 점수 1건
   - 노출 우선순위: 축제 > 제철장터
   - 타이밍: 영상 50% 이상 + OCR 없는 클린 화면
 
@@ -11,6 +11,7 @@ run_ad_matching.py — VOD 요약 → 축제 + 제철장터 통합 매칭
     cd Shopping_Ad
     python scripts/run_ad_matching.py
 """
+import os
 import sys
 import json
 import re
@@ -22,7 +23,14 @@ try:
 except Exception:
     pass
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 import pandas as pd
+import psycopg2
 
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
@@ -32,6 +40,106 @@ from seasonal_matcher import SeasonalMatcher
 
 DATA_DIR = PROJECT_ROOT / "data"
 PARQUET_DIR = PROJECT_ROOT.parent / "Object_Detection" / "data" / "parquet_output"
+METADATA_PATH = PROJECT_ROOT.parent / "Object_Detection" / "data" / "batch_target" / "vod_metadata.json"
+
+
+KNOWN_REGIONS = {
+    "남원", "홍성", "아산", "양평", "군산", "무안", "양구",
+    "제주", "강릉", "부산", "전주", "광주", "대전", "춘천",
+    "영월", "보령", "여수", "통영", "경주", "속초", "하동",
+    "삼척", "정선", "태백", "청주", "충주", "서귀포", "애월",
+    "목포", "순천", "담양", "안동", "김해", "거제", "포항",
+}
+
+FOOD_KEYWORDS = {
+    "추어탕", "김치", "막국수", "비빔밥", "한우", "갈비", "삼겹살",
+    "회", "광어", "멍게", "소라", "해삼", "전복", "낙지", "꼬막",
+    "짬뽕", "칼국수", "수제비", "떡볶이", "순대", "족발", "보쌈",
+    "곱창", "육회", "불고기", "제육", "돈까스", "냉면", "쌈밥",
+    "옥돔", "흑돼지", "귤", "감귤", "한라봉", "딸기", "복숭아",
+    "곶감", "사과", "배", "포도", "수박", "참외", "마늘",
+    "된장", "고추장", "젓갈", "굴비", "조기", "고등어", "갈치",
+    "오징어", "문어", "새우", "게", "대게", "랍스터",
+    "백반", "국밥", "설렁탕", "곰탕", "갈비탕", "삼계탕",
+    "라면", "아이스크림", "떡", "한과", "약과",
+}
+
+
+def load_vod_smry():
+    """DB에서 대상 VOD의 smry(줄거리)를 조회하여 {vod_id: smry} 반환"""
+    if not METADATA_PATH.exists():
+        print("  ⚠️ vod_metadata.json 없음 — smry 보강 스킵")
+        return {}
+
+    with open(METADATA_PATH, encoding="utf-8") as f:
+        metadata = json.load(f)
+
+    db_host = os.getenv("DB_HOST")
+    if not db_host:
+        print("  ⚠️ DB 환경변수 없음 — smry 보강 스킵")
+        return {}
+
+    conn = psycopg2.connect(
+        host=db_host, port=int(os.getenv("DB_PORT", "5432")),
+        dbname=os.getenv("DB_NAME"), user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD"),
+    )
+    cur = conn.cursor()
+
+    vod_smry = {}
+    for item in metadata:
+        asset_nm = item["asset_nm"]
+        vod_id = item["file_id"]
+        cur.execute(
+            "SELECT smry FROM vod WHERE asset_nm ILIKE %s LIMIT 1",
+            (f"%{asset_nm}%",),
+        )
+        row = cur.fetchone()
+        if row and row[0]:
+            vod_smry[vod_id] = row[0]
+
+    conn.close()
+    print(f"  smry 로드: {len(vod_smry)}건")
+    return vod_smry
+
+
+def extract_smry_regions(smry_text):
+    """smry에서 지역명 추출"""
+    found = []
+    for region in KNOWN_REGIONS:
+        if region in smry_text:
+            found.append(region)
+    return found
+
+
+def extract_smry_foods(smry_text):
+    """smry에서 음식 키워드 추출"""
+    found = []
+    for food in FOOD_KEYWORDS:
+        if food in smry_text:
+            found.append(food)
+    return found
+
+
+def score_match(match, primary_region, smry_regions, smry_foods):
+    """제철장터 매칭 스코어링
+
+    기본 점수 1 (STT 매칭)
+    + 상품 지역 == smry 지역: +2
+    + 상품 지역 == primary_region: +1
+    + smry에 해당 음식 언급: +1
+    """
+    score = 1
+    product_region = parse_product_region(match["product_name"])
+
+    if product_region and product_region in smry_regions:
+        score += 2
+    if product_region and product_region == primary_region:
+        score += 1
+    if match["matched_keyword"] in smry_foods:
+        score += 1
+
+    return score
 
 
 def load_stt_top_keywords(parquet_dir, top_n=3):
@@ -93,12 +201,6 @@ def find_clean_trigger_ts(parquet_dir, vod_id, min_pct=0.5):
 
 def parse_product_region(product_name):
     """상품명에서 지역 파싱: '아산 포기김치' → '아산'"""
-    # 공백으로 분리해서 첫 단어가 지역명인지 확인
-    KNOWN_REGIONS = {
-        "남원", "홍성", "아산", "양평", "군산", "무안", "양구",
-        "제주", "강릉", "부산", "전주", "광주", "대전", "춘천",
-        "영월", "보령", "여수", "통영", "경주", "속초", "하동",
-    }
     parts = product_name.split()
     if parts and parts[0] in KNOWN_REGIONS:
         return parts[0]
@@ -134,6 +236,9 @@ def main():
 
     vod_keywords = load_stt_top_keywords(PARQUET_DIR, top_n=args.top_n)
     print(f"  STT Top {args.top_n} 키워드: {len(vod_keywords)}개 VOD")
+
+    # smry 로드
+    vod_smry = load_vod_smry()
 
     # 2. 매칭
     candidates = []
@@ -172,39 +277,58 @@ def main():
                 festival_count += 1
                 festival_count_this_vod += 1
 
-        # ── 음식 → 제철장터 (축제 매칭 없을 때만, Top N 키워드, 지역 우선) ──
+        # ── 음식 → 제철장터 (축제 매칭 없을 때만, smry 보강 + 스코어링) ──
         if festival_count_this_vod > 0:
             pass  # 축제 있으면 제철장터 스킵
-        elif "음식" in ad_categories and vod_id in vod_keywords:
-            top_keywords = vod_keywords[vod_id]
-            matched = seasonal_matcher.match_keywords(top_keywords)
+        elif "음식" in ad_categories:
+            # STT Top N 키워드
+            top_keywords = vod_keywords.get(vod_id, [])
 
-            # 지역 우선 정렬: VOD 지역과 같은 상품 우선
-            if primary_region and matched:
-                def region_priority(m):
-                    product_region = parse_product_region(m["product_name"])
-                    if product_region and product_region == primary_region:
-                        return 0  # 같은 지역 우선
-                    return 1
-                matched.sort(key=region_priority)
+            # smry 보강: smry에서 음식 키워드 추출 → STT에 없는 것만 추가
+            smry_text = vod_smry.get(vod_id, "")
+            smry_regions = extract_smry_regions(smry_text) if smry_text else []
+            smry_foods = extract_smry_foods(smry_text) if smry_text else []
 
-            for m in matched[:1]:  # VOD당 제철장터 1건만
-                candidates.append({
-                    "vod_id": vod_id,
-                    "ad_category": "음식",
-                    "ad_action_type": "seasonal_market",
-                    "region": primary_region,
-                    "product_name": m["product_name"],
-                    "detail": f"{m['broadcast_date']} {m['start_time']}~{m['end_time']}",
-                    "popup_title": m["popup_title"],
-                    "popup_body": m["popup_body"],
-                    "channel": m["channel"],
-                    "ts_start": trigger_ts,
-                    "ts_end": (trigger_ts + 10) if trigger_ts else None,
-                    "trigger_count": trigger_count,
-                    "priority": 2,  # 제철장터는 축제 다음
-                })
-                market_count += 1
+            all_keywords = list(top_keywords)
+            for food in smry_foods:
+                if food not in all_keywords:
+                    all_keywords.append(food)
+
+            if not all_keywords:
+                continue
+
+            matched = seasonal_matcher.match_keywords(all_keywords)
+
+            if not matched:
+                continue
+
+            # 스코어링 → 최고 점수 1건 선택
+            scored = []
+            for m in matched:
+                s = score_match(m, primary_region, smry_regions, smry_foods)
+                scored.append((s, m))
+            scored.sort(key=lambda x: -x[0])
+
+            best_score, best = scored[0]
+            candidates.append({
+                "vod_id": vod_id,
+                "ad_category": "음식",
+                "ad_action_type": "seasonal_market",
+                "region": primary_region,
+                "product_name": best["product_name"],
+                "detail": f"{best['broadcast_date']} {best['start_time']}~{best['end_time']}",
+                "popup_text_live": best["popup_text_live"],
+                "popup_text_scheduled": best["popup_text_scheduled"],
+                "channel": best["channel"],
+                "ts_start": trigger_ts,
+                "ts_end": (trigger_ts + 10) if trigger_ts else None,
+                "trigger_count": trigger_count,
+                "priority": 2,
+                "match_score": best_score,
+                "matched_keyword": best["matched_keyword"],
+                "smry_keywords": json.dumps(smry_foods, ensure_ascii=False),
+            })
+            market_count += 1
 
     # 3. 저장
     if candidates:
@@ -237,7 +361,9 @@ def main():
             if ad["ad_action_type"] == "local_gov_popup":
                 print(f"    📍 [{ad['region']}] {ad['product_name']} ({ad['detail']}){ts}")
             else:
-                print(f"    🛒 [{ad['product_name']}] {ad['detail']} | 채널: {ad['channel']}{ts}")
+                score = ad.get('match_score', '-')
+                kw = ad.get('matched_keyword', '')
+                print(f"    🛒 [{ad['product_name']}] {ad['detail']} | 채널: {ad['channel']} | score={score} kw={kw}{ts}")
 
 
 if __name__ == "__main__":

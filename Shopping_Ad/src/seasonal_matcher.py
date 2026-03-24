@@ -12,6 +12,7 @@ Object_Detection에서 추출한 음식 키워드를 제철장터 편성표의
 """
 from __future__ import annotations
 import json
+from datetime import datetime
 from pathlib import Path
 
 
@@ -91,16 +92,40 @@ class SeasonalMatcher:
                     results.append(m)
         return results
 
+    @staticmethod
+    def _format_date(date_str: str) -> str:
+        """'2026-03-26' → '3월 26일(수)' 형식 변환"""
+        if not date_str:
+            return ""
+        try:
+            dt = datetime.strptime(date_str, "%Y-%m-%d")
+            weekdays = "월화수목금토일"
+            wd = weekdays[dt.weekday()]
+            return f"{dt.month}월 {dt.day}일({wd})"
+        except ValueError:
+            return date_str
+
     def _enrich(self, product: dict, keyword: str) -> dict:
         name = product["product_name"]
+        start = product.get("start_time", "")
+        end = product.get("end_time", "")
+        broadcast_date = product.get("broadcast_date", "")
+        date_display = self._format_date(broadcast_date)
         return {
             "product_name": name,
             "channel": product.get("channel", "제철장터"),
-            "broadcast_date": product.get("broadcast_date", ""),
-            "start_time": product.get("start_time", ""),
-            "end_time": product.get("end_time", ""),
+            "broadcast_date": broadcast_date,
+            "start_time": start,
+            "end_time": end,
             "matched_keyword": keyword,
             "ad_action_type": "seasonal_market",
-            "popup_title": "🛒 제철장터 상품 안내",
-            "popup_body": f"{name}\n📺 제철장터 채널 | {product.get('start_time', '')}~{product.get('end_time', '')}",
+            "popup_text_live": (
+                f"지금 제철장터에서 {name} 판매 중입니다.\n"
+                f"시청 하시겠습니까?"
+            ),
+            "popup_text_scheduled": (
+                f"{date_display} 제철장터에서 {name} 판매 예정입니다.\n"
+                f"({start} ~ {end})\n\n"
+                f"시청 예약 하시겠습니까?"
+            ),
         }

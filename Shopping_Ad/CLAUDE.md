@@ -116,12 +116,27 @@ Shopping_Ad/
 | Object_Detection parquet 4종 | VOD 요약 집계 입력 |
 | `data/region_festivals.yaml` | 축제 매칭 |
 | `data/seasonal_market.json` | 제철장터 실제 상품 매칭 |
+| `public.vod.smry` | smry 기반 매칭 보강 (지역/음식 키워드 추출) |
 
 ### 다운스트림 (쓰기)
 
-| 대상 | 컬럼 | 비고 |
+`shopping_ad_candidates.parquet` 출력 필드:
+
+| 필드 | 타입 | 설명 |
 |------|------|------|
-| `serving.shopping_ad` | vod_id_fk, ad_category, ad_action_type, product_name, channel 등 | DDL 대기 |
+| `vod_id` | str | VOD 식별자 |
+| `ad_category` | str | `관광지` / `음식` |
+| `ad_action_type` | str | `local_gov_popup` / `seasonal_market` |
+| `product_name` | str | 축제명 또는 상품명 |
+| `channel` | str | 제철장터 채널명 (채널번호 25) |
+| `popup_text_live` | str | 방송 중 팝업 문구 (제철장터만) |
+| `popup_text_scheduled` | str | 방송 예정 팝업 문구 (제철장터만) |
+| `popup_title` / `popup_body` | str | 축제 팝업 문구 (축제만) |
+| `ts_start` / `ts_end` | float | 광고 노출 타임스탬프 |
+| `match_score` | int | 스코어링 점수 (제철장터만) |
+| `priority` | int | 1=축제(우선), 2=제철장터 |
+
+적재 대상: `serving.shopping_ad` (DDL 대기)
 
 ---
 
@@ -132,10 +147,10 @@ Shopping_Ad/
 | Visit Korea 축제 크롤러 | ✅ 63건/50지역 |
 | 제철장터 크롤러 | ✅ 10개 상품/21개 편성 |
 | festival_matcher | ✅ 완료 |
-| seasonal_matcher | ✅ 실제 상품 매칭 |
+| seasonal_matcher | ✅ 실제 상품 매칭 + 방송 중/예정 2종 포맷 |
 | VOD 요약 집계 (도시 우선순위) | ✅ 완료 |
-| 통합 매칭 파이프라인 | ✅ 축제 6건 + 제철장터 4건 = 10건 |
-| 축제 팝업 GIF 생성 | ✅ 6건 완료 (팝업 가로형, 사진 배경) |
+| 통합 매칭 파이프라인 | ✅ 축제 6건 + 제철장터 4건 = 10건 (smry 보강 + 스코어링) |
+| 축제 팝업 GIF 생성 | ✅ 63건 완료 (팝업 가로형, 사진 배경) |
 | VOD 영상 삽입 샘플 | ✅ FFmpeg 페이드인/아웃 (진해군항제) |
 | DB 적재 | 🔲 serving DDL 대기 |
 
