@@ -1,0 +1,11 @@
+__pycache__
+*.pyc
+.env
+env.yaml
+.git
+tests/
+docs/
+agents/
+Redis/
+config/
+*.md

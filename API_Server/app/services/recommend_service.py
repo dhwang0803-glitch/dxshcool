@@ -20,23 +20,33 @@ def _make_reason(tag_category: str, tag_value: str) -> str:
 async def get_recommendations(user_id: str) -> dict:
     pool = await get_pool()
 
-    # 1) top_vod: hybrid_recommendation 1위
+    # 1) top_vod: hybrid_recommendation — poster_url 있는 최상위 VOD 우선
     top_vod = None
     try:
         async with pool.acquire() as conn:
-            row = await conn.fetchrow(
+            rows = await conn.fetch(
                 """
-                SELECT r.vod_id_fk, v.asset_nm, v.poster_url
+                SELECT r.vod_id_fk, v.series_nm, v.asset_nm, v.poster_url
                 FROM serving.hybrid_recommendation r
                 JOIN public.vod v ON r.vod_id_fk = v.full_asset_id
                 WHERE r.user_id_fk = $1
                   AND (r.expires_at IS NULL OR r.expires_at > NOW())
                 ORDER BY r.rank
-                LIMIT 1
+                LIMIT 20
                 """,
                 user_id,
             )
-            if row:
+            # poster_url 있는 VOD 우선, 없으면 1위 그대로
+            for row in rows:
+                if row["poster_url"]:
+                    top_vod = {
+                        "series_id": row["vod_id_fk"],
+                        "asset_nm": row["asset_nm"],
+                        "poster_url": row["poster_url"],
+                    }
+                    break
+            if not top_vod and rows:
+                row = rows[0]
                 top_vod = {
                     "series_id": row["vod_id_fk"],
                     "asset_nm": row["asset_nm"],
@@ -46,6 +56,8 @@ async def get_recommendations(user_id: str) -> dict:
         pass
 
     # 2) patterns: tag_recommendation (top 5 태그 × top 10 VOD)
+    #    - 배우 태그 + TV 연예/오락: 에피소드 단위 유지 (cast_guest 게스트 출연)
+    #    - 그 외: series_nm 기준 중복 제거
     patterns = []
     try:
         async with pool.acquire() as conn:
@@ -53,7 +65,7 @@ async def get_recommendations(user_id: str) -> dict:
                 """
                 SELECT tr.tag_category, tr.tag_value, tr.tag_rank,
                        tr.tag_affinity, tr.vod_id_fk, tr.vod_rank, tr.vod_score,
-                       v.asset_nm, v.poster_url
+                       v.series_nm, v.asset_nm, v.poster_url, v.ct_cl
                 FROM serving.tag_recommendation tr
                 JOIN public.vod v ON tr.vod_id_fk = v.full_asset_id
                 WHERE tr.user_id_fk = $1
@@ -63,16 +75,30 @@ async def get_recommendations(user_id: str) -> dict:
                 user_id,
             )
 
-        # tag_rank별 그룹핑
+        # tag_rank별 그룹핑 + 조건부 중복 제거
         grouped: dict[int, dict] = {}
+        seen_per_rank: dict[int, set] = {}
         for r in rows:
             rank = r["tag_rank"]
+            category = r["tag_category"]
+            ct_cl = r["ct_cl"] or ""
+            nm = r["series_nm"] or r["asset_nm"]
             if rank not in grouped:
                 grouped[rank] = {
                     "pattern_rank": rank,
-                    "pattern_reason": _make_reason(r["tag_category"], r["tag_value"]),
+                    "pattern_reason": _make_reason(category, r["tag_value"]),
+                    "tag_category": category,
                     "vod_list": [],
                 }
+                seen_per_rank[rank] = set()
+
+            # 배우 태그 + TV 연예/오락 → 에피소드 단위 (중복 제거 안함)
+            is_actor_variety = (category == "actor" and "연예" in ct_cl)
+            if not is_actor_variety:
+                if nm in seen_per_rank[rank]:
+                    continue
+                seen_per_rank[rank].add(nm)
+
             grouped[rank]["vod_list"].append({
                 "series_id": r["vod_id_fk"],
                 "asset_nm": r["asset_nm"],
@@ -80,7 +106,12 @@ async def get_recommendations(user_id: str) -> dict:
                 "score": r["vod_score"],
             })
 
-        patterns = [grouped[k] for k in sorted(grouped.keys())]
+        # tag_category는 내부용이므로 응답에서 제거
+        patterns = []
+        for k in sorted(grouped.keys()):
+            g = grouped[k]
+            g.pop("tag_category", None)
+            patterns.append(g)
     except Exception:
         pass
 

@@ -5,6 +5,7 @@ channels:
   LG헬로비전:
     url: "https://www.lghellovision.net/main/mainScheduleListAjax.do"
     module: lg_hellovision
+    channel_number: 25
     enabled: true
 
 # 공통 설정
