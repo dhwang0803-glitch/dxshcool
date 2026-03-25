@@ -27,7 +27,8 @@ def build_user_preferences(
     mode_label = "TEST 유저" if test_mode else "실 유저"
     log.info("Building user preferences (%s, min_watch_count=%d)...", mode_label, min_watch_count)
 
-    is_test_filter = "AND u.is_test = TRUE" if test_mode else "AND u.is_test = FALSE"
+    is_test_filter  = "AND u.is_test = TRUE"  if test_mode else "AND u.is_test = FALSE"
+    is_test_filter2 = "AND u2.is_test = TRUE" if test_mode else "AND u2.is_test = FALSE"
 
     with conn.cursor() as cur:
         if test_mode:
@@ -80,7 +81,7 @@ def build_user_preferences(
                 SELECT wh2.user_id_fk, COUNT(*) AS total_watches
                 FROM public.watch_history wh2
                 JOIN public."user" u2 ON u2.sha2_hash = wh2.user_id_fk
-                WHERE TRUE {is_test_filter}
+                WHERE TRUE {is_test_filter2}
                 GROUP BY wh2.user_id_fk
             ) user_total ON agg.user_id_fk = user_total.user_id_fk
             """,
