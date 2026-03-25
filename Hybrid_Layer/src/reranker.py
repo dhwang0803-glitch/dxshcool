@@ -3,6 +3,9 @@
 serving.vod_recommendation 후보 × vod_tag × user_preference
 → hybrid_score 계산 → 상위 10건 + explanation_tags 생성
 → serving.hybrid_recommendation UPSERT
+
+시리즈 중복제거는 CF_Engine/Vector_Search 단계에서 이미 처리됨.
+reranker는 그 결과를 그대로 받아 hybrid_score 기준 재정렬만 수행.
 """
 
 import json

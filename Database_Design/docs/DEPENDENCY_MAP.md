@@ -13,10 +13,10 @@
 
 | 테이블 | 생산 브랜치 | 소비 브랜치 |
 |--------|------------|------------|
-| `public.vod` | *(초기 데이터 적재)* | `RAG`(쓰기), `Poster_Collection`(쓰기), `VOD_Embedding`(읽기), `API_Server`(읽기) |
+| `public.vod` | *(초기 데이터 적재)* | `RAG`(쓰기), `Poster_Collection`(쓰기), `VOD_Embedding`(읽기), `API_Server`(읽기), `gen_rec_sentence`(읽기) |
 | `public."user"` | *(초기 데이터 적재)* | `User_Embedding`(읽기), `API_Server`(읽기) |
 | `public.watch_history` | *(초기 데이터 적재)* | `User_Embedding`(읽기), `CF_Engine`(읽기) |
-| `public.vod_embedding` | `VOD_Embedding` | `User_Embedding`(읽기), `Vector_Search`(읽기), `CF_Engine`(읽기) |
+| `public.vod_embedding` | `VOD_Embedding` | `User_Embedding`(읽기), `Vector_Search`(읽기), `CF_Engine`(읽기), `gen_rec_sentence`(읽기) |
 | `public.vod_meta_embedding` | `VOD_Embedding` | `User_Embedding`(읽기), `Vector_Search`(읽기) |
 | `public.user_embedding` | `User_Embedding` | `CF_Engine`(읽기), `Vector_Search`(읽기) |
 | `public.detected_object_yolo` | `Object_Detection` | `Shopping_Ad`(읽기) |
@@ -44,6 +44,7 @@
 | `serving.popular_recommendation` | `CF_Engine`, `Vector_Search` | `API_Server`(읽기) |
 | `serving.hybrid_recommendation` | `Hybrid_Layer` | `API_Server`(읽기) |
 | `serving.tag_recommendation` | `Hybrid_Layer` | `API_Server`(읽기) |
+| `serving.rec_sentence` *(신규, DDL 협의 필요)* | `gen_rec_sentence` | `API_Server`(읽기) |
 
 ---
 
@@ -180,6 +181,20 @@
 | 읽기 | `public."user"` | `point_balance` | INTEGER | 포인트 잔액 O(1) 조회 (DB 트리거 자동 갱신) |
 | 읽기/쓰기 | `public.watch_reservation` | `reservation_id`, `user_id_fk`, `channel`, `program_name`, `alert_at`, `notified` | SERIAL/VARCHAR(64)/INTEGER/VARCHAR(255)/TIMESTAMPTZ/BOOLEAN | 시청예약 등록/조회/삭제. 30초 주기 background task가 `notified` 갱신 |
 | 읽기/쓰기 | `public.notifications` | `notification_id`, `user_id_fk`, `type`, `title`, `message`, `image_url`, `read`, `created_at` | SERIAL/VARCHAR(64)/VARCHAR(32)/VARCHAR(255)/VARCHAR(512)/TEXT/BOOLEAN/TIMESTAMPTZ | GNB 알림 벨. type: new_episode/reservation/system. 읽음/삭제 관리 |
+
+### gen_rec_sentence
+
+| 방향 | 테이블 | 컬럼 | 타입 | 비고 |
+|------|--------|------|------|------|
+| 읽기 | `public.vod` | `full_asset_id`, `asset_nm`, `ct_cl` | VARCHAR | 대상 VOD 식별 |
+| 읽기 | `public.vod` | `genre`, `genre_detail`, `director` | VARCHAR | 메타데이터 → LLM 입력 |
+| 읽기 | `public.vod` | `cast_lead`, `smry`, `rating` | TEXT/VARCHAR | 메타데이터 → LLM 입력 |
+| 읽기 | `public.vod` | `poster_url` | TEXT | 포스터 존재 여부 필터 |
+| 읽기 | `public.vod_embedding` | `vod_id_fk`, `embedding` | VARCHAR/VECTOR(512) | CLIP 영상 벡터 → LLM 입력 |
+| 쓰기 | `serving.rec_sentence` *(신규)* | `vod_id_fk` | VARCHAR(64) | FK → vod.full_asset_id, UNIQUE |
+| 쓰기 | `serving.rec_sentence` | `rec_sentence` | TEXT | 생성된 감성 카피 |
+| 쓰기 | `serving.rec_sentence` | `model_name` | VARCHAR(100) | 생성 모델명 |
+| 쓰기 | `serving.rec_sentence` | `generated_at`, `expires_at` | TIMESTAMPTZ | TTL 관리 (기본 30일) |
 
 ---
 

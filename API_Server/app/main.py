@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -78,9 +79,16 @@ async def api_error_handler(request: Request, exc: APIError):
         content={"error": {"code": exc.code, "message": exc.message}},
     )
 
+_cors_origins = [
+    "http://localhost:3000",
+]
+_extra = os.getenv("CORS_ORIGINS", "")  # 쉼표 구분: "https://a.run.app,https://b.run.app"
+if _extra:
+    _cors_origins.extend(o.strip() for o in _extra.split(",") if o.strip())
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=_cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -88,6 +96,7 @@ app.add_middleware(
 app.include_router(ad.router, prefix="/ad", tags=["ad"])
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(home.router, prefix="/home", tags=["home"])
+app.include_router(search.router, prefix="/vod", tags=["search"])
 app.include_router(vod.router, prefix="/vod", tags=["vod"])
 app.include_router(series.router, prefix="/series", tags=["series"])
 app.include_router(user.router, prefix="/user", tags=["user"])
@@ -97,7 +106,6 @@ app.include_router(recommend.router, prefix="/recommend", tags=["recommend"])
 app.include_router(reservation.router, prefix="/reservations", tags=["reservation"])
 app.include_router(similar.router, prefix="/similar", tags=["similar"])
 app.include_router(notification.router, prefix="/user/me/notifications", tags=["notification"])
-app.include_router(search.router, prefix="/vod", tags=["search"])
 
 
 @app.get("/health")
