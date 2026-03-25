@@ -76,14 +76,13 @@ def extract_tags_from_row(row: dict) -> list[tuple[str, str, str, float]]:
     for d in parse_director(row.get("director")):
         tags.append((vod_id, "director", d, conf))
 
-    # actor (cast_lead + cast_guest)
-    actors = set()
+    # actor_lead (cast_lead: 주연)
     for name in parse_cast(row.get("cast_lead")):
-        actors.add(name)
+        tags.append((vod_id, "actor_lead", name, conf))
+
+    # actor_guest (cast_guest: 게스트/조연)
     for name in parse_cast(row.get("cast_guest")):
-        actors.add(name)
-    for a in actors:
-        tags.append((vod_id, "actor", a, conf))
+        tags.append((vod_id, "actor_guest", name, conf))
 
     # genre
     genre = row.get("genre")
