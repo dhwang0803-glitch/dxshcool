@@ -1,3 +1,6 @@
+> ℹ️ Phase 4 기록. 현재 STT 키워드 639개, OCR 4종째 추가됨.
+> 최신 → `docs/MATCHING_FLOW.md`
+
 # Phase 4 리포트 — Whisper STT 멀티모달 확장
 
 - **브랜치**: Object_Detection

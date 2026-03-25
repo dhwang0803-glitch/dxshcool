@@ -23,7 +23,7 @@ scipy                  # 희소 행렬 (CF_Engine ALS)
 scikit-learn           # 유틸리티
 
 # --- 임베딩 / ML ---
-sentence-transformers  # paraphrase-multilingual-MiniLM-L12-v2 (메타데이터 임베딩)
+sentence-transformers  # paraphrase-multilingual-MiniLM-L12-v2 (메타데이터 임베딩) + clip-ViT-B-32-multilingual-v1 (Object_Detection CLIP)
 # torch — sentence-transformers 의존성으로 자동 설치 (CPU 버전)
 # openai/CLIP — 위 주석 참조 (CLIP ViT-B/32 영상 임베딩)
 implicit               # ALS 행렬 분해 (CF_Engine)
@@ -31,13 +31,17 @@ implicit               # ALS 행렬 분해 (CF_Engine)
 # --- 크롤링 / 수집 ---
 yt-dlp                 # YouTube 트레일러 수집 (VOD_Embedding)
 requests               # HTTP API 호출 (RAG, Poster_Collection, Shopping_Ad)
-playwright             # 홈쇼핑 편성표 크롤링 (Shopping_Ad)
+playwright             # 제철장터 편성표 크롤링 + 축제 팝업 GIF 캡처 (Shopping_Ad)
 curl-cffi              # 비동기 스크래핑 (RAG)
 beautifulsoup4         # HTML 파싱 (RAG)
 
-# --- 영상 처리 ---
-opencv-python          # 프레임 추출 (VOD_Embedding CLIP)
-Pillow                 # 이미지 처리 (VOD_Embedding)
+# --- 영상 처리 / Object_Detection ---
+opencv-python          # 프레임 추출 (VOD_Embedding, Object_Detection)
+Pillow                 # 이미지 처리 (VOD_Embedding, Shopping_Ad GIF 생성)
+ultralytics            # YOLOv11 추론 (Object_Detection — yolo11s.pt + best.pt 한식 71종)
+openai-whisper         # Whisper STT 음성인식 (Object_Detection)
+easyocr                # OCR 자막 텍스트 추출 (Object_Detection)
+PyYAML                 # YAML 설정 로드 (Object_Detection, Shopping_Ad)
 
 # --- API 서버 (Phase 4) ---
 fastapi

@@ -1,3 +1,6 @@
+> ℹ️ Phase 1 기록. 현재는 best.pt(파인튜닝) + DetectorV2(2단계) 사용.
+> 최신 → `docs/MATCHING_FLOW.md`
+
 # Object_Detection Phase 1 파일럿 리포트
 
 **작성일**: 2026-03-14

@@ -33,6 +33,7 @@ CREATE TABLE "user" (
     ch_hh_avg_month1    REAL,
     kids_use_pv_month1  REAL,
     nfx_use_yn          BOOLEAN,
+    point_balance       INTEGER         NOT NULL DEFAULT 0,
     created_at          TIMESTAMPTZ     DEFAULT NOW(),
     last_active_at      TIMESTAMPTZ     DEFAULT NOW()
 );
@@ -51,6 +52,7 @@ CREATE TABLE vod (
     ct_cl               VARCHAR(32)     NOT NULL,
     disp_rtm            VARCHAR(8),
     disp_rtm_sec        INTEGER,
+    disp_rtm_min        SMALLINT,
     genre               VARCHAR(64),
     director            VARCHAR(255),
     asset_prod          VARCHAR(64),
@@ -73,7 +75,22 @@ CREATE TABLE vod (
 
     -- Poster_Collection 파이프라인이 채우는 포스터 경로 (2026-03-11 추가)
     -- VPC 업로드 후 경로 또는 URL. NULL = 미수집.
-    poster_url          TEXT
+    poster_url          TEXT,
+
+    -- disp_rtm를 분 단위로 변환한 값 (2026-03-14 추가)
+    disp_rtm_min        SMALLINT,               -- ROUND(disp_rtm_sec / 60). 프론트엔드 표시용.
+
+    -- TMDB 인기도/평점 컬럼 (2026-03-18 추가)
+    -- RAG 파이프라인이 수집, 인기도 스코어 산출 입력
+    tmdb_vote_average   REAL,                   -- TMDB 평점 (0.0~10.0)
+    tmdb_vote_count     INTEGER,                -- TMDB 평가 참여자 수
+    tmdb_popularity     REAL,                   -- TMDB 인기도 점수 (참고용)
+
+    -- Object_Detection 파이프라인용 트레일러 컬럼 (2026-03-18 추가)
+    -- backfill_youtube_ids.py가 YouTube 검색 후 적재, Object_Detection이 소비
+    youtube_video_id    VARCHAR(20),            -- YouTube 영상 ID (iframe 재생용)
+    duration_sec        REAL,                   -- 트레일러 영상 길이 (초). disp_rtm_sec(원본 메타 러닝타임)과 별도.
+    trailer_processed   BOOLEAN     DEFAULT FALSE  -- Object_Detection 처리 완료 여부
 );
 
 
@@ -157,6 +174,7 @@ COMMENT ON COLUMN vod.asset_nm          IS 'VOD 콘텐츠명';
 COMMENT ON COLUMN vod.ct_cl             IS '콘텐츠 대분류 (예: 영화, 라이프, 키즈)';
 COMMENT ON COLUMN vod.disp_rtm         IS '표시 상영시간 원본값 (HH:MM 형식)';
 COMMENT ON COLUMN vod.disp_rtm_sec     IS '상영시간 초 단위 변환값 (마이그레이션 시 계산)';
+COMMENT ON COLUMN vod.disp_rtm_min     IS '상영시간 분 단위 변환값 (disp_rtm_sec / 60 반올림). Frontend 응답용.';
 COMMENT ON COLUMN vod.genre             IS '장르';
 COMMENT ON COLUMN vod.director          IS '감독명 (NULL 허용 - RAG로 보완 예정, 약 313건 누락)';
 COMMENT ON COLUMN vod.asset_prod        IS '제작사/배급사';
