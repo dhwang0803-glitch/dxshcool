@@ -17,17 +17,35 @@ def _make_reason(tag_category: str, tag_value: str) -> str:
     return tpl.format(value=tag_value)
 
 
+async def _is_test_user(pool, user_id: str) -> bool:
+    """DB에서 is_test 플래그 조회."""
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                'SELECT is_test FROM public."user" WHERE sha2_hash = $1',
+                user_id,
+            )
+        return bool(row and row["is_test"])
+    except Exception:
+        return False
+
+
 async def get_recommendations(user_id: str) -> dict:
     pool = await get_pool()
+
+    # 테스터 여부 확인 → 격리 테이블 분기
+    is_test = await _is_test_user(pool, user_id)
+    hybrid_table = "serving.hybrid_recommendation_test" if is_test else "serving.hybrid_recommendation"
+    tag_table = "serving.tag_recommendation_test" if is_test else "serving.tag_recommendation"
 
     # 1) top_vod: hybrid_recommendation — poster_url 있는 최상위 VOD 우선
     top_vod = None
     try:
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                """
+                f"""
                 SELECT r.vod_id_fk, v.series_nm, v.asset_nm, v.poster_url
-                FROM serving.hybrid_recommendation r
+                FROM {hybrid_table} r
                 JOIN public.vod v ON r.vod_id_fk = v.full_asset_id
                 WHERE r.user_id_fk = $1
                   AND (r.expires_at IS NULL OR r.expires_at > NOW())
@@ -62,11 +80,11 @@ async def get_recommendations(user_id: str) -> dict:
     try:
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                """
+                f"""
                 SELECT tr.tag_category, tr.tag_value, tr.tag_rank,
                        tr.tag_affinity, tr.vod_id_fk, tr.vod_rank, tr.vod_score,
                        v.series_nm, v.asset_nm, v.poster_url, v.ct_cl
-                FROM serving.tag_recommendation tr
+                FROM {tag_table} tr
                 JOIN public.vod v ON tr.vod_id_fk = v.full_asset_id
                 WHERE tr.user_id_fk = $1
                   AND (tr.expires_at IS NULL OR tr.expires_at > NOW())
