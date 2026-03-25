@@ -21,12 +21,13 @@ log = logging.getLogger(__name__)
 
 # ── 단일 유저용 (테스트/디버깅 용도) ────────────────────────────────────
 
-def _fetch_user_candidates(cur, user_id: str) -> list[dict]:
+def _fetch_user_candidates(cur, user_id: str, test_mode: bool = False) -> list[dict]:
     """유저의 vod_recommendation 후보 조회."""
+    table = "serving.vod_recommendation_test" if test_mode else "serving.vod_recommendation"
     cur.execute(
-        """
+        f"""
         SELECT vod_id_fk, score, recommendation_type
-        FROM serving.vod_recommendation
+        FROM {table}
         WHERE user_id_fk = %s
           AND (expires_at IS NULL OR expires_at > NOW())
         ORDER BY score DESC
@@ -81,12 +82,13 @@ def _fetch_vod_tags(cur, vod_ids: list[str]) -> dict[str, list[tuple[str, str, f
 
 # ── 청크 단위 bulk 조회 (run_hybrid_reranking 전용) ──────────────────────
 
-def _fetch_candidates_bulk(cur, user_ids: list[str]) -> dict[str, list[dict]]:
+def _fetch_candidates_bulk(cur, user_ids: list[str], test_mode: bool = False) -> dict[str, list[dict]]:
     """청크 내 전체 유저의 후보를 한 번에 조회 → {user_id: [candidate, ...]}."""
+    table = "serving.vod_recommendation_test" if test_mode else "serving.vod_recommendation"
     cur.execute(
-        """
+        f"""
         SELECT user_id_fk, vod_id_fk, score, recommendation_type
-        FROM serving.vod_recommendation
+        FROM {table}
         WHERE user_id_fk = ANY(%s)
           AND (expires_at IS NULL OR expires_at > NOW())
         ORDER BY user_id_fk, score DESC
@@ -199,12 +201,13 @@ def rerank_user(
     beta: float = 0.6,
     top_n: int = 10,
     top_k_tags: int = 3,
+    test_mode: bool = False,
 ) -> list[dict]:
     """단일 유저 리랭킹 (테스트/디버깅 용도).
 
     운영 배치에서는 run_hybrid_reranking의 bulk 구조를 사용한다.
     """
-    candidates = _fetch_user_candidates(cur, user_id)
+    candidates = _fetch_user_candidates(cur, user_id, test_mode=test_mode)
     user_prefs = _fetch_user_preferences(cur, user_id)
     vod_ids = [c["vod_id_fk"] for c in candidates]
     vod_tags = _fetch_vod_tags(cur, vod_ids)
@@ -219,8 +222,13 @@ def run_hybrid_reranking(
     top_n: int = 10,
     top_k_tags: int = 3,
     user_chunk_size: int = 1000,
+    test_mode: bool = False,
 ) -> int:
     """전체 유저 리랭킹 → hybrid_recommendation 적재.
+
+    Args:
+        test_mode: True이면 vod_recommendation_test에서 후보 조회,
+                   hybrid_recommendation_test에 결과 적재 (테스터 격리용).
 
     청크 단위 bulk 쿼리 구조:
       1. 청크 내 전체 후보 한 번에 조회 (_fetch_candidates_bulk)
@@ -231,13 +239,16 @@ def run_hybrid_reranking(
     Returns:
         총 적재 레코드 수
     """
-    log.info("Phase 3: Hybrid reranking (beta=%.2f, top_n=%d)", beta, top_n)
+    src_table = "serving.vod_recommendation_test" if test_mode else "serving.vod_recommendation"
+    dst_table = "serving.hybrid_recommendation_test" if test_mode else "serving.hybrid_recommendation"
+    mode_label = "TEST 유저" if test_mode else "실 유저"
+    log.info("Phase 3: Hybrid reranking (%s, beta=%.2f, top_n=%d)", mode_label, beta, top_n)
 
     with conn.cursor() as cur:
         cur.execute(
-            """
+            f"""
             SELECT DISTINCT user_id_fk
-            FROM serving.vod_recommendation
+            FROM {src_table}
             WHERE user_id_fk IS NOT NULL
               AND (expires_at IS NULL OR expires_at > NOW())
             """
@@ -249,8 +260,8 @@ def run_hybrid_reranking(
         return 0
 
     with conn.cursor() as cur:
-        cur.execute("DELETE FROM serving.hybrid_recommendation")
-        log.info("Cleared %d existing hybrid_recommendation rows", cur.rowcount)
+        cur.execute(f"DELETE FROM {dst_table}")
+        log.info("Cleared %d existing %s rows", cur.rowcount, dst_table)
 
     total_inserted = 0
     for chunk_start in range(0, len(user_ids), user_chunk_size):
@@ -258,7 +269,7 @@ def run_hybrid_reranking(
 
         with conn.cursor() as cur:
             # bulk 조회 3번으로 청크 전체 처리
-            all_candidates = _fetch_candidates_bulk(cur, chunk)
+            all_candidates = _fetch_candidates_bulk(cur, chunk, test_mode=test_mode)
             all_prefs = _fetch_preferences_bulk(cur, chunk)
 
             unique_vod_ids = list({
@@ -292,7 +303,7 @@ def run_hybrid_reranking(
                 )
                 cur.execute(
                     f"""
-                    INSERT INTO serving.hybrid_recommendation
+                    INSERT INTO {dst_table}
                         (user_id_fk, vod_id_fk, rank, score, explanation_tags, source_engines)
                     VALUES {args}
                     ON CONFLICT (user_id_fk, vod_id_fk) DO UPDATE SET

@@ -23,11 +23,19 @@ def main():
         "--min-watch-count", type=int, default=2,
         help="최소 시청 횟수 (기본 2, DDL CHECK 제약)",
     )
+    parser.add_argument(
+        "--test-mode", action="store_true",
+        help="테스터 격리 모드: is_test=TRUE 유저만 처리",
+    )
     args = parser.parse_args()
 
     conn = get_conn()
     try:
-        inserted = build_user_preferences(conn, min_watch_count=args.min_watch_count)
+        inserted = build_user_preferences(
+            conn,
+            min_watch_count=args.min_watch_count,
+            test_mode=args.test_mode,
+        )
         log.info("Phase 2 완료: %d user_preference rows", inserted)
     finally:
         conn.close()

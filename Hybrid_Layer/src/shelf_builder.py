@@ -24,16 +24,30 @@ def build_tag_shelves(
     top_tags: int = 5,
     vods_per_tag: int = 10,
     user_chunk_size: int = 1000,
+    test_mode: bool = False,
 ) -> int:
     """전체 유저의 태그 선반 생성 → tag_recommendation 적재.
+
+    Args:
+        test_mode: True이면 is_test=TRUE 유저만 처리 → tag_recommendation_test 적재.
 
     Returns:
         총 적재 레코드 수
     """
-    log.info("Phase 4: Building tag shelves (top_tags=%d, vods_per_tag=%d)", top_tags, vods_per_tag)
+    dst_table = "serving.tag_recommendation_test" if test_mode else "serving.tag_recommendation"
+    is_test_filter = "AND u.is_test = TRUE" if test_mode else "AND u.is_test = FALSE"
+    mode_label = "TEST 유저" if test_mode else "실 유저"
+    log.info("Phase 4: Building tag shelves (%s, top_tags=%d, vods_per_tag=%d)", mode_label, top_tags, vods_per_tag)
 
     with conn.cursor() as cur:
-        cur.execute("SELECT DISTINCT user_id_fk FROM public.user_preference")
+        cur.execute(
+            f"""
+            SELECT DISTINCT up.user_id_fk
+            FROM public.user_preference up
+            JOIN public."user" u ON u.sha2_hash = up.user_id_fk
+            WHERE TRUE {is_test_filter}
+            """
+        )
         user_ids = [r[0] for r in cur.fetchall()]
 
     log.info("Target users: %d", len(user_ids))
@@ -41,8 +55,8 @@ def build_tag_shelves(
         return 0
 
     with conn.cursor() as cur:
-        cur.execute("DELETE FROM serving.tag_recommendation")
-        log.info("Cleared %d existing tag_recommendation rows", cur.rowcount)
+        cur.execute(f"DELETE FROM {dst_table}")
+        log.info("Cleared %d existing %s rows", cur.rowcount, dst_table)
 
     total_inserted = 0
     for chunk_start in range(0, len(user_ids), user_chunk_size):
@@ -165,7 +179,7 @@ def build_tag_shelves(
                 )
                 cur.execute(
                     f"""
-                    INSERT INTO serving.tag_recommendation
+                    INSERT INTO {dst_table}
                         (user_id_fk, tag_category, tag_value, tag_rank, tag_affinity,
                          vod_id_fk, vod_rank, vod_score)
                     VALUES {args}
