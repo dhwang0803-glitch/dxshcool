@@ -44,12 +44,17 @@ def main():
     parser.add_argument("--top-tags", type=int, default=tr.get("top_tags", 5))
     parser.add_argument("--vods-per-tag", type=int, default=tr.get("vods_per_tag", 10))
     parser.add_argument("--chunk-size", type=int, default=batch.get("user_chunk_size", 1000))
+    parser.add_argument(
+        "--test-mode", action="store_true",
+        help="테스터 격리 모드: Phase 2~4를 _test 테이블 대상으로 실행 (Phase 1 제외)",
+    )
     args = parser.parse_args()
 
     pipeline_start = time.time()
     results = {}
 
     # ── Phase 1 ──────────────────────────────────────────────
+    # vod_tag는 전체 공용 데이터 → test_mode와 무관하게 항상 실행
     log.info("=" * 60)
     log.info("Phase 1: vod → vod_tag (TMDB confidence 기반)")
     log.info("=" * 60)
@@ -68,7 +73,7 @@ def main():
     t = time.time()
     conn = get_conn()
     try:
-        results["phase2"] = build_user_preferences(conn)
+        results["phase2"] = build_user_preferences(conn, test_mode=args.test_mode)
     finally:
         conn.close()
     log.info("Phase 2 완료: %d rows | 소요: %.1f분", results["phase2"], (time.time() - t) / 60)
@@ -86,6 +91,7 @@ def main():
             top_n=args.top_n,
             top_k_tags=args.top_k_tags,
             user_chunk_size=args.chunk_size,
+            test_mode=args.test_mode,
         )
     finally:
         conn.close()
@@ -103,6 +109,7 @@ def main():
             top_tags=args.top_tags,
             vods_per_tag=args.vods_per_tag,
             user_chunk_size=args.chunk_size,
+            test_mode=args.test_mode,
         )
     finally:
         conn.close()
