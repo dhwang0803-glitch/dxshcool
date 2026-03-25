@@ -14,3 +14,4 @@ class VodDetailResponse(BaseModel):
     release_year: int | None
     poster_url: str | None
     is_free: bool
+    youtube_url: str | None

@@ -25,4 +25,5 @@ async def vod_detail(asset_id: str):
         release_year=vod["release_date"].year if vod["release_date"] else None,
         poster_url=vod["poster_url"],
         is_free=vod.get("asset_prod") == "FOD",
+        youtube_url=f"https://www.youtube.com/embed/{vod['youtube_video_id']}" if vod["youtube_video_id"] else None,
     )
