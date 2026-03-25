@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Noto Sans KR', sans-serif; background: transparent; width: 520px; height: 300px; }
+
+        .card {
+            width: 520px; height: 300px;
+            border-radius: 20px; overflow: hidden;
+            position: relative;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+            border: 1px solid rgba(255,255,255,0.3);
+            animation: slideUp 1s cubic-bezier(0.23,1,0.32,1) forwards;
+        }
+        @keyframes slideUp { from { transform: translateY(40px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        @keyframes imageSway { 0%, 100% { transform: scale(1.15) translateX(-8px); } 50% { transform: scale(1.15) translateX(8px); } }
+        .bg-photo {
+            position: absolute; inset: 0;
+            background: url('images/cherry_blossom.jpg') center center / cover no-repeat;
+            animation: imageSway 15s ease-in-out infinite;
+        }
+        .white-gradient {
+            position: absolute; inset: 0; z-index: 5;
+            background: linear-gradient(to right, rgba(255,255,255,0.96) 0%, rgba(255,255,255,0.75) 42%, rgba(255,255,255,0.1) 68%, transparent 82%);
+        }
+
+        @keyframes petalFall {
+            0%   { transform: translateY(-20px) translateX(0) rotate(0deg); opacity: 0; }
+            10%  { opacity: 0.8; }
+            90%  { opacity: 0.6; }
+            100% { transform: translateY(320px) translateX(40px) rotate(360deg); opacity: 0; }
+        }
+        .petal {
+            position: absolute; top: -20px;
+            border-radius: 100% 0% 100% 0% / 100% 0% 100% 0%;
+            animation: petalFall linear infinite;
+            pointer-events: none; z-index: 15;
+        }
+
+        .content {
+            position: absolute; inset: 0;
+            padding: 28px 32px;
+            display: flex; flex-direction: column; justify-content: center;
+            gap: 16px;
+            z-index: 20;
+        }
+
+        @keyframes spinSlow { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .badge {
+            display: inline-flex; align-items: center; gap: 5px;
+            background: rgba(236,72,153,0.9); color: #fff;
+            font-size: 13px; font-weight: 700;
+            padding: 4px 14px; border-radius: 20px;
+            width: fit-content;
+            box-shadow: 0 2px 8px rgba(236,72,153,0.3);
+        }
+        .badge svg { animation: spinSlow 3s linear infinite; }
+
+        .title-sub {
+            font-size: 18px; font-weight: 700; color: #555;
+            line-height: 1.3; margin-top: 4px;
+        }
+        .title-main {
+            font-size: 34px; font-weight: 900; color: #db2777;
+            margin-top: 2px; line-height: 1.1;
+        }
+
+        .info-section { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+        .info-row {
+            display: flex; align-items: center; gap: 10px;
+            color: #374151; font-size: 16px; font-weight: 700;
+        }
+        .info-icon {
+            background: #fce7f3; padding: 4px; border-radius: 5px;
+            display: flex; align-items: center; justify-content: center;
+        }
+
+        .glow { position: absolute; inset: -6px; background: rgba(244,114,182,0.15); border-radius: 26px; filter: blur(16px); z-index: -1; }
+    </style>
+</head>
+<body>
+    <div class="glow"></div>
+    <div class="card">
+        <div class="bg-photo"></div>
+        <div class="white-gradient"></div>
+        <div id="petalStream"></div>
+        <div class="content">
+            <div>
+                <div class="badge">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z"/></svg>
+                    지역축제 LIVE
+                </div>
+                <div class="title-sub">로맨틱한 봄의 시작</div>
+                <div class="title-main">제64회 진해 군항제</div>
+            </div>
+            <div class="info-section">
+                <div class="info-row">
+                    <div class="info-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#db2777" stroke-width="2.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></div>
+                    경남 창원시 진해구 일원
+                </div>
+                <div class="info-row">
+                    <div class="info-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#db2777" stroke-width="2.5"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
+                    2026. 03. 27 — 04. 05
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        function createPetals() {
+            var c = document.getElementById('petalStream'); c.innerHTML = '';
+            var colors = ['rgba(255,200,210,0.85)','rgba(255,182,193,0.8)','rgba(255,228,235,0.9)'];
+            for (var i = 0; i < 10; i++) {
+                var p = document.createElement('div'); p.className = 'petal';
+                var size = 5 + Math.random() * 8;
+                p.style.width = size + 'px'; p.style.height = size * 0.7 + 'px';
+                p.style.background = colors[Math.floor(Math.random() * colors.length)];
+                p.style.left = Math.random() * 520 + 'px';
+                p.style.animationDelay = Math.random() * 6 + 's';
+                p.style.animationDuration = 4 + Math.random() * 3 + 's';
+                c.appendChild(p);
+            }
+        }
+        createPetals(); setInterval(createPetals, 8000);
+    </script>
+</body>
+</html>
