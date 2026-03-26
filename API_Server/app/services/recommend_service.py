@@ -2,33 +2,50 @@
 
 from app.services.db import get_pool
 
-# pattern_reason 생성용 템플릿
+# pattern_reason 생성용 템플릿 (추천페이지: actor/director 관점만)
 _REASON_TEMPLATES = {
+    "genre_detail": "{value} 장르를 즐겨 보셨어요",
     "director": "{value} 감독 작품을 즐겨 보셨어요",
     "actor_lead": "{value} 배우 출연작을 자주 보셨어요",
-    "actor_guest": "{value} 게스트 출연 회차를 즐겨 보셨어요",
-    "genre": "{value} 장르를 자주 시청하셨네요",
-    "genre_detail": "{value} 장르를 즐겨 보시네요",
-    "rating": "{value} 등급 콘텐츠를 선호하시네요",
+    "actor_guest": "{value} 배우가 출연한 프로그램을 모아봤어요",
+    "cold_genre_detail": "{user}님이 좋아할만한 {value} 시리즈",
 }
 
 
-def _make_reason(tag_category: str, tag_value: str) -> str:
+def _make_reason(tag_category: str, tag_value: str, user_label: str = "") -> str:
     tpl = _REASON_TEMPLATES.get(tag_category, "{value} 관련 콘텐츠를 즐겨 보셨어요")
-    return tpl.format(value=tag_value)
+    return tpl.format(value=tag_value, user=user_label)
+
+
+async def _is_test_user(pool, user_id: str) -> bool:
+    """DB에서 is_test 플래그 조회."""
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                'SELECT is_test FROM public."user" WHERE sha2_hash = $1',
+                user_id,
+            )
+        return bool(row and row["is_test"])
+    except Exception:
+        return False
 
 
 async def get_recommendations(user_id: str) -> dict:
     pool = await get_pool()
+
+    # 테스터 여부 확인 → 격리 테이블 분기
+    is_test = await _is_test_user(pool, user_id)
+    hybrid_table = "serving.hybrid_recommendation_test" if is_test else "serving.hybrid_recommendation"
+    tag_table = "serving.tag_recommendation_test" if is_test else "serving.tag_recommendation"
 
     # 1) top_vod: hybrid_recommendation — poster_url 있는 최상위 VOD 우선
     top_vod = None
     try:
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                """
+                f"""
                 SELECT r.vod_id_fk, v.series_nm, v.asset_nm, v.poster_url
-                FROM serving.hybrid_recommendation r
+                FROM {hybrid_table} r
                 JOIN public.vod v ON r.vod_id_fk = v.full_asset_id
                 WHERE r.user_id_fk = $1
                   AND (r.expires_at IS NULL OR r.expires_at > NOW())
@@ -63,38 +80,44 @@ async def get_recommendations(user_id: str) -> dict:
     try:
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                """
+                f"""
                 SELECT tr.tag_category, tr.tag_value, tr.tag_rank,
                        tr.tag_affinity, tr.vod_id_fk, tr.vod_rank, tr.vod_score,
                        v.series_nm, v.asset_nm, v.poster_url, v.ct_cl
-                FROM serving.tag_recommendation tr
+                FROM {tag_table} tr
                 JOIN public.vod v ON tr.vod_id_fk = v.full_asset_id
                 WHERE tr.user_id_fk = $1
+                  AND tr.tag_category IN ('genre_detail', 'director', 'actor_lead', 'actor_guest', 'cold_genre_detail')
                   AND (tr.expires_at IS NULL OR tr.expires_at > NOW())
                 ORDER BY tr.tag_rank, tr.vod_rank
                 """,
                 user_id,
             )
 
+        # cold_genre_detail 라벨에 필요한 유저 이름(해시 앞 5자)
+        user_label = user_id[:5]
+
         # tag_rank별 그룹핑 + 조건부 중복 제거
+        # cold_genre_detail은 개인화 태그 뒤에 배치하기 위해 rank 오프셋 적용
         grouped: dict[int, dict] = {}
         seen_per_rank: dict[int, set] = {}
+        cold_offset = 100  # cold 태그 rank를 뒤로 밀기
         for r in rows:
-            rank = r["tag_rank"]
             category = r["tag_category"]
+            rank = r["tag_rank"] + (cold_offset if category == "cold_genre_detail" else 0)
             ct_cl = r["ct_cl"] or ""
             nm = r["series_nm"] or r["asset_nm"]
             if rank not in grouped:
                 grouped[rank] = {
                     "pattern_rank": rank,
-                    "pattern_reason": _make_reason(category, r["tag_value"]),
+                    "pattern_reason": _make_reason(category, r["tag_value"], user_label),
                     "tag_category": category,
                     "vod_list": [],
                 }
                 seen_per_rank[rank] = set()
 
-            # 배우 태그 + TV 연예/오락 → 에피소드 단위 (중복 제거 안함)
-            is_actor_variety = (category == "actor" and "연예" in ct_cl)
+            # actor_guest/director + TV 연예/오락 → 에피소드 단위 (중복 제거 안함)
+            is_actor_variety = (category in ("actor_guest", "director") and ct_cl == "TV 연예/오락")
             if not is_actor_variety:
                 if nm in seen_per_rank[rank]:
                     continue
@@ -107,14 +130,71 @@ async def get_recommendations(user_id: str) -> dict:
                 "score": r["vod_score"],
             })
 
-        # tag_category는 내부용이므로 응답에서 제거
+        # tag_category는 내부용이므로 응답에서 제거, rank 재번호
         patterns = []
-        for k in sorted(grouped.keys()):
+        for idx, k in enumerate(sorted(grouped.keys()), 1):
             g = grouped[k]
             g.pop("tag_category", None)
+            g["pattern_rank"] = idx
             patterns.append(g)
     except Exception:
         pass
+
+    # 3) vector similarity: user_embedding meta부분(384D) vs vod_meta_embedding (IVFFlat 활용)
+    #    2-step: ① meta 벡터 추출 → ② 파라미터로 넘겨 인덱스 스캔
+    vector_pattern = None
+    try:
+        async with pool.acquire() as conn:
+            # step 1: user_embedding에서 meta 파트(뒤 384차원) 추출
+            await conn.execute("SET ivfflat.probes = 5")
+            ue_row = await conn.fetchrow(
+                "SELECT (embedding::real[])[513:896]::vector(384) AS meta_vec "
+                "FROM public.user_embedding WHERE user_id_fk = $1",
+                user_id,
+            )
+            if ue_row:
+                # step 2: vod_meta_embedding과 cosine 유사도 (버퍼 30개 → 시리즈 중복제거 → 10개)
+                vector_rows = await conn.fetch(
+                    """
+                    SELECT vme.vod_id_fk,
+                           1 - (vme.embedding <=> $1) AS similarity,
+                           v.series_nm, v.asset_nm, v.poster_url
+                    FROM public.vod_meta_embedding vme
+                    JOIN public.vod v ON vme.vod_id_fk = v.full_asset_id
+                    WHERE v.poster_url IS NOT NULL
+                    ORDER BY vme.embedding <=> $1
+                    LIMIT 50
+                    """,
+                    ue_row["meta_vec"],
+                )
+                # 시리즈 중복제거
+                seen_series: set[str] = set()
+                vod_list = []
+                for r in vector_rows:
+                    nm = r["series_nm"] or r["asset_nm"]
+                    if nm in seen_series:
+                        continue
+                    seen_series.add(nm)
+                    vod_list.append({
+                        "series_id": r["vod_id_fk"],
+                        "asset_nm": r["asset_nm"],
+                        "poster_url": r["poster_url"],
+                        "score": round(float(r["similarity"]), 4),
+                    })
+                    if len(vod_list) >= 10:
+                        break
+                if vod_list:
+                    next_rank = max((p["pattern_rank"] for p in patterns), default=0) + 1
+                    vector_pattern = {
+                        "pattern_rank": next_rank,
+                        "pattern_reason": "나의 취향과 비슷한 콘텐츠",
+                        "vod_list": vod_list,
+                    }
+    except Exception:
+        pass
+
+    if vector_pattern:
+        patterns.append(vector_pattern)
 
     if top_vod or patterns:
         return {"top_vod": top_vod, "patterns": patterns, "source": "personalized"}
