@@ -1,6 +1,18 @@
 from app.services.db import get_pool
 
 
+async def _is_test_user(pool, user_id: str) -> bool:
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                'SELECT is_test FROM public."user" WHERE sha2_hash = $1',
+                user_id,
+            )
+        return bool(row and row["is_test"])
+    except Exception:
+        return False
+
+
 async def get_banner(user_id: str | None = None) -> list[dict]:
     """히어로 배너 2단 구조.
 
@@ -43,12 +55,14 @@ async def get_banner(user_id: str | None = None) -> list[dict]:
 
         # 2단: hybrid_recommendation 개인화 top 10 (로그인 유저만)
         if user_id:
+            is_test = await _is_test_user(pool, user_id)
+            hybrid_table = "serving.hybrid_recommendation_test" if is_test else "serving.hybrid_recommendation"
             try:
                 rows = await conn.fetch(
-                    """
+                    f"""
                     SELECT r.vod_id_fk, r.score,
                            v.series_nm, v.asset_nm, v.poster_url, v.ct_cl
-                    FROM serving.hybrid_recommendation r
+                    FROM {hybrid_table} r
                     JOIN public.vod v ON r.vod_id_fk = v.full_asset_id
                     WHERE r.user_id_fk = $1
                       AND (r.expires_at IS NULL OR r.expires_at > NOW())
@@ -99,12 +113,14 @@ async def get_sections() -> list[dict]:
 async def get_personalized_sections(user_id: str) -> list[dict]:
     """tag_recommendation score 기반 개인화 Top 10. 데이터 없으면 None 반환."""
     pool = await get_pool()
+    is_test = await _is_test_user(pool, user_id)
+    tag_table = "serving.tag_recommendation_test" if is_test else "serving.tag_recommendation"
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            """
+            f"""
             SELECT tr.vod_id_fk, tr.vod_score,
                    v.series_nm, v.asset_nm, v.poster_url
-            FROM serving.tag_recommendation tr
+            FROM {tag_table} tr
             JOIN public.vod v ON tr.vod_id_fk = v.full_asset_id
             WHERE tr.user_id_fk = $1
               AND (tr.expires_at IS NULL OR tr.expires_at > NOW())
