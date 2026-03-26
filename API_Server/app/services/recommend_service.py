@@ -155,7 +155,7 @@ async def get_recommendations(user_id: str) -> dict:
                     JOIN public.vod v ON vme.vod_id_fk = v.full_asset_id
                     WHERE v.poster_url IS NOT NULL
                     ORDER BY vme.embedding <=> $1
-                    LIMIT 30
+                    LIMIT 50
                     """,
                     ue_row["meta_vec"],
                 )
