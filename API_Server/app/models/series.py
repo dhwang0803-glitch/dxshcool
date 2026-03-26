@@ -4,6 +4,7 @@ from pydantic import BaseModel
 
 
 class EpisodeItem(BaseModel):
+    asset_id: str
     episode_title: str
     category: str | None
     poster_url: str | None

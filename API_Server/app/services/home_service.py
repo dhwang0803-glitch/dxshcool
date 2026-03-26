@@ -110,21 +110,29 @@ async def get_sections() -> list[dict]:
     return [{"ct_cl": ct, "vod_list": vods} for ct, vods in sections.items()]
 
 
+_TAG_LABEL = {
+    "genre": "추천 인기 {value}",
+    "genre_detail": "{value}",
+}
+
+
 async def get_personalized_sections(user_id: str) -> list[dict]:
-    """tag_recommendation score 기반 개인화 Top 10. 데이터 없으면 None 반환."""
+    """tag_recommendation 태그별 배너 생성. 데이터 없으면 None 반환."""
     pool = await get_pool()
     is_test = await _is_test_user(pool, user_id)
     tag_table = "serving.tag_recommendation_test" if is_test else "serving.tag_recommendation"
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             f"""
-            SELECT tr.vod_id_fk, tr.vod_score,
+            SELECT tr.tag_category, tr.tag_value, tr.tag_rank,
+                   tr.vod_id_fk, tr.vod_rank, tr.vod_score,
                    v.series_nm, v.asset_nm, v.poster_url
             FROM {tag_table} tr
             JOIN public.vod v ON tr.vod_id_fk = v.full_asset_id
             WHERE tr.user_id_fk = $1
+              AND tr.tag_category IN ('genre', 'genre_detail')
               AND (tr.expires_at IS NULL OR tr.expires_at > NOW())
-            ORDER BY tr.vod_score DESC
+            ORDER BY tr.tag_rank, tr.vod_rank
             """,
             user_id,
         )
@@ -132,24 +140,26 @@ async def get_personalized_sections(user_id: str) -> list[dict]:
     if not rows:
         return None
 
-    # 시리즈 중복 제거 + top 10
-    seen: set[str] = set()
-    vod_list: list[dict] = []
+    # 태그별 그룹핑 + 전체 섹션 간 VOD 중복 제거
+    grouped: dict[int, dict] = {}
+    seen_vods: set[str] = set()
     for r in rows:
+        rank = r["tag_rank"]
         nm = r["series_nm"] or r["asset_nm"]
-        if nm in seen:
+        if nm in seen_vods:
             continue
-        seen.add(nm)
-        vod_list.append({
+        seen_vods.add(nm)
+        if rank not in grouped:
+            label = _TAG_LABEL.get(r["tag_category"], "{value}").format(value=r["tag_value"])
+            grouped[rank] = {
+                "genre": label,
+                "view_ratio": 100 - (rank - 1) * 15,
+                "vod_list": [],
+            }
+        grouped[rank]["vod_list"].append({
             "series_nm": nm,
             "asset_nm": r["asset_nm"],
             "poster_url": r["poster_url"],
         })
-        if len(vod_list) >= 10:
-            break
 
-    return [{
-        "genre": "나를 위한 추천",
-        "view_ratio": 100,
-        "vod_list": vod_list,
-    }]
+    return [grouped[k] for k in sorted(grouped.keys())]
