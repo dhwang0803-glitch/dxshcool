@@ -1,5 +1,33 @@
 from app.services.db import get_pool
 
+# genre_detail 채널/패키지명 필터 (Hybrid_Layer/src/tag_builder.py와 동기화)
+_GENRE_BLACKLIST = frozenset({
+    "무비n시리즈", "만화동산", "제이박스", "게임애니팩토리",
+    "캐치온디맨드", "캐치온라이트", "핑크퐁TV", "EBS키즈",
+    "투니버스월정액", "IHQ무제한", "MBCevery1", "MBN", "TV조선",
+    "KBSN", "채널A", "중화TV", "캐리TV", "BBC키즈", "아이들나라",
+    "tvN드라마", "JTBC시사교양", "JTBC드라마", "JTBC4",
+    "지상파구작", "레드무비", "테마영화관", "PLAYY영화",
+    "양천 사랑방", "케이블 연예오락",
+    "MBC구작", "SBS구작", "KBS구작", "CJENM구작", "JTBC구작",
+    "정보미상", "무료영화", "기타", "추천시리즈", "시리즈",
+    "동요-동화", "영어-놀이학습", "뮤직비디오",
+})
+
+
+def _clean_genre_detail(raw: str | None) -> str | None:
+    """genre_detail에서 채널/패키지명 제거. None 반환 시 ct_cl fallback."""
+    if not raw or not raw.strip():
+        return None
+    val = raw.strip()
+    if val.startswith("(HD)"):
+        return None
+    if val in _GENRE_BLACKLIST:
+        return None
+    # TMDB 복합 장르 → 첫 번째 장르만 사용 (그룹핑 키)
+    parts = [p.strip() for p in val.replace(", ", ",").split(",") if p.strip()]
+    return parts[0] if parts else None
+
 
 async def _is_test_user(pool, user_id: str) -> bool:
     try:
@@ -194,13 +222,13 @@ async def get_personalized_sections(user_id: str) -> list[dict]:
                     """,
                     ue_row["meta_vec"],
                 )
-                # 장르별 그룹핑 (genre_detail 우선, 없으면 ct_cl)
+                # 장르별 그룹핑 (genre_detail 정제 → ct_cl fallback)
                 genre_groups: dict[str, list] = {}
                 for r in vector_rows:
                     nm = r["series_nm"] or r["asset_nm"]
                     if nm in seen_vods:
                         continue
-                    genre = r["genre_detail"] or r["ct_cl"] or "콘텐츠"
+                    genre = _clean_genre_detail(r["genre_detail"]) or r["ct_cl"] or "콘텐츠"
                     if genre not in genre_groups:
                         genre_groups[genre] = []
                     if len(genre_groups[genre]) < 10:
@@ -211,8 +239,11 @@ async def get_personalized_sections(user_id: str) -> list[dict]:
                             "poster_url": r["poster_url"],
                             "score": round(float(r["similarity"]), 4),
                         })
-                # 상위 2개 장르 그룹 (VOD 수 많은 순)
-                top_genres = sorted(genre_groups.items(), key=lambda x: -len(x[1]))[:2]
+                # 상위 2개 장르 그룹 (VOD 3개 이상만, VOD 수 많은 순)
+                top_genres = sorted(
+                    ((g, v) for g, v in genre_groups.items() if len(v) >= 3),
+                    key=lambda x: -len(x[1]),
+                )[:2]
                 for genre, vods in top_genres:
                     if vods:
                         sections.append({
