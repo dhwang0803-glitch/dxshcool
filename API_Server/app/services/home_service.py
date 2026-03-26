@@ -239,9 +239,9 @@ async def get_personalized_sections(user_id: str) -> list[dict]:
                             "poster_url": r["poster_url"],
                             "score": round(float(r["similarity"]), 4),
                         })
-                # 상위 2개 장르 그룹 (VOD 3개 이상만, VOD 수 많은 순)
+                # 상위 2개 장르 그룹 (VOD 10개 이상만, VOD 수 많은 순)
                 top_genres = sorted(
-                    ((g, v) for g, v in genre_groups.items() if len(v) >= 3),
+                    ((g, v) for g, v in genre_groups.items() if len(v) >= 10),
                     key=lambda x: -len(x[1]),
                 )[:2]
                 for genre, vods in top_genres:
