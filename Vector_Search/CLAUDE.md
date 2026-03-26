@@ -64,7 +64,8 @@ final_score = α * clip_score + (1 - α) * content_score
 | 테이블 | 컬럼 | 타입 | 용도 |
 |--------|------|------|------|
 | `public.vod_embedding` | `vod_id_fk`, `embedding` | VARCHAR(64), VECTOR(512) | CLIP 유사도 검색 |
-| `public.vod_meta_embedding` | `vod_id_fk`, `embedding` | VARCHAR(64), VECTOR(384) | 메타 유사도 검색 |
+| `public.vod_series_embedding` | `series_nm`, `representative_vod_id`, `embedding` | VARCHAR(255)/VARCHAR(64)/VECTOR(384) | 시리즈 대표 메타 유사도 검색 (에피소드 중복 해소) |
+| `public.vod_meta_embedding` | `vod_id_fk`, `embedding` | VARCHAR(64), VECTOR(384) | 메타 유사도 검색 (레거시, vod_series_embedding으로 대체) |
 | `public.user_embedding` | `user_id_fk`, `embedding` | VARCHAR(64), VECTOR(896) | 개인화 검색 (추후) |
 
 ### 다운스트림 (쓰기)
