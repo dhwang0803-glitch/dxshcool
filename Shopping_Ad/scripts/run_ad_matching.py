@@ -159,43 +159,106 @@ def load_stt_top_keywords(parquet_dir, top_n=3):
     return vod_keywords
 
 
-def find_clean_trigger_ts(parquet_dir, vod_id, min_pct=0.5):
-    """영상 50% 이후 + OCR 없는 클린 구간의 frame_ts 찾기"""
-    # YOLO에서 영상 길이 추정
+def _load_ocr_timestamps(parquet_dir, vod_id):
+    """OCR(자막) 타임스탬프 목록 로드 (정렬됨)."""
+    ocr_path = parquet_dir / "vod_ocr_concept.parquet"
+    if not ocr_path.exists():
+        return []
+    df_ocr = pd.read_parquet(str(ocr_path))
+    vod_ocr = df_ocr[df_ocr["vod_id"] == vod_id]
+    if len(vod_ocr) == 0:
+        return []
+    return sorted(vod_ocr["frame_ts"].tolist())
+
+
+def _find_nearest_ocr_end(ocr_timestamps, target_ts, window=5):
+    """target_ts 근처(±window초)에 자막이 있으면 자막 종료 + 1초 반환, 없으면 target_ts 그대로."""
+    nearby = [ts for ts in ocr_timestamps if target_ts - window <= ts <= target_ts + window]
+    if nearby:
+        return max(nearby) + 1.0  # 자막 끝 + 1초
+    return target_ts
+
+
+def find_clean_trigger_ts(parquet_dir, vod_id, ad_category="음식", min_pct=0.5):
+    """탐지 프레임 기준 + 자막 종료 1초 후 트리거 타임스탬프 찾기.
+
+    음식: YOLO food_detected 프레임 기준
+    관광지: CLIP 관광지 프레임 기준
+    fallback: 영상 50% 이후 + OCR 없는 클린 구간
+    """
     yolo_path = parquet_dir / "vod_detected_object.parquet"
     clip_path = parquet_dir / "vod_clip_concept.parquet"
-    ocr_path = parquet_dir / "vod_ocr_concept.parquet"
 
-    max_ts = 0
+    ocr_timestamps = _load_ocr_timestamps(parquet_dir, vod_id)
+
+    # ── 1단계: 탐지 프레임에서 후보 수집 ──
+    detection_frames = []
+
+    if ad_category == "음식" and yolo_path.exists():
+        df_yolo = pd.read_parquet(str(yolo_path))
+        vod_yolo = df_yolo[df_yolo["vod_id"] == vod_id]
+        if len(vod_yolo) > 0:
+            detection_frames = sorted(vod_yolo["frame_ts"].tolist())
+
+    elif ad_category == "관광지" and clip_path.exists():
+        df_clip = pd.read_parquet(str(clip_path))
+        vod_clip = df_clip[
+            (df_clip["vod_id"] == vod_id) & (df_clip["ad_category"] == "관광지")
+        ]
+        if len(vod_clip) > 0:
+            detection_frames = sorted(vod_clip["frame_ts"].tolist())
+
+    # ── 2단계: 50% 이후 밀집 구간(실제 음식/관광지 장면) → 자막 끝 + 1초 ──
+    if detection_frames:
+        max_ts = max(detection_frames)
+        half_ts = max_ts * min_pct
+        late_frames = [ts for ts in detection_frames if ts >= half_ts]
+        candidates = late_frames if late_frames else detection_frames
+
+        # 밀집 구간 찾기: 30초 이내 연속 탐지 2건 이상 = 실제 장면
+        # 가장 빠른 밀집 구간 우선 (끝부분 방지)
+        first_cluster_start = None
+        i = 0
+        while i < len(candidates):
+            cluster = [candidates[i]]
+            j = i + 1
+            while j < len(candidates) and candidates[j] - cluster[-1] <= 30:
+                cluster.append(candidates[j])
+                j += 1
+            if len(cluster) >= 2:
+                first_cluster_start = cluster[0]
+                break
+            i = j if j > i + 1 else i + 1
+
+        if first_cluster_start is not None:
+            trigger = _find_nearest_ocr_end(ocr_timestamps, first_cluster_start)
+            return trigger
+
+        # 밀집 구간 없으면 첫 번째 후보 사용
+        trigger = _find_nearest_ocr_end(ocr_timestamps, candidates[0])
+        return trigger
+
+    # ── 3단계: fallback — 50% 이후 + OCR 없는 구간 ──
+    all_max_ts = 0
     for p in [yolo_path, clip_path]:
         if p.exists():
             df = pd.read_parquet(str(p))
             vod_df = df[df["vod_id"] == vod_id]
             if len(vod_df) > 0 and "frame_ts" in vod_df.columns:
-                max_ts = max(max_ts, vod_df["frame_ts"].max())
+                all_max_ts = max(all_max_ts, vod_df["frame_ts"].max())
 
-    if max_ts == 0:
+    if all_max_ts == 0:
         return None
 
-    half_ts = max_ts * min_pct
+    half_ts = all_max_ts * min_pct
+    ocr_set = set(int(round(ts)) for ts in ocr_timestamps)
 
-    # OCR이 있는 타임스탬프 수집
-    ocr_timestamps = set()
-    if ocr_path.exists():
-        df_ocr = pd.read_parquet(str(ocr_path))
-        vod_ocr = df_ocr[df_ocr["vod_id"] == vod_id]
-        if len(vod_ocr) > 0:
-            ocr_timestamps = set(vod_ocr["frame_ts"].round(0).astype(int).tolist())
-
-    # 50% 이후 + OCR 없는 10초 구간 찾기
-    for t_start in range(int(half_ts), int(max_ts), 10):
+    for t_start in range(int(half_ts), int(all_max_ts), 10):
         t_end = t_start + 10
-        # 이 구간에 OCR이 없는지 확인
-        has_ocr = any(t_start <= ts < t_end for ts in ocr_timestamps)
+        has_ocr = any(t_start <= ts < t_end for ts in ocr_set)
         if not has_ocr:
             return float(t_start)
 
-    # 클린 구간 못 찾으면 50% 지점 반환
     return half_ts
 
 
@@ -251,12 +314,10 @@ def main():
         primary_region = row["primary_region"]
         trigger_count = row["trigger_count"]
 
-        # 50% + 클린 화면 타이밍
-        trigger_ts = find_clean_trigger_ts(PARQUET_DIR, vod_id)
-
         # ── 관광지 → 축제 (우선 노출, VOD당 1건만) ──
         festival_count_this_vod = 0
         if "관광지" in ad_categories and primary_region:
+            trigger_ts = find_clean_trigger_ts(PARQUET_DIR, vod_id, ad_category="관광지")
             festivals = festival_matcher.match(primary_region)
             for f in festivals[:1]:  # VOD당 축제 1건만
                 candidates.append({
@@ -281,6 +342,7 @@ def main():
         if festival_count_this_vod > 0:
             pass  # 축제 있으면 제철장터 스킵
         elif "음식" in ad_categories:
+            trigger_ts = find_clean_trigger_ts(PARQUET_DIR, vod_id, ad_category="음식")
             # STT Top N 키워드
             top_keywords = vod_keywords.get(vod_id, [])
 
