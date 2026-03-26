@@ -2,13 +2,11 @@
 
 from app.services.db import get_pool
 
-# pattern_reason 생성용 템플릿
+# pattern_reason 생성용 템플릿 (추천페이지: actor/director 관점만)
 _REASON_TEMPLATES = {
     "director": "{value} 감독 작품을 즐겨 보셨어요",
-    "actor": "{value} 배우 출연작을 자주 보셨어요",
-    "genre": "{value} 장르를 자주 시청하셨네요",
-    "genre_detail": "{value} 장르를 즐겨 보시네요",
-    "rating": "{value} 등급 콘텐츠를 선호하시네요",
+    "actor_lead": "{value} 배우 출연작을 자주 보셨어요",
+    "actor_guest": "{value} 배우가 출연한 프로그램을 모아봤어요",
 }
 
 
@@ -87,6 +85,7 @@ async def get_recommendations(user_id: str) -> dict:
                 FROM {tag_table} tr
                 JOIN public.vod v ON tr.vod_id_fk = v.full_asset_id
                 WHERE tr.user_id_fk = $1
+                  AND tr.tag_category IN ('director', 'actor_lead', 'actor_guest')
                   AND (tr.expires_at IS NULL OR tr.expires_at > NOW())
                 ORDER BY tr.tag_rank, tr.vod_rank
                 """,
@@ -110,8 +109,8 @@ async def get_recommendations(user_id: str) -> dict:
                 }
                 seen_per_rank[rank] = set()
 
-            # 배우 태그 + TV 연예/오락 → 에피소드 단위 (중복 제거 안함)
-            is_actor_variety = (category == "actor" and "연예" in ct_cl)
+            # actor_guest/director + TV 연예/오락 → 에피소드 단위 (중복 제거 안함)
+            is_actor_variety = (category in ("actor_guest", "director") and ct_cl == "TV 연예/오락")
             if not is_actor_variety:
                 if nm in seen_per_rank[rank]:
                     continue
@@ -132,6 +131,62 @@ async def get_recommendations(user_id: str) -> dict:
             patterns.append(g)
     except Exception:
         pass
+
+    # 3) vector similarity: user_embedding meta부분(384D) vs vod_meta_embedding (IVFFlat 활용)
+    #    2-step: ① meta 벡터 추출 → ② 파라미터로 넘겨 인덱스 스캔
+    vector_pattern = None
+    try:
+        async with pool.acquire() as conn:
+            # step 1: user_embedding에서 meta 파트(뒤 384차원) 추출
+            await conn.execute("SET ivfflat.probes = 5")
+            ue_row = await conn.fetchrow(
+                "SELECT (embedding::real[])[513:896]::vector(384) AS meta_vec "
+                "FROM public.user_embedding WHERE user_id_fk = $1",
+                user_id,
+            )
+            if ue_row:
+                # step 2: vod_meta_embedding과 cosine 유사도 (버퍼 30개 → 시리즈 중복제거 → 10개)
+                vector_rows = await conn.fetch(
+                    """
+                    SELECT vme.vod_id_fk,
+                           1 - (vme.embedding <=> $1) AS similarity,
+                           v.series_nm, v.asset_nm, v.poster_url
+                    FROM public.vod_meta_embedding vme
+                    JOIN public.vod v ON vme.vod_id_fk = v.full_asset_id
+                    WHERE v.poster_url IS NOT NULL
+                    ORDER BY vme.embedding <=> $1
+                    LIMIT 50
+                    """,
+                    ue_row["meta_vec"],
+                )
+                # 시리즈 중복제거
+                seen_series: set[str] = set()
+                vod_list = []
+                for r in vector_rows:
+                    nm = r["series_nm"] or r["asset_nm"]
+                    if nm in seen_series:
+                        continue
+                    seen_series.add(nm)
+                    vod_list.append({
+                        "series_id": r["vod_id_fk"],
+                        "asset_nm": r["asset_nm"],
+                        "poster_url": r["poster_url"],
+                        "score": round(float(r["similarity"]), 4),
+                    })
+                    if len(vod_list) >= 10:
+                        break
+                if vod_list:
+                    next_rank = max((p["pattern_rank"] for p in patterns), default=0) + 1
+                    vector_pattern = {
+                        "pattern_rank": next_rank,
+                        "pattern_reason": "나의 취향과 비슷한 콘텐츠",
+                        "vod_list": vod_list,
+                    }
+    except Exception:
+        pass
+
+    if vector_pattern:
+        patterns.append(vector_pattern)
 
     if top_vod or patterns:
         return {"top_vod": top_vod, "patterns": patterns, "source": "personalized"}
