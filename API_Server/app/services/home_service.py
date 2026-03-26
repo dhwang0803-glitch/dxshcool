@@ -112,7 +112,6 @@ async def get_sections() -> list[dict]:
 
 _TAG_LABEL = {
     "genre": "추천 인기 {value}",
-    "genre_detail": "{value}",
 }
 
 
@@ -133,7 +132,7 @@ async def get_personalized_sections(user_id: str) -> list[dict]:
             FROM {tag_table} tr
             JOIN public.vod v ON tr.vod_id_fk = v.full_asset_id
             WHERE tr.user_id_fk = $1
-              AND tr.tag_category IN ('genre', 'genre_detail')
+              AND tr.tag_category = 'genre'
               AND (tr.expires_at IS NULL OR tr.expires_at > NOW())
             ORDER BY tr.tag_rank, tr.vod_rank
             """,
@@ -202,8 +201,8 @@ async def get_personalized_sections(user_id: str) -> list[dict]:
                             "poster_url": r["poster_url"],
                             "score": round(float(r["similarity"]), 4),
                         })
-                # 상위 3개 장르 그룹 (VOD 수 많은 순)
-                top_genres = sorted(genre_groups.items(), key=lambda x: -len(x[1]))[:3]
+                # 상위 2개 장르 그룹 (VOD 수 많은 순)
+                top_genres = sorted(genre_groups.items(), key=lambda x: -len(x[1]))[:2]
                 for genre, vods in top_genres:
                     if vods:
                         sections.append({

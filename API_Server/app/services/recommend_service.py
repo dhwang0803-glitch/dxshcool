@@ -4,6 +4,7 @@ from app.services.db import get_pool
 
 # pattern_reason 생성용 템플릿 (추천페이지: actor/director 관점만)
 _REASON_TEMPLATES = {
+    "genre_detail": "{value} 장르를 즐겨 보셨어요",
     "director": "{value} 감독 작품을 즐겨 보셨어요",
     "actor_lead": "{value} 배우 출연작을 자주 보셨어요",
     "actor_guest": "{value} 배우가 출연한 프로그램을 모아봤어요",
@@ -85,7 +86,7 @@ async def get_recommendations(user_id: str) -> dict:
                 FROM {tag_table} tr
                 JOIN public.vod v ON tr.vod_id_fk = v.full_asset_id
                 WHERE tr.user_id_fk = $1
-                  AND tr.tag_category IN ('director', 'actor_lead', 'actor_guest')
+                  AND tr.tag_category IN ('genre_detail', 'director', 'actor_lead', 'actor_guest')
                   AND (tr.expires_at IS NULL OR tr.expires_at > NOW())
                 ORDER BY tr.tag_rank, tr.vod_rank
                 """,

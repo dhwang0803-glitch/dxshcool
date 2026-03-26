@@ -41,7 +41,6 @@ def main():
     parser.add_argument("--beta", type=float, default=rr.get("beta", 0.6))
     parser.add_argument("--top-n", type=int, default=rr.get("top_n", 10))
     parser.add_argument("--top-k-tags", type=int, default=rr.get("top_k_tags", 3))
-    parser.add_argument("--top-tags", type=int, default=tr.get("top_tags", 5))
     parser.add_argument("--vods-per-tag", type=int, default=tr.get("vods_per_tag", 10))
     parser.add_argument("--chunk-size", type=int, default=batch.get("user_chunk_size", 1000))
     parser.add_argument(
@@ -106,7 +105,6 @@ def main():
     try:
         results["phase4"] = build_tag_shelves(
             conn,
-            top_tags=args.top_tags,
             vods_per_tag=args.vods_per_tag,
             user_chunk_size=args.chunk_size,
             test_mode=args.test_mode,

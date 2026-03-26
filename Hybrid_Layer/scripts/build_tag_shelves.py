@@ -2,7 +2,7 @@
 
 Usage:
     python Hybrid_Layer/scripts/build_tag_shelves.py
-    python Hybrid_Layer/scripts/build_tag_shelves.py --top-tags 5 --vods-per-tag 10
+    python Hybrid_Layer/scripts/build_tag_shelves.py --vods-per-tag 10
 """
 
 import argparse
@@ -28,7 +28,6 @@ def main():
     batch = config.get("batch", {})
 
     parser = argparse.ArgumentParser(description="Phase 4: 태그 선반 생성")
-    parser.add_argument("--top-tags", type=int, default=tr.get("top_tags", 5))
     parser.add_argument("--vods-per-tag", type=int, default=tr.get("vods_per_tag", 10))
     parser.add_argument("--chunk-size", type=int, default=batch.get("user_chunk_size", 1000))
     parser.add_argument(
@@ -41,7 +40,6 @@ def main():
     try:
         total = build_tag_shelves(
             conn,
-            top_tags=args.top_tags,
             vods_per_tag=args.vods_per_tag,
             user_chunk_size=args.chunk_size,
             test_mode=args.test_mode,
