@@ -110,6 +110,12 @@ def normalize_rating(raw: str | None) -> str | None:
     return mapping.get(r, r)
 
 
+# genre 표기 정규화 (DB 원본에 동일 장르가 다른 표기로 혼재)
+_GENRE_NORMALIZE = {
+    "연예오락": "연예/오락",
+}
+
+
 def extract_tags_from_row(row: dict) -> list[tuple[str, str, str, float]]:
     """단일 VOD 행에서 (vod_id, tag_category, tag_value, confidence) 리스트 반환."""
     vod_id = row["full_asset_id"]
@@ -128,10 +134,11 @@ def extract_tags_from_row(row: dict) -> list[tuple[str, str, str, float]]:
     for name in parse_cast(row.get("cast_guest")):
         tags.append((vod_id, "actor_guest", name, conf))
 
-    # genre
+    # genre (표기 정규화 적용)
     genre = row.get("genre")
     if genre and genre.strip():
-        tags.append((vod_id, "genre", genre.strip(), conf))
+        g = _GENRE_NORMALIZE.get(genre.strip(), genre.strip())
+        tags.append((vod_id, "genre", g, conf))
 
     # genre_detail (정제: 채널명 필터링 + 복합 장르 분리)
     for gd in parse_genre_detail(row.get("genre_detail")):
