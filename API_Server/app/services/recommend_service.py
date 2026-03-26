@@ -8,12 +8,13 @@ _REASON_TEMPLATES = {
     "director": "{value} 감독 작품을 즐겨 보셨어요",
     "actor_lead": "{value} 배우 출연작을 자주 보셨어요",
     "actor_guest": "{value} 배우가 출연한 프로그램을 모아봤어요",
+    "cold_genre_detail": "{user}님이 좋아할만한 {value} 시리즈",
 }
 
 
-def _make_reason(tag_category: str, tag_value: str) -> str:
+def _make_reason(tag_category: str, tag_value: str, user_label: str = "") -> str:
     tpl = _REASON_TEMPLATES.get(tag_category, "{value} 관련 콘텐츠를 즐겨 보셨어요")
-    return tpl.format(value=tag_value)
+    return tpl.format(value=tag_value, user=user_label)
 
 
 async def _is_test_user(pool, user_id: str) -> bool:
@@ -86,25 +87,30 @@ async def get_recommendations(user_id: str) -> dict:
                 FROM {tag_table} tr
                 JOIN public.vod v ON tr.vod_id_fk = v.full_asset_id
                 WHERE tr.user_id_fk = $1
-                  AND tr.tag_category IN ('genre_detail', 'director', 'actor_lead', 'actor_guest')
+                  AND tr.tag_category IN ('genre_detail', 'director', 'actor_lead', 'actor_guest', 'cold_genre_detail')
                   AND (tr.expires_at IS NULL OR tr.expires_at > NOW())
                 ORDER BY tr.tag_rank, tr.vod_rank
                 """,
                 user_id,
             )
 
+        # cold_genre_detail 라벨에 필요한 유저 이름(해시 앞 5자)
+        user_label = user_id[:5]
+
         # tag_rank별 그룹핑 + 조건부 중복 제거
+        # cold_genre_detail은 개인화 태그 뒤에 배치하기 위해 rank 오프셋 적용
         grouped: dict[int, dict] = {}
         seen_per_rank: dict[int, set] = {}
+        cold_offset = 100  # cold 태그 rank를 뒤로 밀기
         for r in rows:
-            rank = r["tag_rank"]
             category = r["tag_category"]
+            rank = r["tag_rank"] + (cold_offset if category == "cold_genre_detail" else 0)
             ct_cl = r["ct_cl"] or ""
             nm = r["series_nm"] or r["asset_nm"]
             if rank not in grouped:
                 grouped[rank] = {
                     "pattern_rank": rank,
-                    "pattern_reason": _make_reason(category, r["tag_value"]),
+                    "pattern_reason": _make_reason(category, r["tag_value"], user_label),
                     "tag_category": category,
                     "vod_list": [],
                 }
@@ -124,11 +130,12 @@ async def get_recommendations(user_id: str) -> dict:
                 "score": r["vod_score"],
             })
 
-        # tag_category는 내부용이므로 응답에서 제거
+        # tag_category는 내부용이므로 응답에서 제거, rank 재번호
         patterns = []
-        for k in sorted(grouped.keys()):
+        for idx, k in enumerate(sorted(grouped.keys()), 1):
             g = grouped[k]
             g.pop("tag_category", None)
+            g["pattern_rank"] = idx
             patterns.append(g)
     except Exception:
         pass

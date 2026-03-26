@@ -112,6 +112,7 @@ async def get_sections() -> list[dict]:
 
 _TAG_LABEL = {
     "genre": "추천 인기 {value}",
+    "cold_genre_detail": "{user}님이 좋아할만한 {value} 시리즈",
 }
 
 
@@ -123,7 +124,7 @@ async def get_personalized_sections(user_id: str) -> list[dict]:
     sections: list[dict] = []
 
     async with pool.acquire() as conn:
-        # ── 1) 태그 배너: genre/genre_detail ──
+        # ── 1) 태그 배너: genre + cold_genre_detail (cold start fallback) ──
         rows = await conn.fetch(
             f"""
             SELECT tr.tag_category, tr.tag_value, tr.tag_rank,
@@ -132,29 +133,38 @@ async def get_personalized_sections(user_id: str) -> list[dict]:
             FROM {tag_table} tr
             JOIN public.vod v ON tr.vod_id_fk = v.full_asset_id
             WHERE tr.user_id_fk = $1
-              AND tr.tag_category = 'genre'
+              AND tr.tag_category IN ('genre', 'cold_genre_detail')
               AND (tr.expires_at IS NULL OR tr.expires_at > NOW())
-            ORDER BY tr.tag_rank, tr.vod_rank
+            ORDER BY
+                CASE WHEN tr.tag_category = 'genre' THEN 0 ELSE 1 END,
+                tr.tag_rank, tr.vod_rank
             """,
             user_id,
         )
 
+        user_label = user_id[:5]
         grouped: dict[int, dict] = {}
         seen_vods: set[str] = set()
+        seq = 0  # 순차 rank 부여
         for r in rows:
-            rank = r["tag_rank"]
+            cat = r["tag_category"]
+            raw_rank = r["tag_rank"]
+            # cold 태그는 genre 뒤에 오도록 offset
+            rank_key = raw_rank if cat == "genre" else 100 + raw_rank
             nm = r["series_nm"] or r["asset_nm"]
             if nm in seen_vods:
                 continue
             seen_vods.add(nm)
-            if rank not in grouped:
-                label = _TAG_LABEL.get(r["tag_category"], "{value}").format(value=r["tag_value"])
-                grouped[rank] = {
+            if rank_key not in grouped:
+                seq += 1
+                tpl = _TAG_LABEL.get(cat, "{value}")
+                label = tpl.format(value=r["tag_value"], user=user_label)
+                grouped[rank_key] = {
                     "genre": label,
-                    "view_ratio": 100 - (rank - 1) * 15,
+                    "view_ratio": max(100 - (seq - 1) * 15, 40),
                     "vod_list": [],
                 }
-            grouped[rank]["vod_list"].append({
+            grouped[rank_key]["vod_list"].append({
                 "series_nm": nm,
                 "asset_nm": r["asset_nm"],
                 "poster_url": r["poster_url"],

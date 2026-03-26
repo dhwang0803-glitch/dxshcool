@@ -149,6 +149,7 @@ pip install psycopg2-binary pyyaml python-dotenv
 | `public.watch_history` | `user_id_fk`, `vod_id_fk`, `completion_rate` | VARCHAR/VARCHAR/REAL | user_preference 집계 |
 | `public.vod_tag` | `vod_id_fk`, `tag_category`, `tag_value`, `confidence` | VARCHAR/VARCHAR/VARCHAR/REAL | 리랭킹 매칭 |
 | `public.user_preference` | `user_id_fk`, `tag_category`, `tag_value`, `affinity` | VARCHAR/VARCHAR/VARCHAR/REAL | 리랭킹 매칭 |
+| `public."user"` | `sha2_hash`, `age_grp10`, `is_test` | VARCHAR/VARCHAR/BOOLEAN | Cold start fallback: 연령대 인기 태그 조회 |
 
 ### 다운스트림 (쓰기)
 
@@ -272,6 +273,19 @@ if not is_episode_level:
 | `actor_lead` | 2 | 스마트 추천 |
 | `actor_guest` | 2 | 스마트 추천 |
 | ~~`rating`~~ | **제거** | — |
+| `cold_genre_detail` | 최대 5 (빈 슬롯 보충) | 홈 + 스마트 추천 |
+
+### Cold Start Fallback (Phase 4-b)
+
+시청 이력이 적은 유저는 카테고리별 슬롯을 다 채우지 못할 수 있다.
+빈 슬롯을 **연령대(age_grp10) 인기 genre_detail** 태그의 VOD로 채운다.
+
+- **tag_category**: `cold_genre_detail` (API에서 라벨 분기용)
+- **tag_affinity**: `0.0` (비개인화 표시)
+- **라벨**: `{유저}님이 좋아할만한 {genre_detail} 시리즈`
+- **최대 5개** (tag_rank CHECK 제약)
+- 이미 개인화로 할당된 genre_detail 태그는 중복 제외
+- 10-VOD 최소 기준 동일 적용
 
 ---
 
