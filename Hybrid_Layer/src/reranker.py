@@ -34,17 +34,14 @@ def _fetch_user_candidates(cur, user_id: str, test_mode: bool = False) -> list[d
         """,
         (user_id,),
     )
-    seen = set()
     candidates = []
     for row in cur.fetchall():
-        vid = row[0]
-        if vid not in seen:
-            seen.add(vid)
-            candidates.append({
-                "vod_id_fk": vid,
-                "score": row[1],
-                "recommendation_type": row[2],
-            })
+        vid, score, rec_type = row
+        candidates.append({
+            "vod_id_fk": vid,
+            "score": score,
+            "recommendation_type": rec_type,
+        })
     return candidates
 
 
