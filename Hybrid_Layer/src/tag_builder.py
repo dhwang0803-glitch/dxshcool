@@ -50,6 +50,50 @@ def parse_director(raw: str | None) -> list[str]:
     return [d.strip() for d in raw.split(",") if d.strip()]
 
 
+# genre_detail 필터링: 채널/패키지명 등 장르가 아닌 값 제거
+_GENRE_DETAIL_BLACKLIST = frozenset({
+    # 채널/패키지명
+    "무비n시리즈", "만화동산", "제이박스", "게임애니팩토리",
+    "캐치온디맨드", "캐치온라이트", "핑크퐁TV", "EBS키즈",
+    "투니버스월정액", "IHQ무제한", "MBCevery1", "MBN", "TV조선",
+    "KBSN", "채널A", "중화TV", "캐리TV", "BBC키즈", "아이들나라",
+    "tvN드라마", "JTBC시사교양", "JTBC드라마", "JTBC4",
+    "지상파구작", "레드무비", "테마영화관", "PLAYY영화",
+    "양천 사랑방", "케이블 연예오락",
+    # 방송사 구작
+    "MBC구작", "SBS구작", "KBS구작", "CJENM구작", "JTBC구작",
+    # 무의미/분류불가
+    "정보미상", "무료영화", "기타", "추천시리즈", "시리즈",
+    "동요-동화", "영어-놀이학습", "뮤직비디오",
+})
+
+
+def parse_genre_detail(raw: str | None) -> list[str]:
+    """genre_detail 정제: 채널명 필터링 + TMDB 복합 장르 분리.
+
+    예: "코미디, 드라마" → ["코미디", "드라마"]
+        "Sci-Fi & Fantasy, 드라마" → ["Sci-Fi & Fantasy", "드라마"]
+        "MBC구작" → [] (채널명 필터링)
+        "(HD)애니플러스" → [] (채널명 필터링)
+    """
+    if not raw or not raw.strip():
+        return []
+    raw = raw.strip()
+
+    # (HD) 접두사 → 채널/패키지명
+    if raw.startswith("(HD)"):
+        return []
+
+    # 블랙리스트
+    if raw in _GENRE_DETAIL_BLACKLIST:
+        return []
+
+    # TMDB 복합 장르 분리 (", " 구분 — 콤마+스페이스)
+    # "학원,순정" 같은 국내 복합 장르도 처리 (콤마만)
+    parts = [p.strip() for p in raw.replace(", ", ",").split(",") if p.strip()]
+    return parts
+
+
 def normalize_rating(raw: str | None) -> str | None:
     """등급 정규화: 다양한 형식 → 표준 형식."""
     if not raw or not raw.strip():
@@ -89,10 +133,9 @@ def extract_tags_from_row(row: dict) -> list[tuple[str, str, str, float]]:
     if genre and genre.strip():
         tags.append((vod_id, "genre", genre.strip(), conf))
 
-    # genre_detail
-    genre_detail = row.get("genre_detail")
-    if genre_detail and genre_detail.strip():
-        tags.append((vod_id, "genre_detail", genre_detail.strip(), conf))
+    # genre_detail (정제: 채널명 필터링 + 복합 장르 분리)
+    for gd in parse_genre_detail(row.get("genre_detail")):
+        tags.append((vod_id, "genre_detail", gd, conf))
 
     return tags
 
