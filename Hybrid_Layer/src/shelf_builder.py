@@ -1,9 +1,13 @@
 """Phase 4: 선호 태그별 VOD 추천 선반 생성.
 
-user_preference → 유저별 top 5 태그
+user_preference → 카테고리별 top N 태그
 → 태그별 vod_tag 매칭 + 시청 제외 + 랭킹
-→ 태그별 top 10 VOD 선별
+→ 태그별 top 10 VOD 선별 (10개 미달 태그는 스킵 → 후순위 대체)
 → serving.tag_recommendation 적재
+
+카테고리별 슬롯:
+  홈:       genre 3
+  스마트:   genre_detail 3, director 2, actor_lead 2, actor_guest 2
 
 최적화 전략:
 - 청크 내 등장하는 고유 (tag_category, tag_value)별로 상위 VOD를 한 번만 조회해 캐시
@@ -18,15 +22,28 @@ log = logging.getLogger(__name__)
 # 태그당 VOD 후보 버퍼 (시청 제외 + 시리즈 중복제거 후 vods_per_tag개를 보장하기 위한 여유분)
 _TAG_VOD_BUFFER = 500
 
+# 카테고리별 최종 슬롯 수 (홈: genre, 스마트: 나머지)
+_CATEGORY_SLOTS = {
+    "genre": 3,
+    "genre_detail": 3,
+    "director": 2,
+    "actor_lead": 2,
+    "actor_guest": 2,
+}
+# 10개 미달 스킵 대비 여유 후보 태그 수 (슬롯 + 버퍼)
+_CATEGORY_BUFFER = 3
+
 
 def build_tag_shelves(
     conn,
-    top_tags: int = 5,
     vods_per_tag: int = 10,
     user_chunk_size: int = 1000,
     test_mode: bool = False,
 ) -> int:
     """전체 유저의 태그 선반 생성 → tag_recommendation 적재.
+
+    카테고리별 슬롯 수만큼 태그를 선별하되, vods_per_tag개 미만의 VOD만
+    남는 태그는 스킵하고 같은 카테고리의 후순위 태그로 대체한다.
 
     Args:
         test_mode: True이면 is_test=TRUE 유저만 처리 → tag_recommendation_test 적재.
@@ -37,7 +54,7 @@ def build_tag_shelves(
     dst_table = "serving.tag_recommendation_test" if test_mode else "serving.tag_recommendation"
     is_test_filter = "AND u.is_test = TRUE" if test_mode else "AND u.is_test = FALSE"
     mode_label = "TEST 유저" if test_mode else "실 유저"
-    log.info("Phase 4: Building tag shelves (%s, top_tags=%d, vods_per_tag=%d)", mode_label, top_tags, vods_per_tag)
+    log.info("Phase 4: Building tag shelves (%s, vods_per_tag=%d)", mode_label, vods_per_tag)
 
     with conn.cursor() as cur:
         cur.execute(
@@ -62,28 +79,38 @@ def build_tag_shelves(
     for chunk_start in range(0, len(user_ids), user_chunk_size):
         chunk = user_ids[chunk_start: chunk_start + user_chunk_size]
 
+        # 허용 카테고리 목록 (rating 제외)
+        allowed_cats = list(_CATEGORY_SLOTS.keys())
+
         with conn.cursor() as cur:
-            # 1) 청크 유저의 top N 태그 한 번에 조회
+            # 1) 청크 유저의 카테고리별 top N 태그 조회 (rating 제외)
+            #    카테고리별로 슬롯+버퍼만큼 후보를 가져온다
             cur.execute(
                 """
-                SELECT user_id_fk, tag_category, tag_value, affinity,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY user_id_fk ORDER BY affinity DESC
-                       ) AS tag_rank
-                FROM public.user_preference
-                WHERE user_id_fk = ANY(%s)
+                SELECT user_id_fk, tag_category, tag_value, affinity, cat_rank
+                FROM (
+                    SELECT user_id_fk, tag_category, tag_value, affinity,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY user_id_fk, tag_category
+                               ORDER BY affinity DESC
+                           ) AS cat_rank
+                    FROM public.user_preference
+                    WHERE user_id_fk = ANY(%s)
+                      AND tag_category = ANY(%s)
+                ) sub
+                WHERE cat_rank <= %s
                 """,
-                (chunk,),
+                (chunk, allowed_cats, max(_CATEGORY_SLOTS.values()) + _CATEGORY_BUFFER),
             )
             rows = cur.fetchall()
 
-        # user → [(tag_rank, cat, val, aff), ...]
-        user_tags: dict[str, list] = {}
+        # user → {cat: [(cat_rank, val, aff), ...]}  affinity 내림차순
+        user_tags_by_cat: dict[str, dict[str, list]] = {}
         unique_tags: set[tuple] = set()
-        for user_id, cat, val, aff, tag_rank in rows:
-            if tag_rank > top_tags:
-                continue
-            user_tags.setdefault(user_id, []).append((tag_rank, cat, val, aff))
+        for user_id, cat, val, aff, cat_rank in rows:
+            user_tags_by_cat.setdefault(user_id, {}).setdefault(cat, []).append(
+                (cat_rank, val, aff)
+            )
             unique_tags.add((cat, val))
 
         if not unique_tags:
@@ -137,38 +164,50 @@ def build_tag_shelves(
                 watched.setdefault(user_id, set()).add(vod_id)
 
         # 4) 유저별 선반 조립 (메모리 연산, DB 왕복 없음)
+        #    카테고리별 슬롯 수만큼 태그 선별, 10개 미달 → 스킵 후 후순위 대체
         batch_rows = []
-        for user_id, tag_entries in user_tags.items():
+        for user_id, cats_dict in user_tags_by_cat.items():
             user_watched = watched.get(user_id, set())
-            tag_entries.sort(key=lambda x: x[0])  # tag_rank 순
 
-            for tag_rank, cat, val, aff in tag_entries:
-                candidate_vods = tag_vod_cache.get((cat, val), [])
-                vod_rank = 0
-                seen_series: set = set()
-                for vod_id, ct_cl, series_nm in candidate_vods:
-                    if vod_id in user_watched:
-                        continue
-                    # 에피소드 단위 유지: actor 태그 + TV 연예/오락 조합만
-                    # (특정 배우가 여러 예능에 게스트 출연한 에피소드 몰아보기 용도)
-                    # 그 외 모든 경우(예능 장르 태그 포함)는 시리즈 단위 중복제거
-                    # 에피소드 단위 유지:
-                    # actor_guest(게스트 출연) + TV 연예/오락 → 배우/감독 팬에게 에피소드 몰아보기 제공
-                    # director + TV 연예/오락 → 감독이 게스트 출연한 예능 에피소드 몰아보기
-                    # actor_lead(주연)는 시리즈 중복제거 적용 (같은 예능 레귤러 10편 방지)
-                    is_episode_level = (cat in ("actor_guest", "director") and ct_cl == "TV 연예/오락")
-                    if not is_episode_level:
-                        if series_nm in seen_series:
-                            continue
-                        seen_series.add(series_nm)
-                    vod_rank += 1
-                    if vod_rank > vods_per_tag:
+            for cat, slots in _CATEGORY_SLOTS.items():
+                candidates = cats_dict.get(cat, [])
+                candidates.sort(key=lambda x: x[0])  # cat_rank 순 (affinity 내림차순)
+                assigned_rank = 0
+
+                for _cat_rank, val, aff in candidates:
+                    if assigned_rank >= slots:
                         break
+                    # 태그별 VOD 필터링
+                    candidate_vods = tag_vod_cache.get((cat, val), [])
+                    tag_vods = []
+                    seen_series: set = set()
+                    for vod_id, ct_cl, series_nm in candidate_vods:
+                        if vod_id in user_watched:
+                            continue
+                        # 에피소드 단위 유지:
+                        # actor_guest + TV 연예/오락 → 게스트 출연 에피소드 몰아보기
+                        # director + TV 연예/오락 → 감독 게스트 출연 에피소드 몰아보기
+                        # actor_lead는 시리즈 중복제거 (같은 예능 레귤러 10편 방지)
+                        is_episode_level = (cat in ("actor_guest", "director") and ct_cl == "TV 연예/오락")
+                        if not is_episode_level:
+                            if series_nm in seen_series:
+                                continue
+                            seen_series.add(series_nm)
+                        tag_vods.append(vod_id)
+                        if len(tag_vods) >= vods_per_tag:
+                            break
+
+                    # 10개 미달 → 이 태그 스킵, 후순위 태그로 대체
+                    if len(tag_vods) < vods_per_tag:
+                        continue
+
+                    assigned_rank += 1
                     vod_score = min(round(aff, 6), 1.0)
-                    batch_rows.append((
-                        user_id, cat, val, tag_rank, round(aff, 6),
-                        vod_id, vod_rank, vod_score,
-                    ))
+                    for vod_idx, vod_id in enumerate(tag_vods, 1):
+                        batch_rows.append((
+                            user_id, cat, val, assigned_rank, round(aff, 6),
+                            vod_id, vod_idx, vod_score,
+                        ))
 
         # 5) 배치 INSERT
         if batch_rows:
