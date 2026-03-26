@@ -10,38 +10,38 @@ async def get_watching(user_id: str, limit: int = 10) -> list[dict]:
             SELECT series_nm, episode_title, poster_url,
                    completion_rate, watched_at
             FROM (
-                SELECT v.series_nm,
-                       v.asset_nm AS episode_title,
-                       v.poster_url,
-                       ROUND(wh.completion_rate * 100)::int AS completion_rate,
-                       wh.strt_dt AS watched_at,
+                SELECT series_nm, episode_title, poster_url,
+                       completion_rate, watched_at,
                        ROW_NUMBER() OVER (
-                           PARTITION BY COALESCE(v.series_nm, v.asset_nm)
-                           ORDER BY wh.strt_dt DESC
+                           PARTITION BY series_nm
+                           ORDER BY watched_at DESC
                        ) AS rn
-                FROM public.watch_history wh
-                JOIN public.vod v ON wh.vod_id_fk = v.full_asset_id
-                WHERE wh.user_id_fk = $1
-                  AND wh.completion_rate > 0
-                  AND wh.completion_rate < 1
+                FROM (
+                    SELECT COALESCE(v.series_nm, v.asset_nm) AS series_nm,
+                           v.asset_nm AS episode_title,
+                           v.poster_url,
+                           ROUND(wh.completion_rate * 100)::int AS completion_rate,
+                           wh.strt_dt AS watched_at
+                    FROM public.watch_history wh
+                    JOIN public.vod v ON wh.vod_id_fk = v.full_asset_id
+                    WHERE wh.user_id_fk = $1
+                      AND wh.completion_rate > 0
+                      AND wh.completion_rate < 1
 
-                UNION ALL
+                    UNION ALL
 
-                SELECT ep.series_nm,
-                       v.asset_nm AS episode_title,
-                       v.poster_url,
-                       ep.completion_rate,
-                       ep.watched_at,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY ep.series_nm
-                           ORDER BY ep.watched_at DESC
-                       ) AS rn
-                FROM public.episode_progress ep
-                JOIN public.vod v ON ep.vod_id_fk = v.full_asset_id
-                WHERE ep.user_id_fk = $1
-                  AND ep.completion_rate > 0
-                  AND ep.completion_rate < 100
-            ) sub
+                    SELECT ep.series_nm,
+                           v.asset_nm AS episode_title,
+                           v.poster_url,
+                           ep.completion_rate,
+                           ep.watched_at
+                    FROM public.episode_progress ep
+                    JOIN public.vod v ON ep.vod_id_fk = v.full_asset_id
+                    WHERE ep.user_id_fk = $1
+                      AND ep.completion_rate > 0
+                      AND ep.completion_rate < 100
+                ) combined
+            ) ranked
             WHERE rn = 1
             ORDER BY watched_at DESC
             LIMIT $2
@@ -141,34 +141,34 @@ async def get_history(user_id: str, limit: int = 50) -> list[dict]:
             SELECT series_nm, episode_title, poster_url,
                    completion_rate, watched_at
             FROM (
-                SELECT COALESCE(v.series_nm, v.asset_nm) AS series_nm,
-                       v.asset_nm AS episode_title,
-                       v.poster_url,
-                       ROUND(wh.completion_rate * 100)::int AS completion_rate,
-                       wh.strt_dt AS watched_at,
+                SELECT series_nm, episode_title, poster_url,
+                       completion_rate, watched_at,
                        ROW_NUMBER() OVER (
-                           PARTITION BY COALESCE(v.series_nm, v.asset_nm)
-                           ORDER BY wh.strt_dt DESC
+                           PARTITION BY series_nm
+                           ORDER BY watched_at DESC
                        ) AS rn
-                FROM public.watch_history wh
-                JOIN public.vod v ON wh.vod_id_fk = v.full_asset_id
-                WHERE wh.user_id_fk = $1
+                FROM (
+                    SELECT COALESCE(v.series_nm, v.asset_nm) AS series_nm,
+                           v.asset_nm AS episode_title,
+                           v.poster_url,
+                           ROUND(wh.completion_rate * 100)::int AS completion_rate,
+                           wh.strt_dt AS watched_at
+                    FROM public.watch_history wh
+                    JOIN public.vod v ON wh.vod_id_fk = v.full_asset_id
+                    WHERE wh.user_id_fk = $1
 
-                UNION ALL
+                    UNION ALL
 
-                SELECT ep.series_nm,
-                       v.asset_nm AS episode_title,
-                       v.poster_url,
-                       ep.completion_rate,
-                       ep.watched_at,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY ep.series_nm
-                           ORDER BY ep.watched_at DESC
-                       ) AS rn
-                FROM public.episode_progress ep
-                JOIN public.vod v ON ep.vod_id_fk = v.full_asset_id
-                WHERE ep.user_id_fk = $1
-            ) sub
+                    SELECT ep.series_nm,
+                           v.asset_nm AS episode_title,
+                           v.poster_url,
+                           ep.completion_rate,
+                           ep.watched_at
+                    FROM public.episode_progress ep
+                    JOIN public.vod v ON ep.vod_id_fk = v.full_asset_id
+                    WHERE ep.user_id_fk = $1
+                ) combined
+            ) ranked
             WHERE rn = 1
             ORDER BY watched_at DESC
             LIMIT $2
