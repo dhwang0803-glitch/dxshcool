@@ -33,6 +33,10 @@ def main():
     parser.add_argument("--top-n", type=int, default=rr.get("top_n", 10))
     parser.add_argument("--top-k-tags", type=int, default=rr.get("top_k_tags", 3))
     parser.add_argument("--chunk-size", type=int, default=batch.get("user_chunk_size", 1000))
+    parser.add_argument(
+        "--test-mode", action="store_true",
+        help="테스터 격리 모드: vod_recommendation_test → hybrid_recommendation_test",
+    )
     args = parser.parse_args()
 
     conn = get_conn()
@@ -43,6 +47,7 @@ def main():
             top_n=args.top_n,
             top_k_tags=args.top_k_tags,
             user_chunk_size=args.chunk_size,
+            test_mode=args.test_mode,
         )
         log.info("Phase 3 완료: %d rows inserted", total)
     finally:

@@ -45,7 +45,7 @@ import uvicorn
 
 | 메서드 | 경로 | 설명 | 소스 |
 |--------|------|------|------|
-| GET | `/recommend/{user_id}` | 개인화 추천 (top_vod + patterns 태그 그룹핑) | hybrid_recommendation + tag_recommendation |
+| GET | `/recommend/{user_id}` | 스마트 추천: 태그 배너(genre_detail 3 + director 2 + actor 4) + 벡터 유사도 + top_vod | hybrid_recommendation + tag_recommendation + user_embedding + vod_meta_embedding |
 | GET | `/similar/{asset_id}` | 유사 콘텐츠 | Vector_Search (`source_vod_id` + `recommendation_type = 'CONTENT_BASED'`) |
 | WS | `/ad/popup` | 실시간 광고 팝업 (WebSocket) | Shopping_Ad |
 | GET | `/vod/{asset_id}` | VOD 상세 메타데이터 (+is_free, release_year) | DB |
@@ -69,7 +69,7 @@ import uvicorn
 | POST | `/reservations` | 시청예약 등록 | watch_reservation |
 | GET | `/reservations` | 시청예약 목록 (미알림) | watch_reservation |
 | DELETE | `/reservations/{id}` | 시청예약 취소 | watch_reservation |
-| GET | `/home/sections/{user_id}` | 개인화 섹션 (장르 시청 비중 + 미시청 도전) | watch_history + popular_recommendation |
+| GET | `/home/sections/{user_id}` | 홈 개인화: genre 태그 3 + 벡터 유사도 2그룹 + TOP10(rec_sentence) = 6개 배너 | tag_recommendation + user_embedding + vod_meta_embedding + rec_sentence |
 | GET | `/user/me/notifications` | 알림 목록 (최신순) | notifications |
 | PATCH | `/user/me/notifications/{id}/read` | 알림 읽음 처리 | notifications |
 | POST | `/user/me/notifications/read-all` | 전체 읽음 처리 | notifications |
@@ -102,7 +102,10 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 | `public.watch_reservation` | `reservation_id`, `user_id_fk`, `channel`, `program_name`, `alert_at`, `notified` | SERIAL/VARCHAR/INT/VARCHAR/TIMESTAMPTZ/BOOLEAN | 시청예약 조회·알림 체크 (30초 주기) |
 | `serving.vod_recommendation` | `source_vod_id`, `vod_id_fk`, `rank`, `score`, `recommendation_type`, `expires_at` | VARCHAR/REAL/INT/VARCHAR/TIMESTAMPTZ | `/similar` (source_vod_id 기준). TTL 필터 적용 |
 | `serving.hybrid_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `explanation_tags`, `source_engines`, `expires_at` | VARCHAR/REAL/SMALLINT/JSONB/VARCHAR[]/TIMESTAMPTZ | `/recommend` top_vod + `/home/banner` 2단(rank 1~10 하단 개인화). TTL 필터 적용 |
-| `serving.tag_recommendation` | `user_id_fk`, `tag_category`, `tag_value`, `tag_rank`, `tag_affinity`, `vod_id_fk`, `vod_rank`, `vod_score`, `expires_at` | 각종 | `/recommend` patterns 그룹핑 (top 5 태그 × top 10 VOD). TTL 필터 적용 |
+| `serving.tag_recommendation` | `user_id_fk`, `tag_category`, `tag_value`, `tag_rank`, `tag_affinity`, `vod_id_fk`, `vod_rank`, `vod_score`, `expires_at` | 각종 | 홈: genre/genre_detail 배너, 추천: director/actor 배너. TTL 필터 적용 |
+| `serving.rec_sentence` | `user_id_fk`, `vod_id_fk`, `rec_reason`, `rec_sentence`, `expires_at` | VARCHAR/TEXT/TIMESTAMPTZ | 홈 TOP10 배너 추천 문구. LEFT JOIN on tag_recommendation |
+| `public.user_embedding` | `user_id_fk`, `embedding` | VARCHAR/VECTOR(896) | 벡터 유사도 배너: meta part [513:896] 384D 추출 |
+| `public.vod_series_embedding` | `series_nm`, `representative_vod_id`, `embedding`, `ct_cl`, `poster_url` | 각종 | 벡터 유사도 배너/추천: user meta_vec <=> series embedding cosine (시리즈 대표, 에피소드 중복 해소) |
 | `serving.mv_vod_watch_stats` | `vod_id_fk`, `total_watch_count` | VARCHAR/INT | /recommend fallback (인기순) |
 
 ### 다운스트림 (쓰기)
@@ -117,7 +120,8 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 | `Frontend` | — | — | REST JSON 응답 / WebSocket (광고 팝업 + 시청예약 알림 + 마이페이지 실시간 갱신) |
 
 > API 서버는 Gold 레이어(serving.*)에서 추천 결과를 읽고, public 스키마에 사용자 활동을 기록한다.
-> 벡터 연산·집계는 수행하지 않는다. 실시간 갱신은 PG LISTEN/NOTIFY + 인메모리 버퍼(방안 A)로 처리한다.
+> 홈/추천 페이지에서 실시간 벡터 유사도 검색(user_embedding meta part 384D <=> vod_meta_embedding)을 수행한다.
+> 실시간 갱신은 PG LISTEN/NOTIFY + 인메모리 버퍼(방안 A)로 처리한다.
 
 ---
 
