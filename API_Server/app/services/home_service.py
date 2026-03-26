@@ -111,7 +111,7 @@ async def get_sections() -> list[dict]:
 
 
 _TAG_LABEL = {
-    "genre": "{value}",
+    "genre": "추천 인기 {value}",
     "genre_detail": "{value}",
 }
 
@@ -140,10 +140,15 @@ async def get_personalized_sections(user_id: str) -> list[dict]:
     if not rows:
         return None
 
-    # 태그별 그룹핑
+    # 태그별 그룹핑 + 전체 섹션 간 VOD 중복 제거
     grouped: dict[int, dict] = {}
+    seen_vods: set[str] = set()
     for r in rows:
         rank = r["tag_rank"]
+        nm = r["series_nm"] or r["asset_nm"]
+        if nm in seen_vods:
+            continue
+        seen_vods.add(nm)
         if rank not in grouped:
             label = _TAG_LABEL.get(r["tag_category"], "{value}").format(value=r["tag_value"])
             grouped[rank] = {
@@ -152,7 +157,7 @@ async def get_personalized_sections(user_id: str) -> list[dict]:
                 "vod_list": [],
             }
         grouped[rank]["vod_list"].append({
-            "series_nm": r["series_nm"] or r["asset_nm"],
+            "series_nm": nm,
             "asset_nm": r["asset_nm"],
             "poster_url": r["poster_url"],
         })
