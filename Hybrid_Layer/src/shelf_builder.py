@@ -34,6 +34,149 @@ _CATEGORY_SLOTS = {
 _CATEGORY_BUFFER = 3
 
 
+def _fill_cold_start(
+    conn,
+    cold_users: dict[str, int],
+    watched: dict[str, set],
+    user_assigned_tags: dict[str, set],
+    tag_vod_cache: dict[tuple, list],
+    vods_per_tag: int,
+    batch_rows: list,
+    test_mode: bool,
+) -> list:
+    """빈 슬롯을 연령대 인기 genre_detail 태그로 채운다.
+
+    tag_category = 'cold_genre_detail' 로 저장하여
+    API 레이어에서 "{유저}님이 좋아할만한 {genre_detail} 시리즈" 라벨을 적용할 수 있게 한다.
+    """
+    if not cold_users:
+        return batch_rows
+
+    # tag_rank CHECK (1~5) 제약 → cold 태그도 최대 5개
+    _MAX_COLD_RANK = 5
+    for uid in cold_users:
+        cold_users[uid] = min(cold_users[uid], _MAX_COLD_RANK)
+
+    user_ids = list(cold_users.keys())
+
+    # 1) 유저별 age_grp10 조회
+    with conn.cursor() as cur:
+        cur.execute(
+            'SELECT sha2_hash, age_grp10 FROM public."user" WHERE sha2_hash = ANY(%s)',
+            (user_ids,),
+        )
+        user_ages = {r[0]: r[1] for r in cur.fetchall()}
+
+    # 2) 연령대별 인기 genre_detail 태그 (실 유저 시청 기반)
+    age_groups = set(user_ages.values())
+    max_cold_tags = max(cold_users.values()) + _CATEGORY_BUFFER
+
+    age_cold_tags: dict[str, list[str]] = {}  # age_grp10 → [tag_value, ...]
+    with conn.cursor() as cur:
+        for age in age_groups:
+            cur.execute(
+                """
+                SELECT vt.tag_value, COUNT(DISTINCT wh.user_id_fk) AS user_cnt
+                FROM public.watch_history wh
+                JOIN public."user" u ON u.sha2_hash = wh.user_id_fk
+                JOIN public.vod_tag vt ON vt.vod_id_fk = wh.vod_id_fk
+                WHERE u.age_grp10 = %s
+                  AND u.is_test = FALSE
+                  AND vt.tag_category = 'genre_detail'
+                GROUP BY vt.tag_value
+                HAVING COUNT(DISTINCT wh.user_id_fk) >= 3
+                ORDER BY user_cnt DESC
+                LIMIT %s
+                """,
+                (age, max_cold_tags),
+            )
+            age_cold_tags[age] = [r[0] for r in cur.fetchall()]
+
+    # 3) cold 태그의 VOD 후보 조회 (캐시에 없는 것만)
+    new_tags: set[tuple] = set()
+    for tags in age_cold_tags.values():
+        for val in tags:
+            key = ("genre_detail", val)
+            if key not in tag_vod_cache:
+                new_tags.add(key)
+
+    if new_tags:
+        new_tag_list = list(new_tags)
+        new_cats = [t[0] for t in new_tag_list]
+        new_vals = [t[1] for t in new_tag_list]
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT t.tag_category, t.tag_value, t.vod_id_fk,
+                       v.ct_cl, v.series_nm
+                FROM (
+                    SELECT vt.tag_category, vt.tag_value, vt.vod_id_fk,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY vt.tag_category, vt.tag_value
+                               ORDER BY vt.confidence DESC
+                           ) AS rn
+                    FROM public.vod_tag vt
+                    JOIN (
+                        SELECT unnest(%s::varchar[]) AS tag_category,
+                               unnest(%s::varchar[]) AS tag_value
+                    ) ct ON ct.tag_category = vt.tag_category
+                         AND ct.tag_value = vt.tag_value
+                ) t
+                JOIN public.vod v ON v.full_asset_id = t.vod_id_fk
+                WHERE t.rn <= %s
+                """,
+                (new_cats, new_vals, _TAG_VOD_BUFFER),
+            )
+            for cat, val, vod_id, ct_cl, series_nm in cur.fetchall():
+                tag_vod_cache.setdefault((cat, val), []).append(
+                    (vod_id, ct_cl or "", series_nm or vod_id)
+                )
+
+    # 4) 유저별 빈 슬롯 채움
+    cold_filled = 0
+    for user_id, unfilled in cold_users.items():
+        age = user_ages.get(user_id)
+        if not age:
+            continue
+        cold_tags = age_cold_tags.get(age, [])
+        user_watched = watched.get(user_id, set())
+        assigned = user_assigned_tags.get(user_id, set())
+        cold_rank = 0
+
+        for tag_val in cold_tags:
+            if cold_rank >= unfilled:
+                break
+            # 이미 개인화로 할당된 태그는 스킵
+            if ("genre_detail", tag_val) in assigned:
+                continue
+            candidate_vods = tag_vod_cache.get(("genre_detail", tag_val), [])
+            tag_vods = []
+            seen_series: set[str] = set()
+            for vod_id, _ct_cl, series_nm in candidate_vods:
+                if vod_id in user_watched:
+                    continue
+                if series_nm in seen_series:
+                    continue
+                seen_series.add(series_nm)
+                tag_vods.append(vod_id)
+                if len(tag_vods) >= vods_per_tag:
+                    break
+            if len(tag_vods) < vods_per_tag:
+                continue
+            cold_rank += 1
+            for vod_idx, vod_id in enumerate(tag_vods, 1):
+                batch_rows.append((
+                    user_id, "cold_genre_detail", tag_val, cold_rank, 0.0,
+                    vod_id, vod_idx, 0.0,
+                ))
+        cold_filled += cold_rank
+
+    if cold_filled:
+        log.info("Cold start fallback: %d cold tags filled for %d users",
+                 cold_filled, len(cold_users))
+    return batch_rows
+
+
 def build_tag_shelves(
     conn,
     vods_per_tag: int = 10,
@@ -166,8 +309,13 @@ def build_tag_shelves(
         # 4) 유저별 선반 조립 (메모리 연산, DB 왕복 없음)
         #    카테고리별 슬롯 수만큼 태그 선별, 10개 미달 → 스킵 후 후순위 대체
         batch_rows = []
+        user_filled: dict[str, int] = {}  # user_id → 채워진 슬롯 수
+        user_assigned_tags: dict[str, set] = {}  # user_id → 이미 할당된 (cat, val)
+        total_slots = sum(_CATEGORY_SLOTS.values())
+
         for user_id, cats_dict in user_tags_by_cat.items():
             user_watched = watched.get(user_id, set())
+            filled = 0
 
             for cat, slots in _CATEGORY_SLOTS.items():
                 candidates = cats_dict.get(cat, [])
@@ -202,12 +350,30 @@ def build_tag_shelves(
                         continue
 
                     assigned_rank += 1
+                    filled += 1
+                    user_assigned_tags.setdefault(user_id, set()).add((cat, val))
                     vod_score = min(round(aff, 6), 1.0)
                     for vod_idx, vod_id in enumerate(tag_vods, 1):
                         batch_rows.append((
                             user_id, cat, val, assigned_rank, round(aff, 6),
                             vod_id, vod_idx, vod_score,
                         ))
+
+            user_filled[user_id] = filled
+
+        # 4-b) Cold start fallback: 빈 슬롯을 연령대 인기 genre_detail로 채움
+        #       "{유저}님이 좋아할만한 {genre_detail} 시리즈" 라벨용
+        #       tag_category = 'cold_genre_detail' → API에서 라벨 분기
+        cold_users = {
+            uid: total_slots - user_filled.get(uid, 0)
+            for uid in chunk
+            if total_slots - user_filled.get(uid, 0) > 0
+        }
+        if cold_users:
+            batch_rows = _fill_cold_start(
+                conn, cold_users, watched, user_assigned_tags,
+                tag_vod_cache, vods_per_tag, batch_rows, test_mode,
+            )
 
         # 5) 배치 INSERT
         if batch_rows:
