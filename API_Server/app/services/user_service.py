@@ -2,9 +2,10 @@ from app.services.db import get_pool
 
 
 async def get_watching(user_id: str, limit: int = 10) -> list[dict]:
-    """시청 중인 콘텐츠 — episode_progress 기반, 최신순."""
+    """시청 중인 콘텐츠 — episode_progress 우선, 없으면 watch_history fallback."""
     pool = await get_pool()
     async with pool.acquire() as conn:
+        # 1차: episode_progress (heartbeat 기록)
         rows = await conn.fetch(
             """
             SELECT ep.series_nm, ep.completion_rate, ep.watched_at,
@@ -20,12 +21,40 @@ async def get_watching(user_id: str, limit: int = 10) -> list[dict]:
             user_id,
             limit,
         )
+        if rows:
+            return [
+                {
+                    "series_nm": r["series_nm"],
+                    "episode_title": r["asset_nm"],
+                    "poster_url": r["poster_url"],
+                    "completion_rate": r["completion_rate"],
+                    "watched_at": r["watched_at"],
+                }
+                for r in rows
+            ]
+
+        # 2차: watch_history fallback (completion_rate 0~1 → 0~100 변환)
+        rows = await conn.fetch(
+            """
+            SELECT v.series_nm, wh.completion_rate, wh.strt_dt AS watched_at,
+                   v.asset_nm, v.poster_url
+            FROM public.watch_history wh
+            JOIN public.vod v ON wh.vod_id_fk = v.full_asset_id
+            WHERE wh.user_id_fk = $1
+              AND wh.completion_rate > 0
+              AND wh.completion_rate < 1
+            ORDER BY wh.strt_dt DESC
+            LIMIT $2
+            """,
+            user_id,
+            limit,
+        )
     return [
         {
             "series_nm": r["series_nm"],
             "episode_title": r["asset_nm"],
             "poster_url": r["poster_url"],
-            "completion_rate": r["completion_rate"],
+            "completion_rate": int(r["completion_rate"] * 100) if r["completion_rate"] is not None else 0,
             "watched_at": r["watched_at"],
         }
         for r in rows
@@ -104,9 +133,10 @@ async def get_points(user_id: str, limit: int = 20) -> dict:
 
 
 async def get_history(user_id: str, limit: int = 50) -> list[dict]:
-    """시청 내역 — episode_progress 기반 (watch_history 미노출)."""
+    """시청 내역 — episode_progress 우선, 없으면 watch_history fallback."""
     pool = await get_pool()
     async with pool.acquire() as conn:
+        # 1차: episode_progress (heartbeat 기록)
         rows = await conn.fetch(
             """
             SELECT ep.series_nm, ep.completion_rate, ep.watched_at,
@@ -120,12 +150,38 @@ async def get_history(user_id: str, limit: int = 50) -> list[dict]:
             user_id,
             limit,
         )
+        if rows:
+            return [
+                {
+                    "series_nm": r["series_nm"],
+                    "episode_title": r["asset_nm"],
+                    "poster_url": r["poster_url"],
+                    "completion_rate": r["completion_rate"],
+                    "watched_at": r["watched_at"],
+                }
+                for r in rows
+            ]
+
+        # 2차: watch_history fallback (기존 시청 이력)
+        rows = await conn.fetch(
+            """
+            SELECT v.series_nm, wh.completion_rate, wh.strt_dt AS watched_at,
+                   v.asset_nm, v.poster_url
+            FROM public.watch_history wh
+            JOIN public.vod v ON wh.vod_id_fk = v.full_asset_id
+            WHERE wh.user_id_fk = $1
+            ORDER BY wh.strt_dt DESC
+            LIMIT $2
+            """,
+            user_id,
+            limit,
+        )
     return [
         {
             "series_nm": r["series_nm"],
             "episode_title": r["asset_nm"],
             "poster_url": r["poster_url"],
-            "completion_rate": r["completion_rate"],
+            "completion_rate": int(r["completion_rate"] * 100) if r["completion_rate"] is not None else 0,
             "watched_at": r["watched_at"],
         }
         for r in rows

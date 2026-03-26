@@ -5,7 +5,8 @@ from app.services.db import get_pool
 # pattern_reason 생성용 템플릿
 _REASON_TEMPLATES = {
     "director": "{value} 감독 작품을 즐겨 보셨어요",
-    "actor": "{value} 배우 출연작을 자주 보셨어요",
+    "actor_lead": "{value} 배우 출연작을 자주 보셨어요",
+    "actor_guest": "{value} 배우가 출연한 프로그램을 모아봤어요",
     "genre": "{value} 장르를 자주 시청하셨네요",
     "genre_detail": "{value} 장르를 즐겨 보시네요",
     "rating": "{value} 등급 콘텐츠를 선호하시네요",
@@ -110,8 +111,8 @@ async def get_recommendations(user_id: str) -> dict:
                 }
                 seen_per_rank[rank] = set()
 
-            # 배우 태그 + TV 연예/오락 → 에피소드 단위 (중복 제거 안함)
-            is_actor_variety = (category == "actor" and "연예" in ct_cl)
+            # actor_guest/director + TV 연예/오락 → 에피소드 단위 (중복 제거 안함)
+            is_actor_variety = (category in ("actor_guest", "director") and ct_cl == "TV 연예/오락")
             if not is_actor_variety:
                 if nm in seen_per_rank[rank]:
                     continue
