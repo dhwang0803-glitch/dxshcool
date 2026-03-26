@@ -13,12 +13,12 @@
 
 | 테이블 | 생산 브랜치 | 소비 브랜치 |
 |--------|------------|------------|
-| `public.vod` | *(초기 데이터 적재)* | `RAG`(쓰기), `Poster_Collection`(쓰기), `VOD_Embedding`(읽기), `API_Server`(읽기) |
+| `public.vod` | *(초기 데이터 적재)* | `RAG`(쓰기), `Poster_Collection`(쓰기), `VOD_Embedding`(읽기), `API_Server`(읽기), `gen_rec_sentence`(읽기) |
 | `public."user"` | *(초기 데이터 적재)* | `User_Embedding`(읽기), `API_Server`(읽기) |
 | `public.watch_history` | *(초기 데이터 적재)* | `User_Embedding`(읽기), `CF_Engine`(읽기) |
-| `public.vod_embedding` | `VOD_Embedding` | `User_Embedding`(읽기), `Vector_Search`(읽기), `CF_Engine`(읽기) |
-| `public.vod_meta_embedding` | `VOD_Embedding` | `User_Embedding`(읽기), `Vector_Search`(읽기) |
-| `public.user_embedding` | `User_Embedding` | `CF_Engine`(읽기), `Vector_Search`(읽기) |
+| `public.vod_embedding` | `VOD_Embedding` | `User_Embedding`(읽기), `Vector_Search`(읽기), `CF_Engine`(읽기), `gen_rec_sentence`(읽기) |
+| `public.vod_meta_embedding` | `VOD_Embedding` | `User_Embedding`(읽기), `Vector_Search`(읽기), `API_Server`(읽기) |
+| `public.user_embedding` | `User_Embedding` | `CF_Engine`(읽기), `Vector_Search`(읽기), `API_Server`(읽기) |
 | `public.detected_object_yolo` | `Object_Detection` | `Shopping_Ad`(읽기) |
 | `public.detected_object_clip` | `Object_Detection` | `Shopping_Ad`(읽기) |
 | `public.detected_object_stt` | `Object_Detection` | `Shopping_Ad`(읽기) |
@@ -44,6 +44,7 @@
 | `serving.popular_recommendation` | `CF_Engine`, `Vector_Search` | `API_Server`(읽기) |
 | `serving.hybrid_recommendation` | `Hybrid_Layer` | `API_Server`(읽기) |
 | `serving.tag_recommendation` | `Hybrid_Layer` | `API_Server`(읽기) |
+| `serving.rec_sentence` | `gen_rec_sentence` | `API_Server`(읽기) |
 
 ---
 
@@ -170,6 +171,9 @@
 | 읽기 | `serving.vod_recommendation` | `source_vod_id`, `vod_id_fk`, `rank`, `score`, `recommendation_type`, `expires_at` | VARCHAR/REAL/TIMESTAMPTZ | `/similar/{asset_id}` — `WHERE source_vod_id = $1 AND recommendation_type = 'CONTENT_BASED'` |
 | 읽기 | `serving.popular_recommendation` | `ct_cl`, `rank`, `vod_id_fk`, `score`, `recommendation_type`, `expires_at` | VARCHAR(64)/SMALLINT/REAL/VARCHAR(32)/TIMESTAMPTZ | CT_CL별 인기 추천 Top-N |
 | 읽기 | `serving.shopping_ad` | `vod_id_fk`, `ts_start`, `ts_end`, `ad_category`, `score`, `ad_hints`, `product_name`, `product_price`, `product_url`, `image_url`, `channel` | 각종 | 쇼핑 광고 팝업 서빙 |
+| 읽기 | `serving.rec_sentence` | `user_id_fk`, `vod_id_fk`, `rec_reason`, `rec_sentence`, `expires_at` | VARCHAR/TEXT/TIMESTAMPTZ | 홈 TOP10 배너 추천 문구 (LEFT JOIN) |
+| 읽기 | `public.user_embedding` | `user_id_fk`, `embedding` | VARCHAR/VECTOR(896) | 벡터 유사도: meta part [513:896] 384D 추출 |
+| 읽기 | `public.vod_meta_embedding` | `vod_id_fk`, `embedding` | VARCHAR/VECTOR(384) | 벡터 유사도: cosine distance (<=>), IVFFlat probes=5 |
 | 읽기 | `serving.mv_vod_watch_stats` | *(스키마 확인 필요)* | - | 인기 콘텐츠 배너 |
 | 읽기 | `serving.mv_age_grp_vod_stats` | *(스키마 확인 필요)* | - | 연령대별 추천 |
 | 읽기 | `serving.mv_daily_watch_stats` | *(스키마 확인 필요)* | - | 통계 대시보드 |
@@ -180,6 +184,21 @@
 | 읽기 | `public."user"` | `point_balance` | INTEGER | 포인트 잔액 O(1) 조회 (DB 트리거 자동 갱신) |
 | 읽기/쓰기 | `public.watch_reservation` | `reservation_id`, `user_id_fk`, `channel`, `program_name`, `alert_at`, `notified` | SERIAL/VARCHAR(64)/INTEGER/VARCHAR(255)/TIMESTAMPTZ/BOOLEAN | 시청예약 등록/조회/삭제. 30초 주기 background task가 `notified` 갱신 |
 | 읽기/쓰기 | `public.notifications` | `notification_id`, `user_id_fk`, `type`, `title`, `message`, `image_url`, `read`, `created_at` | SERIAL/VARCHAR(64)/VARCHAR(32)/VARCHAR(255)/VARCHAR(512)/TEXT/BOOLEAN/TIMESTAMPTZ | GNB 알림 벨. type: new_episode/reservation/system. 읽음/삭제 관리 |
+
+### gen_rec_sentence
+
+| 방향 | 테이블 | 컬럼 | 타입 | 비고 |
+|------|--------|------|------|------|
+| 읽기 | `public.vod` | `full_asset_id`, `asset_nm`, `ct_cl` | VARCHAR | 대상 VOD 식별 |
+| 읽기 | `public.vod` | `genre`, `genre_detail`, `director` | VARCHAR | 메타데이터 → LLM 입력 |
+| 읽기 | `public.vod` | `cast_lead`, `smry`, `rating` | TEXT/VARCHAR | 메타데이터 → LLM 입력 |
+| 읽기 | `public.vod` | `poster_url` | TEXT | 포스터 존재 여부 필터 |
+| 읽기 | `public.vod_embedding` | `vod_id_fk`, `embedding` | VARCHAR/VECTOR(512) | CLIP 영상 벡터 → LLM 입력 |
+| 쓰기 | `serving.rec_sentence` | `user_id_fk` | VARCHAR(64) | FK → user.sha2_hash, UNIQUE(user_id_fk, vod_id_fk) |
+| 쓰기 | `serving.rec_sentence` | `vod_id_fk` | VARCHAR(64) | FK → vod.full_asset_id |
+| 쓰기 | `serving.rec_sentence` | `rec_reason` | TEXT | TOP10 선정 이유 (포스터 우측 상단) |
+| 쓰기 | `serving.rec_sentence` | `rec_sentence` | TEXT | 감성 카피 (포스터 하단) |
+| 쓰기 | `serving.rec_sentence` | `generated_at`, `expires_at` | TIMESTAMPTZ | TTL 관리 (기본 7일) |
 
 ---
 
