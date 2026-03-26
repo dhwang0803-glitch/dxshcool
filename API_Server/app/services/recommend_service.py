@@ -132,43 +132,56 @@ async def get_recommendations(user_id: str) -> dict:
     except Exception:
         pass
 
-    # 3) vector similarity: user_embedding vs vod combined embedding (실시간 cosine)
+    # 3) vector similarity: user_embedding meta부분(384D) vs vod_meta_embedding (IVFFlat 활용)
+    #    2-step: ① meta 벡터 추출 → ② 파라미터로 넘겨 인덱스 스캔
     vector_pattern = None
     try:
         async with pool.acquire() as conn:
-            vector_rows = await conn.fetch(
-                """
-                SELECT ve.vod_id_fk,
-                       1 - ((ve.embedding::real[] || vme.embedding::real[])::vector(896)
-                            <=> ue.embedding) AS similarity,
-                       v.series_nm, v.asset_nm, v.poster_url
-                FROM public.user_embedding ue,
-                     public.vod_embedding ve
-                JOIN public.vod_meta_embedding vme ON ve.vod_id_fk = vme.vod_id_fk
-                JOIN public.vod v ON ve.vod_id_fk = v.full_asset_id
-                WHERE ue.user_id_fk = $1
-                  AND v.poster_url IS NOT NULL
-                ORDER BY (ve.embedding::real[] || vme.embedding::real[])::vector(896)
-                         <=> ue.embedding
-                LIMIT 10
-                """,
+            # step 1: user_embedding에서 meta 파트(뒤 384차원) 추출
+            await conn.execute("SET ivfflat.probes = 5")
+            ue_row = await conn.fetchrow(
+                "SELECT (embedding::real[])[513:896]::vector(384) AS meta_vec "
+                "FROM public.user_embedding WHERE user_id_fk = $1",
                 user_id,
             )
-            if vector_rows:
-                next_rank = max((p["pattern_rank"] for p in patterns), default=0) + 1
-                vector_pattern = {
-                    "pattern_rank": next_rank,
-                    "pattern_reason": "나의 취향과 비슷한 콘텐츠",
-                    "vod_list": [
-                        {
-                            "series_id": r["vod_id_fk"],
-                            "asset_nm": r["asset_nm"],
-                            "poster_url": r["poster_url"],
-                            "score": round(float(r["similarity"]), 4),
-                        }
-                        for r in vector_rows
-                    ],
-                }
+            if ue_row:
+                # step 2: vod_meta_embedding과 cosine 유사도 (버퍼 30개 → 시리즈 중복제거 → 10개)
+                vector_rows = await conn.fetch(
+                    """
+                    SELECT vme.vod_id_fk,
+                           1 - (vme.embedding <=> $1) AS similarity,
+                           v.series_nm, v.asset_nm, v.poster_url
+                    FROM public.vod_meta_embedding vme
+                    JOIN public.vod v ON vme.vod_id_fk = v.full_asset_id
+                    WHERE v.poster_url IS NOT NULL
+                    ORDER BY vme.embedding <=> $1
+                    LIMIT 30
+                    """,
+                    ue_row["meta_vec"],
+                )
+                # 시리즈 중복제거
+                seen_series: set[str] = set()
+                vod_list = []
+                for r in vector_rows:
+                    nm = r["series_nm"] or r["asset_nm"]
+                    if nm in seen_series:
+                        continue
+                    seen_series.add(nm)
+                    vod_list.append({
+                        "series_id": r["vod_id_fk"],
+                        "asset_nm": r["asset_nm"],
+                        "poster_url": r["poster_url"],
+                        "score": round(float(r["similarity"]), 4),
+                    })
+                    if len(vod_list) >= 10:
+                        break
+                if vod_list:
+                    next_rank = max((p["pattern_rank"] for p in patterns), default=0) + 1
+                    vector_pattern = {
+                        "pattern_rank": next_rank,
+                        "pattern_reason": "나의 취향과 비슷한 콘텐츠",
+                        "vod_list": vod_list,
+                    }
     except Exception:
         pass
 
