@@ -8,7 +8,7 @@ async def get_episodes(series_nm: str) -> list[dict]:
         rows = await conn.fetch(
             """
             SELECT DISTINCT ON (v.asset_nm)
-                   v.asset_nm, v.ct_cl, v.poster_url, v.asset_prod
+                   v.full_asset_id, v.asset_nm, v.ct_cl, v.poster_url, v.asset_prod
             FROM public.vod v
             WHERE v.series_nm = $1
             ORDER BY v.asset_nm,
@@ -23,6 +23,7 @@ async def get_episodes(series_nm: str) -> list[dict]:
         )
     return [
         {
+            "asset_id": r["full_asset_id"],
             "episode_title": r["asset_nm"],
             "category": r["ct_cl"],
             "poster_url": r["poster_url"],
