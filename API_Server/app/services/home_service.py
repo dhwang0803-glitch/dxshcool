@@ -161,7 +161,7 @@ async def get_personalized_sections(user_id: str) -> list[dict]:
             })
         sections.extend(grouped[k] for k in sorted(grouped.keys()))
 
-        # ── 2) vector 배너: 취향 유사도 top → 장르별 3그룹 ──
+        # ── 2) vector 배너: 취향 유사도 top → 장르별 2그룹 ──
         try:
             await conn.execute("SET ivfflat.probes = 5")
             ue_row = await conn.fetchrow(
