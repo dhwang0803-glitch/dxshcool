@@ -16,8 +16,8 @@ import logging
 
 log = logging.getLogger(__name__)
 
-# 태그당 VOD 후보 버퍼 (시청 제외 후 vods_per_tag개를 보장하기 위한 여유분)
-_TAG_VOD_BUFFER = 200
+# 태그당 VOD 후보 버퍼 (시청 제외 + 시리즈 중복제거 후 vods_per_tag개를 보장하기 위한 여유분)
+_TAG_VOD_BUFFER = 500
 
 
 def build_tag_shelves(
@@ -25,16 +25,30 @@ def build_tag_shelves(
     top_tags: int = 5,
     vods_per_tag: int = 10,
     user_chunk_size: int = 1000,
+    test_mode: bool = False,
 ) -> int:
     """전체 유저의 태그 선반 생성 → tag_recommendation 적재.
+
+    Args:
+        test_mode: True이면 is_test=TRUE 유저만 처리 → tag_recommendation_test 적재.
 
     Returns:
         총 적재 레코드 수
     """
-    log.info("Phase 4: Building tag shelves (top_tags=%d, vods_per_tag=%d)", top_tags, vods_per_tag)
+    dst_table = "serving.tag_recommendation_test" if test_mode else "serving.tag_recommendation"
+    is_test_filter = "AND u.is_test = TRUE" if test_mode else "AND u.is_test = FALSE"
+    mode_label = "TEST 유저" if test_mode else "실 유저"
+    log.info("Phase 4: Building tag shelves (%s, top_tags=%d, vods_per_tag=%d)", mode_label, top_tags, vods_per_tag)
 
     with conn.cursor() as cur:
-        cur.execute("SELECT DISTINCT user_id_fk FROM public.user_preference")
+        cur.execute(
+            f"""
+            SELECT DISTINCT up.user_id_fk
+            FROM public.user_preference up
+            JOIN public."user" u ON u.sha2_hash = up.user_id_fk
+            WHERE TRUE {is_test_filter}
+            """
+        )
         user_ids = [r[0] for r in cur.fetchall()]
 
     log.info("Target users: %d", len(user_ids))
@@ -42,8 +56,8 @@ def build_tag_shelves(
         return 0
 
     with conn.cursor() as cur:
-        cur.execute("DELETE FROM serving.tag_recommendation")
-        log.info("Cleared %d existing tag_recommendation rows", cur.rowcount)
+        cur.execute(f"DELETE FROM {dst_table}")
+        log.info("Cleared %d existing %s rows", cur.rowcount, dst_table)
 
     total_inserted = 0
     for chunk_start in range(0, len(user_ids), user_chunk_size):
@@ -88,7 +102,8 @@ def build_tag_shelves(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT tag_category, tag_value, vod_id_fk, series_nm, ct_cl
+                SELECT t.tag_category, t.tag_value, t.vod_id_fk,
+                       v.ct_cl, v.series_nm
                 FROM (
                     SELECT vt.tag_category, vt.tag_value, vt.vod_id_fk,
                            v.series_nm, v.ct_cl,
@@ -104,13 +119,14 @@ def build_tag_shelves(
                     ) ct ON ct.tag_category = vt.tag_category
                          AND ct.tag_value = vt.tag_value
                 ) t
-                WHERE rn <= %s
+                JOIN public.vod v ON v.full_asset_id = t.vod_id_fk
+                WHERE t.rn <= %s
                 """,
                 (tag_cats, tag_vals, _TAG_VOD_BUFFER),
             )
-            for cat, val, vod_id, series_nm, ct_cl in cur.fetchall():
+            for cat, val, vod_id, ct_cl, series_nm in cur.fetchall():
                 tag_vod_cache.setdefault((cat, val), []).append(
-                    (vod_id, series_nm or vod_id, ct_cl or "")
+                    (vod_id, ct_cl or "", series_nm or vod_id)
                 )
 
         # 3) 청크 유저의 시청 이력 한 번에 로드
@@ -138,13 +154,16 @@ def build_tag_shelves(
                 # 후보 VOD 수집 (시청 제외 + 시리즈 중복 제거)
                 candidate_vods = tag_vod_cache.get((cat, val), [])
                 tag_vods: list[tuple] = []
-                seen_series: set[str] = set()
-                for vod_id, series_nm, ct_cl in candidate_vods:
+                seen_series: set = set()
+                for vod_id, ct_cl, series_nm in candidate_vods:
                     if vod_id in user_watched:
                         continue
-                    # actor_guest → 에피소드 단위 (게스트 출연, 회차별 다름)
-                    # 그 외 → series_nm 기준 중복 제거
-                    if cat != "actor_guest":
+                    # 에피소드 단위 유지:
+                    # actor_guest(게스트 출연) + TV 연예/오락 → 배우/감독 팬에게 에피소드 몰아보기 제공
+                    # director + TV 연예/오락 → 감독이 게스트 출연한 예능 에피소드 몰아보기
+                    # actor_lead(주연)는 시리즈 중복제거 적용 (같은 예능 레귤러 10편 방지)
+                    is_episode_level = (cat in ("actor_guest", "director") and ct_cl == "TV 연예/오락")
+                    if not is_episode_level:
                         if series_nm in seen_series:
                             continue
                         seen_series.add(series_nm)
@@ -173,7 +192,7 @@ def build_tag_shelves(
                 )
                 cur.execute(
                     f"""
-                    INSERT INTO serving.tag_recommendation
+                    INSERT INTO {dst_table}
                         (user_id_fk, tag_category, tag_value, tag_rank, tag_affinity,
                          vod_id_fk, vod_rank, vod_score)
                     VALUES {args}

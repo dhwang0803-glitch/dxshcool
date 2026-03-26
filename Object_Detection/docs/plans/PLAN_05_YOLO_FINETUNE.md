@@ -363,15 +363,20 @@ best.pt → Object_Detection/models/korean_food_v1_best.pt
 
 ---
 
-## 완료 기준
+## 완료 현황
 
 ### 데이터 준비
 - [x] TS.z01 전처리 완료 (train 20,872 / val 5,218, 2026-03-17)
-- [ ] finetune_dataset/ Drive 업로드
-- [ ] data.yaml 확인 (nc=71종, TS.z01 기준)
+- [x] finetune_dataset/ Drive 업로드
+- [x] data.yaml 확인 (nc=71종, TS.z01 기준)
+
+### 학습 + 배치
+- [x] best.pt 학습 완료 (mAP@0.5=0.990, COCO 대비 45배 탐지 향상)
+- [x] 19건 배치 완료 (739 TRIGGER, parquet 4종 생성)
 
 ### 문서
-- [ ] `docs/reports/phase5_ab_report.md` 작성 (A/B 비교 수치 포함)
+- [x] `docs/reports/phase5_pilot_result_20260318.md` — A/B 비교 수치 포함
+- [x] `docs/reports/batch_19_report_20260322.md` — 19건 배치 결과
 
 ---
 
