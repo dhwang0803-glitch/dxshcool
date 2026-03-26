@@ -1,7 +1,7 @@
 """Phase 1: VOD 메타데이터에서 해석 가능 태그 추출.
 
 public.vod → public.vod_tag
-태그 카테고리: director, actor, genre, genre_detail, rating
+태그 카테고리: director, actor_lead, actor_guest, genre, genre_detail
 
 confidence 계산:
     log(vote_count+1) / log(MAX_VOTE_COUNT+1) × vote_average/10
@@ -93,11 +93,6 @@ def extract_tags_from_row(row: dict) -> list[tuple[str, str, str, float]]:
     genre_detail = row.get("genre_detail")
     if genre_detail and genre_detail.strip():
         tags.append((vod_id, "genre_detail", genre_detail.strip(), conf))
-
-    # rating
-    rating = normalize_rating(row.get("rating"))
-    if rating:
-        tags.append((vod_id, "rating", rating, conf))
 
     return tags
 
