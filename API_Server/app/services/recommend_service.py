@@ -44,7 +44,7 @@ async def get_recommendations(user_id: str) -> dict:
         async with pool.acquire() as conn:
             rows = await conn.fetch(
                 f"""
-                SELECT r.vod_id_fk, v.series_nm, v.asset_nm, v.poster_url
+                SELECT r.vod_id_fk, v.series_nm, v.asset_nm, v.poster_url, v.backdrop_url
                 FROM {hybrid_table} r
                 JOIN public.vod v ON r.vod_id_fk = v.full_asset_id
                 WHERE r.user_id_fk = $1
@@ -61,6 +61,7 @@ async def get_recommendations(user_id: str) -> dict:
                         "series_id": row["vod_id_fk"],
                         "asset_nm": row["asset_nm"],
                         "poster_url": row["poster_url"],
+                        "backdrop_url": row["backdrop_url"],
                     }
                     break
             if not top_vod and rows:
@@ -69,6 +70,7 @@ async def get_recommendations(user_id: str) -> dict:
                     "series_id": row["vod_id_fk"],
                     "asset_nm": row["asset_nm"],
                     "poster_url": row["poster_url"],
+                    "backdrop_url": row["backdrop_url"],
                 }
     except Exception:
         pass
@@ -197,7 +199,7 @@ async def get_recommendations(user_id: str) -> dict:
             rows = await conn.fetch(
                 """
                 SELECT pr.vod_id_fk, pr.score, pr.ct_cl,
-                       v.asset_nm, v.poster_url
+                       v.asset_nm, v.poster_url, v.backdrop_url
                 FROM serving.popular_recommendation pr
                 JOIN public.vod v ON pr.vod_id_fk = v.full_asset_id
                 ORDER BY pr.score DESC
@@ -210,6 +212,7 @@ async def get_recommendations(user_id: str) -> dict:
                 "series_id": rows[0]["vod_id_fk"],
                 "asset_nm": rows[0]["asset_nm"],
                 "poster_url": rows[0]["poster_url"],
+                "backdrop_url": rows[0]["backdrop_url"],
             }
             patterns = [{
                 "pattern_rank": 1,

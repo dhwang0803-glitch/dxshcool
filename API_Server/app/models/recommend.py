@@ -7,6 +7,7 @@ class TopVod(BaseModel):
     series_id: str
     asset_nm: str
     poster_url: str | None
+    backdrop_url: str | None
 
 
 class PatternVodItem(BaseModel):
