@@ -81,6 +81,9 @@ async def api_error_handler(request: Request, exc: APIError):
 
 _cors_origins = [
     "http://localhost:3000",
+    "https://dx-frontend-121620013082.asia-northeast3.run.app",
+    "https://dx-frontend-skqn7i7qiq-du.a.run.app",
+    "https://dxschool-frontend-skqn7i7qiq-du.a.run.app",
 ]
 _extra = os.getenv("CORS_ORIGINS", "")  # 쉼표 구분: "https://a.run.app,https://b.run.app"
 if _extra:
