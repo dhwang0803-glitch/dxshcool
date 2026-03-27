@@ -209,8 +209,6 @@ def main():
                     SELECT vod_id_fk FROM serving.popular_recommendation
                     UNION
                     SELECT vod_id_fk FROM serving.hybrid_recommendation
-                    UNION
-                    SELECT vod_id_fk FROM serving.personalized_banner
                   )
                 ORDER BY v.full_asset_id
             """)
