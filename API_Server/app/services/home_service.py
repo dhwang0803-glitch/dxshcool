@@ -208,16 +208,17 @@ async def get_personalized_sections(user_id: str) -> list[dict]:
                 user_id,
             )
             if ue_row:
+                # vod_series_embedding 사용: 시리즈당 1건이므로 에피소드 중복 없음
                 vector_rows = await conn.fetch(
                     """
-                    SELECT vme.vod_id_fk,
-                           1 - (vme.embedding <=> $1) AS similarity,
-                           v.series_nm, v.asset_nm, v.poster_url,
-                           v.genre_detail, v.ct_cl
-                    FROM public.vod_meta_embedding vme
-                    JOIN public.vod v ON vme.vod_id_fk = v.full_asset_id
-                    WHERE v.poster_url IS NOT NULL
-                    ORDER BY vme.embedding <=> $1
+                    SELECT se.series_nm,
+                           1 - (se.embedding <=> $1) AS similarity,
+                           se.poster_url, se.ct_cl,
+                           v.asset_nm, v.genre_detail
+                    FROM public.vod_series_embedding se
+                    JOIN public.vod v ON v.full_asset_id = se.representative_vod_id
+                    WHERE se.poster_url IS NOT NULL
+                    ORDER BY se.embedding <=> $1
                     LIMIT 60
                     """,
                     ue_row["meta_vec"],
@@ -225,7 +226,7 @@ async def get_personalized_sections(user_id: str) -> list[dict]:
                 # 장르별 그룹핑 (genre_detail 정제 → ct_cl fallback)
                 genre_groups: dict[str, list] = {}
                 for r in vector_rows:
-                    nm = r["series_nm"] or r["asset_nm"]
+                    nm = r["series_nm"]
                     if nm in seen_vods:
                         continue
                     genre = _clean_genre_detail(r["genre_detail"]) or r["ct_cl"] or "콘텐츠"
