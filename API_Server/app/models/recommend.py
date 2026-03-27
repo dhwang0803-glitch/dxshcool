@@ -25,7 +25,7 @@ class PatternItem(BaseModel):
 
 class RecommendResponse(BaseModel):
     user_id: str
-    top_vod: TopVod | None
+    top_vod: list[TopVod]
     patterns: list[PatternItem]
     source: str  # 'personalized' | 'popular_fallback'
 

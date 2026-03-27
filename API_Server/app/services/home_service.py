@@ -42,34 +42,11 @@ async def _is_test_user(pool, user_id: str) -> bool:
 
 
 async def get_banner(user_id: str | None = None) -> list[dict]:
-    """히어로 배너 2단 구조. backdrop_url 있는 VOD만 표시, 5건 미만이면 popular로 보충.
-
-    1단: popular_recommendation score 내림차순 top 5 (backdrop 있는 것만) — 항상
-    2단: hybrid_recommendation top 10 (backdrop 있는 것만) — 로그인 유저
-    보충: 5건 미만이면 popular에서 인기순으로 채움 (backdrop 있는 것, seen 제외)
-    비로그인 시 1단만 반환.
+    """히어로 배너: popular_recommendation score 내림차순 top 5.
+    backdrop_url 없는 VOD는 건너뛰고 다음 순위로 대체.
     """
     pool = await get_pool()
-    seen: set[str] = set()
-    items: list[dict] = []
-
-    def _append_rows(rows):
-        for r in rows:
-            nm = r["series_nm"] or r["asset_nm"]
-            if nm in seen:
-                continue
-            seen.add(nm)
-            items.append({
-                "series_nm": nm,
-                "title": r["asset_nm"],
-                "poster_url": r["poster_url"],
-                "backdrop_url": r["backdrop_url"],
-                "category": r["ct_cl"],
-                "score": r["score"],
-            })
-
     async with pool.acquire() as conn:
-        # 1단: popular_recommendation 히어로 top 5 (backdrop 있는 것만, 항상)
         rows = await conn.fetch(
             """
             SELECT pr.vod_id_fk, pr.score,
@@ -82,51 +59,22 @@ async def get_banner(user_id: str | None = None) -> list[dict]:
             LIMIT 5
             """,
         )
-        _append_rows(rows)
 
-        # 2단: hybrid_recommendation 개인화 top 10 (backdrop 있는 것만, 로그인 유저)
-        if user_id:
-            is_test = await _is_test_user(pool, user_id)
-            hybrid_table = "serving.hybrid_recommendation_test" if is_test else "serving.hybrid_recommendation"
-            try:
-                rows = await conn.fetch(
-                    f"""
-                    SELECT r.vod_id_fk, r.score,
-                           v.series_nm, v.asset_nm, v.poster_url, v.backdrop_url, v.ct_cl
-                    FROM {hybrid_table} r
-                    JOIN public.vod v ON r.vod_id_fk = v.full_asset_id
-                    WHERE r.user_id_fk = $1
-                      AND v.backdrop_url IS NOT NULL
-                      AND (r.expires_at IS NULL OR r.expires_at > NOW())
-                    ORDER BY r.rank
-                    LIMIT 10
-                    """,
-                    user_id,
-                )
-                _append_rows(rows)
-            except Exception:
-                pass
-
-        # 보충: 5건 미만이면 popular에서 인기순으로 채움 (backdrop 있는 것, seen 제외)
-        if len(items) < 5:
-            placeholders = ",".join(f"${i+1}" for i in range(len(seen)))
-            exclude_clause = f"AND v.series_nm NOT IN ({placeholders})" if seen else ""
-            supplement_rows = await conn.fetch(
-                f"""
-                SELECT pr.vod_id_fk, pr.score,
-                       v.series_nm, v.asset_nm, v.poster_url, v.backdrop_url, v.ct_cl
-                FROM serving.popular_recommendation pr
-                JOIN public.vod v ON pr.vod_id_fk = v.full_asset_id
-                WHERE v.backdrop_url IS NOT NULL
-                  AND (pr.expires_at IS NULL OR pr.expires_at > NOW())
-                  {exclude_clause}
-                ORDER BY pr.score DESC
-                LIMIT {5 - len(items)}
-                """,
-                *list(seen),
-            )
-            _append_rows(supplement_rows)
-
+    seen: set[str] = set()
+    items: list[dict] = []
+    for r in rows:
+        nm = r["series_nm"] or r["asset_nm"]
+        if nm in seen:
+            continue
+        seen.add(nm)
+        items.append({
+            "series_nm": nm,
+            "title": r["asset_nm"],
+            "poster_url": r["poster_url"],
+            "backdrop_url": r["backdrop_url"],
+            "category": r["ct_cl"],
+            "score": r["score"],
+        })
     return items
 
 
