@@ -50,7 +50,7 @@ POST /auth/token { user_id }
 
 ### 1-1. 히어로 배너
 
-**`GET /home/banner`** (JWT 선택적)
+**`GET /home/banner`** (JWT 선택적 — 현재 미사용, 항상 popular 기준)
 
 ```
 요청: Authorization: Bearer {token} (선택)
@@ -59,18 +59,20 @@ POST /auth/token { user_id }
     {
       "series_nm": "기생충",          // → 시리즈 상세 링크 키
       "title": "기생충",              // → 배너 제목 텍스트
-      "poster_url": "https://...",    // → 배너 배경 이미지
+      "poster_url": "https://...",    // → 세로형 포스터 (fallback용)
+      "backdrop_url": "https://...", // → 가로형 배경 이미지 (히어로 배너 메인) ★
       "category": "영화",             // → 카테고리 뱃지
       "score": 0.95                   // → 정렬 기준 (UI 미표시)
     }
   ],
-  "total": 15
+  "total": 5
 }
 ```
 
 **UI 매핑:**
-- 비로그인: popular top 5만 표시
-- 로그인: popular 5 + hybrid 10 = 최대 15개 (series_nm 중복 제거)
+- 로그인/비로그인 무관: popular_recommendation score 내림차순 top 5 고정
+- `backdrop_url` → 히어로 배너 배경 이미지 (가로형, 항상 non-null 보장)
+- `poster_url` → backdrop 없을 때 fallback (현재 서버에서 이미 필터링하므로 참고용)
 - 캐러셀 4초 자동 전환
 - 포스터 클릭 → `/series/{series_nm}`
 
@@ -207,11 +209,14 @@ POST /auth/token { user_id }
 ```
 응답: {
   "user_id": "abc123...",
-  "top_vod": {                        // → 풀와이드 메인 배너
-    "series_id": "KTH00012345",       // → 시리즈 링크 키 (vod_id_fk)
-    "asset_nm": "기생충",             // → 배너 제목
-    "poster_url": "https://..."       // → 배너 이미지
-  },
+  "top_vod": [                        // ★ 배열로 변경 (최대 5건, 단일 객체 아님)
+    {
+      "series_id": "KTH00012345",     // → 시리즈 링크 키 (vod_id_fk)
+      "asset_nm": "기생충",           // → 배너 제목
+      "poster_url": "https://...",    // → 세로형 포스터 (fallback용)
+      "backdrop_url": "https://..."  // → 가로형 배경 이미지 (히어로 배너 메인) ★
+    }
+  ],
   "patterns": [                       // → 패턴별 가로 스크롤 섹션 (최대 5+)
     {
       "pattern_rank": 1,              // → 섹션 순서
@@ -230,11 +235,21 @@ POST /auth/token { user_id }
 }
 ```
 
+**⚠️ BREAKING CHANGE: `top_vod`가 단일 객체에서 배열로 변경됨**
+- 단일 객체로 읽던 프론트 코드 → 배열로 수정 필요
+- 홈 히어로 배너와 동일한 캐러셀 구조로 렌더링
+
+**top_vod 구성 로직:**
+- 일반 유저: hybrid_recommendation score 내림차순 top 5 (backdrop 있는 것)
+- Cold Start 유저: hybrid 부족분을 cold_genre_detail(age_grp10 연령대 기반) VOD로 보충
+- 완전 Cold Start: popular_fallback으로 전환 (`source: "popular_fallback"`)
+
 **UI 매핑:**
 - `source` 분기:
   - `"personalized"` → 파란색 인디케이터 (개인화 추천)
-  - `"popular_fallback"` → 앰버색 인디케이터 + "인기 콘텐츠 기반" 안내 (Cold Start)
-- `top_vod` → 풀와이드 배너 (h-[480px])
+  - `"popular_fallback"` → 앰버색 인디케이터 + "인기 콘텐츠 기반" 안내
+- `top_vod[]` → 풀와이드 캐러셀 배너 (h-[480px]), 4초 자동 전환
+- `backdrop_url` → 배너 배경 이미지 (가로형, 항상 non-null 보장)
 - `patterns[]` → 각 패턴별 가로 스크롤 섹션
 - 포스터 클릭 → `/series/{series_id}`
 
