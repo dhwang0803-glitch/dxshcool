@@ -73,16 +73,20 @@ class TestExtractTags:
         tags = extract_tags_from_row(row)
 
         categories = {t[1] for t in tags}
-        assert categories == {"director", "actor", "genre", "genre_detail", "rating"}
+        assert categories == {"director", "actor_lead", "actor_guest", "genre", "genre_detail", "rating"}
 
         # director
         directors = [t for t in tags if t[1] == "director"]
         assert len(directors) == 1
         assert directors[0] == ("V001", "director", "봉준호", 1.0)
 
-        # actors (cast_lead + cast_guest, deduplicated)
-        actors = {t[2] for t in tags if t[1] == "actor"}
-        assert actors == {"송강호", "최우식", "박소담"}
+        # actor_lead (주연)
+        leads = {t[2] for t in tags if t[1] == "actor_lead"}
+        assert leads == {"송강호", "최우식"}
+
+        # actor_guest (게스트)
+        guests = {t[2] for t in tags if t[1] == "actor_guest"}
+        assert guests == {"박소담"}
 
         # rating normalized
         ratings = [t for t in tags if t[1] == "rating"]
