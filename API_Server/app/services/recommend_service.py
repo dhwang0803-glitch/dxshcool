@@ -40,7 +40,9 @@ async def get_recommendations(user_id: str) -> dict:
 
     # 1) top_vods: hybrid score 내림차순 top 5 (backdrop_url 없으면 다음 순위로)
     #    부족분은 cold_genre_detail (age_grp10 기반 연령대 맞춤 VOD)로 보충
+    #    테스터 계정: youtube_video_id 없는 VOD 제외 (트레일러 재생 불가 콘텐츠 숨김)
     top_vods = []
+    youtube_filter = "AND v.youtube_video_id IS NOT NULL AND v.youtube_video_id != ''" if is_test else ""
     try:
         async with pool.acquire() as conn:
             rows = await conn.fetch(
@@ -50,6 +52,7 @@ async def get_recommendations(user_id: str) -> dict:
                 JOIN public.vod v ON r.vod_id_fk = v.full_asset_id
                 WHERE r.user_id_fk = $1
                   AND v.backdrop_url IS NOT NULL
+                  {youtube_filter}
                   AND (r.expires_at IS NULL OR r.expires_at > NOW())
                 ORDER BY r.score DESC
                 LIMIT 5
@@ -75,6 +78,7 @@ async def get_recommendations(user_id: str) -> dict:
                     WHERE tr.user_id_fk = $1
                       AND tr.tag_category = 'cold_genre_detail'
                       AND v.backdrop_url IS NOT NULL
+                      {youtube_filter}
                       AND (tr.expires_at IS NULL OR tr.expires_at > NOW())
                     ORDER BY tr.vod_score DESC
                     LIMIT $2
@@ -215,12 +219,13 @@ async def get_recommendations(user_id: str) -> dict:
     try:
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                """
+                f"""
                 SELECT pr.vod_id_fk, pr.score,
                        v.asset_nm, v.poster_url, v.backdrop_url
                 FROM serving.popular_recommendation pr
                 JOIN public.vod v ON pr.vod_id_fk = v.full_asset_id
                 WHERE v.backdrop_url IS NOT NULL
+                  {youtube_filter}
                   AND (pr.expires_at IS NULL OR pr.expires_at > NOW())
                 ORDER BY pr.score DESC
                 LIMIT 10
