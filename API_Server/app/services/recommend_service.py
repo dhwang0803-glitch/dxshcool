@@ -38,7 +38,8 @@ async def get_recommendations(user_id: str) -> dict:
     hybrid_table = "serving.hybrid_recommendation_test" if is_test else "serving.hybrid_recommendation"
     tag_table = "serving.tag_recommendation_test" if is_test else "serving.tag_recommendation"
 
-    # 1) top_vod: hybrid_recommendation — poster_url 있는 최상위 VOD 우선
+    # 1) top_vod: hybrid에서 backdrop_url 있는 최상위 VOD 우선
+    #    없으면 popular_recommendation 인기 1위 (backdrop 있는 것)로 대체
     top_vod = None
     try:
         async with pool.acquire() as conn:
@@ -48,23 +49,14 @@ async def get_recommendations(user_id: str) -> dict:
                 FROM {hybrid_table} r
                 JOIN public.vod v ON r.vod_id_fk = v.full_asset_id
                 WHERE r.user_id_fk = $1
+                  AND v.backdrop_url IS NOT NULL
                   AND (r.expires_at IS NULL OR r.expires_at > NOW())
                 ORDER BY r.rank
-                LIMIT 20
+                LIMIT 1
                 """,
                 user_id,
             )
-            # poster_url 있는 VOD 우선, 없으면 1위 그대로
-            for row in rows:
-                if row["poster_url"]:
-                    top_vod = {
-                        "series_id": row["vod_id_fk"],
-                        "asset_nm": row["asset_nm"],
-                        "poster_url": row["poster_url"],
-                        "backdrop_url": row["backdrop_url"],
-                    }
-                    break
-            if not top_vod and rows:
+            if rows:
                 row = rows[0]
                 top_vod = {
                     "series_id": row["vod_id_fk"],
@@ -72,6 +64,27 @@ async def get_recommendations(user_id: str) -> dict:
                     "poster_url": row["poster_url"],
                     "backdrop_url": row["backdrop_url"],
                 }
+            else:
+                # hybrid에 backdrop 없음 → popular 인기 1위로 대체
+                pop_rows = await conn.fetch(
+                    """
+                    SELECT pr.vod_id_fk, v.asset_nm, v.poster_url, v.backdrop_url
+                    FROM serving.popular_recommendation pr
+                    JOIN public.vod v ON pr.vod_id_fk = v.full_asset_id
+                    WHERE v.backdrop_url IS NOT NULL
+                      AND (pr.expires_at IS NULL OR pr.expires_at > NOW())
+                    ORDER BY pr.score DESC
+                    LIMIT 1
+                    """,
+                )
+                if pop_rows:
+                    row = pop_rows[0]
+                    top_vod = {
+                        "series_id": row["vod_id_fk"],
+                        "asset_nm": row["asset_nm"],
+                        "poster_url": row["poster_url"],
+                        "backdrop_url": row["backdrop_url"],
+                    }
     except Exception:
         pass
 
@@ -202,6 +215,7 @@ async def get_recommendations(user_id: str) -> dict:
                        v.asset_nm, v.poster_url, v.backdrop_url
                 FROM serving.popular_recommendation pr
                 JOIN public.vod v ON pr.vod_id_fk = v.full_asset_id
+                WHERE v.backdrop_url IS NOT NULL
                 ORDER BY pr.score DESC
                 LIMIT 10
                 """,
