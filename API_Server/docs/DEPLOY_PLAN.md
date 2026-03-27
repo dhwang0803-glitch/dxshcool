@@ -180,6 +180,7 @@ Cloud Run 서비스에 설정할 변수:
 - [ ] `/recommend/{user_id}` 호출 → 200 확인 (500이면 `top_vod` 언패킹 버그 의심 — `routers/recommend.py` 23번째 줄 `[TopVod(**v) for v in result["top_vod"]]` 형태인지 확인)
 - [ ] Cloud Run 로그에서 `TypeError: argument after ** must be a mapping` 없는지 확인
 - [ ] CORS 오류 시: 신규 프론트엔드 URL이 `main.py` `_cors_origins` 목록에 있는지 확인
+- [ ] 추천 클릭 시 `/series/{id}/episodes` 404 오류 → `recommend_service.py` series_id가 `series_nm` 기준인지 확인 (`vod_id_fk` 대신 `series_nm or asset_nm` 반환해야 함)
 
 ---
 
