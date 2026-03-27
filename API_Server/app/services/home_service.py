@@ -62,6 +62,7 @@ async def get_banner(user_id: str | None = None) -> list[dict]:
                 "series_nm": nm,
                 "title": r["asset_nm"],
                 "poster_url": r["poster_url"],
+                "backdrop_url": r["backdrop_url"],
                 "category": r["ct_cl"],
                 "score": r["score"],
             })
@@ -71,7 +72,7 @@ async def get_banner(user_id: str | None = None) -> list[dict]:
         rows = await conn.fetch(
             """
             SELECT pr.vod_id_fk, pr.score,
-                   v.series_nm, v.asset_nm, v.poster_url, v.ct_cl
+                   v.series_nm, v.asset_nm, v.poster_url, v.backdrop_url, v.ct_cl
             FROM serving.popular_recommendation pr
             JOIN public.vod v ON pr.vod_id_fk = v.full_asset_id
             WHERE pr.expires_at IS NULL OR pr.expires_at > NOW()
@@ -89,7 +90,7 @@ async def get_banner(user_id: str | None = None) -> list[dict]:
                 rows = await conn.fetch(
                     f"""
                     SELECT r.vod_id_fk, r.score,
-                           v.series_nm, v.asset_nm, v.poster_url, v.ct_cl
+                           v.series_nm, v.asset_nm, v.poster_url, v.backdrop_url, v.ct_cl
                     FROM {hybrid_table} r
                     JOIN public.vod v ON r.vod_id_fk = v.full_asset_id
                     WHERE r.user_id_fk = $1
