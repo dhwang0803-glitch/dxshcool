@@ -7,9 +7,11 @@ serving.vod_recommendation 후보 × vod_tag × user_preference
 시리즈 중복제거는 CF_Engine/Vector_Search 단계에서 이미 처리됨.
 reranker는 그 결과를 그대로 받아 hybrid_score 기준 재정렬만 수행.
 
-성능 최적화 (batch 구조):
-  이전: 유저 1명당 DB 쿼리 3번 → 1,000유저 청크 = 3,000 queries/chunk
-  현재: 청크 전체를 3번의 bulk 쿼리로 처리 → 3 queries/chunk (~10~20배 향상)
+성능 최적화 (전체 dump 구조):
+  이전: 1,000유저 청크 루프 × (fetch_candidates + fetch_prefs + fetch_vod_tags + INSERT)
+        → 243청크 × 4회 = ~972 DB 왕복
+  현재: 루프 밖에서 전체 데이터 3번 dump → 순수 Python 계산 → 배치 INSERT
+        → 읽기 3회 + INSERT ~수십 회 (총 DB 왕복 대폭 감소)
 """
 
 import json
@@ -34,17 +36,14 @@ def _fetch_user_candidates(cur, user_id: str, test_mode: bool = False) -> list[d
         """,
         (user_id,),
     )
-    seen = set()
     candidates = []
     for row in cur.fetchall():
-        vid = row[0]
-        if vid not in seen:
-            seen.add(vid)
-            candidates.append({
-                "vod_id_fk": vid,
-                "score": row[1],
-                "recommendation_type": row[2],
-            })
+        vid, score, rec_type = row
+        candidates.append({
+            "vod_id_fk": vid,
+            "score": score,
+            "recommendation_type": rec_type,
+        })
     return candidates
 
 
@@ -80,20 +79,18 @@ def _fetch_vod_tags(cur, vod_ids: list[str]) -> dict[str, list[tuple[str, str, f
     return result
 
 
-# ── 청크 단위 bulk 조회 (run_hybrid_reranking 전용) ──────────────────────
+# ── 전체 dump (run_hybrid_reranking 전용) ────────────────────────────────
 
-def _fetch_candidates_bulk(cur, user_ids: list[str], test_mode: bool = False) -> dict[str, list[dict]]:
-    """청크 내 전체 유저의 후보를 한 번에 조회 → {user_id: [candidate, ...]}."""
-    table = "serving.vod_recommendation_test" if test_mode else "serving.vod_recommendation"
+def _dump_all_candidates(cur, src_table: str) -> dict[str, list[dict]]:
+    """CF 후보 전체를 한 번에 로드 → {user_id: [candidate, ...]}."""
     cur.execute(
         f"""
         SELECT user_id_fk, vod_id_fk, score, recommendation_type
-        FROM {table}
-        WHERE user_id_fk = ANY(%s)
+        FROM {src_table}
+        WHERE user_id_fk IS NOT NULL
           AND (expires_at IS NULL OR expires_at > NOW())
         ORDER BY user_id_fk, score DESC
-        """,
-        (user_ids,),
+        """
     )
     result: dict[str, list] = {}
     seen: dict[str, set] = {}
@@ -111,15 +108,13 @@ def _fetch_candidates_bulk(cur, user_ids: list[str], test_mode: bool = False) ->
     return result
 
 
-def _fetch_preferences_bulk(cur, user_ids: list[str]) -> dict[str, dict[tuple[str, str], float]]:
-    """청크 내 전체 유저의 선호 태그를 한 번에 조회 → {user_id: {(cat, val): affinity}}."""
+def _dump_all_preferences(cur) -> dict[str, dict[tuple[str, str], float]]:
+    """user_preference 전체를 한 번에 로드 → {user_id: {(cat, val): affinity}}."""
     cur.execute(
         """
         SELECT user_id_fk, tag_category, tag_value, affinity
         FROM public.user_preference
-        WHERE user_id_fk = ANY(%s)
-        """,
-        (user_ids,),
+        """
     )
     result: dict[str, dict] = {}
     for user_id, cat, val, aff in cur.fetchall():
@@ -227,14 +222,16 @@ def run_hybrid_reranking(
     """전체 유저 리랭킹 → hybrid_recommendation 적재.
 
     Args:
+        user_chunk_size: INSERT 배치 크기 (유저 수 기준). rows = user_chunk_size × top_n.
         test_mode: True이면 vod_recommendation_test에서 후보 조회,
                    hybrid_recommendation_test에 결과 적재 (테스터 격리용).
 
-    청크 단위 bulk 쿼리 구조:
-      1. 청크 내 전체 후보 한 번에 조회 (_fetch_candidates_bulk)
-      2. 청크 내 전체 선호 태그 한 번에 조회 (_fetch_preferences_bulk)
-      3. 청크 내 고유 VOD 태그 한 번에 조회 (_fetch_vod_tags)
-      → 1,000유저 청크 기준 3 queries/chunk (기존 3,000 queries/chunk 대비 ~10~20배 향상)
+    전체 dump 구조 (DB 왕복 최소화):
+      1. CF 후보 전체 dump (1회)
+      2. user_preference 전체 dump (1회)
+      3. 후보 VOD의 vod_tag dump (1회)
+      4. 순수 Python 스코어링 (DB 왕복 없음)
+      5. INSERT (user_chunk_size × top_n 행 단위 배치)
 
     Returns:
         총 적재 레코드 수
@@ -244,82 +241,80 @@ def run_hybrid_reranking(
     mode_label = "TEST 유저" if test_mode else "실 유저"
     log.info("Phase 3: Hybrid reranking (%s, beta=%.2f, top_n=%d)", mode_label, beta, top_n)
 
+    # ── Step 1: 전체 데이터 3번 쿼리로 한 번에 로드 ──────────────────────
     with conn.cursor() as cur:
-        cur.execute(
-            f"""
-            SELECT DISTINCT user_id_fk
-            FROM {src_table}
-            WHERE user_id_fk IS NOT NULL
-              AND (expires_at IS NULL OR expires_at > NOW())
-            """
-        )
-        user_ids = [r[0] for r in cur.fetchall()]
+        log.info("[1/3] CF 후보 전체 dump...")
+        all_candidates = _dump_all_candidates(cur, src_table)
+        user_ids = list(all_candidates.keys())
+        log.info("  → %d users, CF 후보 로드 완료", len(user_ids))
 
-    log.info("Target users: %d", len(user_ids))
-    if not user_ids:
-        return 0
+        if not user_ids:
+            return 0
 
+        log.info("[2/3] user_preference 전체 dump...")
+        all_prefs = _dump_all_preferences(cur)
+        log.info("  → %d users 선호 태그 로드 완료", len(all_prefs))
+
+        unique_vod_ids = list({
+            c["vod_id_fk"]
+            for cands in all_candidates.values()
+            for c in cands
+        })
+        log.info("[3/3] vod_tag dump (%d개 고유 VOD)...", len(unique_vod_ids))
+        all_vod_tags = _fetch_vod_tags(cur, unique_vod_ids)
+        log.info("  → %d VOD 태그 로드 완료", len(all_vod_tags))
+
+    # ── Step 2: 기존 데이터 삭제 ──────────────────────────────────────────
     with conn.cursor() as cur:
         cur.execute(f"DELETE FROM {dst_table}")
         log.info("Cleared %d existing %s rows", cur.rowcount, dst_table)
+    conn.commit()
 
+    # ── Step 3: 순수 Python 스코어링 (DB 왕복 없음) ───────────────────────
+    log.info("Python 스코어링 시작 (%d users)...", len(user_ids))
+    all_rows = []
+    for uid in user_ids:
+        candidates = all_candidates[uid]
+        user_prefs = all_prefs.get(uid, {})
+        recs = _score_user(candidates, user_prefs, all_vod_tags, beta, top_n, top_k_tags)
+        for r in recs:
+            all_rows.append((
+                uid,
+                r["vod_id_fk"],
+                r["rank"],
+                r["score"],
+                json.dumps(r["explanation_tags"], ensure_ascii=False),
+                r["source_engines"],
+            ))
+    log.info("스코어링 완료: %d rows", len(all_rows))
+
+    # ── Step 4: 배치 INSERT ───────────────────────────────────────────────
+    insert_batch = user_chunk_size * top_n  # 기본 1000 × 10 = 10,000행
     total_inserted = 0
-    for chunk_start in range(0, len(user_ids), user_chunk_size):
-        chunk = user_ids[chunk_start: chunk_start + user_chunk_size]
-
+    for i in range(0, len(all_rows), insert_batch):
+        batch = all_rows[i: i + insert_batch]
         with conn.cursor() as cur:
-            # bulk 조회 3번으로 청크 전체 처리
-            all_candidates = _fetch_candidates_bulk(cur, chunk, test_mode=test_mode)
-            all_prefs = _fetch_preferences_bulk(cur, chunk)
-
-            unique_vod_ids = list({
-                c["vod_id_fk"]
-                for cands in all_candidates.values()
-                for c in cands
-            })
-            all_vod_tags = _fetch_vod_tags(cur, unique_vod_ids)
-
-        # Python 메모리 연산 (DB 왕복 없음)
-        batch_rows = []
-        for uid in chunk:
-            candidates = all_candidates.get(uid, [])
-            user_prefs = all_prefs.get(uid, {})
-            recs = _score_user(candidates, user_prefs, all_vod_tags, beta, top_n, top_k_tags)
-            for r in recs:
-                batch_rows.append((
-                    uid,
-                    r["vod_id_fk"],
-                    r["rank"],
-                    r["score"],
-                    json.dumps(r["explanation_tags"], ensure_ascii=False),
-                    r["source_engines"],
-                ))
-
-        if batch_rows:
-            with conn.cursor() as cur:
-                args = ",".join(
-                    cur.mogrify("(%s,%s,%s,%s,%s::jsonb,%s)", row).decode()
-                    for row in batch_rows
-                )
-                cur.execute(
-                    f"""
-                    INSERT INTO {dst_table}
-                        (user_id_fk, vod_id_fk, rank, score, explanation_tags, source_engines)
-                    VALUES {args}
-                    ON CONFLICT (user_id_fk, vod_id_fk) DO UPDATE SET
-                        rank = EXCLUDED.rank,
-                        score = EXCLUDED.score,
-                        explanation_tags = EXCLUDED.explanation_tags,
-                        source_engines = EXCLUDED.source_engines,
-                        generated_at = NOW(),
-                        expires_at = NOW() + INTERVAL '7 days'
-                    """
-                )
-                total_inserted += cur.rowcount
-            conn.commit()
-
-        processed = min(chunk_start + user_chunk_size, len(user_ids))
-        log.info("Progress: %d/%d users", processed, len(user_ids))
+            args = ",".join(
+                cur.mogrify("(%s,%s,%s,%s,%s::jsonb,%s)", row).decode()
+                for row in batch
+            )
+            cur.execute(
+                f"""
+                INSERT INTO {dst_table}
+                    (user_id_fk, vod_id_fk, rank, score, explanation_tags, source_engines)
+                VALUES {args}
+                ON CONFLICT (user_id_fk, vod_id_fk) DO UPDATE SET
+                    rank = EXCLUDED.rank,
+                    score = EXCLUDED.score,
+                    explanation_tags = EXCLUDED.explanation_tags,
+                    source_engines = EXCLUDED.source_engines,
+                    generated_at = NOW(),
+                    expires_at = NOW() + INTERVAL '7 days'
+                """
+            )
+            total_inserted += cur.rowcount
+        conn.commit()
+        log.info("INSERT progress: %d/%d rows", min(i + insert_batch, len(all_rows)), len(all_rows))
 
     log.info("Phase 3 완료: %d hybrid_recommendation rows", total_inserted)
     return total_inserted

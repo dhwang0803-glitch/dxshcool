@@ -144,17 +144,81 @@ COMMENT ON COLUMN user_embedding.model_name IS
 
 
 -- =============================================================
+-- [3] vod_series_embedding 테이블
+--     시리즈 대표 메타 임베딩 (에피소드 중복 해소)
+--     vod_meta_embedding(166K 에피소드) → 시리즈당 1건(~11.5K)
+--     Vector_Search 벡터 검색 시 시리즈 다양성 보장
+-- =============================================================
+
+CREATE TABLE vod_series_embedding (
+    series_emb_id       BIGINT          GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+
+    -- 시리즈 식별 (vod.series_nm 기준 그룹핑)
+    series_nm           VARCHAR(255)    NOT NULL UNIQUE,
+
+    -- 대표 VOD (poster_url 있는 첫 에피소드)
+    representative_vod_id VARCHAR(64)   NOT NULL,
+
+    -- 메타 임베딩 벡터 (384차원, vod_meta_embedding과 동일 모델)
+    embedding           VECTOR(384)     NOT NULL,
+
+    -- 서빙 편의 컬럼 (JOIN 없이 API 응답 가능)
+    ct_cl               VARCHAR(64),
+    poster_url          TEXT,
+
+    -- 시리즈 통계
+    episode_count       INTEGER         NOT NULL DEFAULT 1,
+
+    -- 모델 정보
+    model_name          VARCHAR(100)    NOT NULL
+                            DEFAULT 'paraphrase-multilingual-MiniLM-L12-v2',
+
+    -- 시간
+    created_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+
+    -- 제약
+    CONSTRAINT fk_series_emb_vod
+        FOREIGN KEY (representative_vod_id) REFERENCES vod(full_asset_id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_vod_series_emb_ivfflat
+    ON vod_series_embedding
+    USING ivfflat (embedding vector_cosine_ops)
+    WITH (lists = 100);
+
+CREATE INDEX idx_vod_series_emb_ct_cl
+    ON vod_series_embedding (ct_cl);
+
+CREATE INDEX idx_vod_series_emb_updated
+    ON vod_series_embedding (updated_at DESC);
+
+CREATE TRIGGER trg_vod_series_emb_updated_at
+    BEFORE UPDATE ON vod_series_embedding
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+COMMENT ON TABLE vod_series_embedding IS
+    '시리즈 대표 메타 임베딩. vod_meta_embedding(에피소드 166K)에서 시리즈당 1건 추출. '
+    'Vector_Search 벡터 검색 시 시리즈 다양성 보장 목적.';
+COMMENT ON COLUMN vod_series_embedding.series_nm IS
+    'vod.series_nm 기준 그룹핑. 시리즈가 없는 단편은 asset_nm 사용.';
+COMMENT ON COLUMN vod_series_embedding.representative_vod_id IS
+    '시리즈 대표 에피소드 ID. poster_url 있는 첫 에피소드 우선 선정.';
+
+
+-- =============================================================
 -- 생성 확인
 -- =============================================================
 SELECT
     tablename,
     pg_size_pretty(pg_total_relation_size(schemaname || '.' || tablename)) AS total_size
 FROM pg_tables
-WHERE tablename IN ('vod_meta_embedding', 'user_embedding')
+WHERE tablename IN ('vod_meta_embedding', 'user_embedding', 'vod_series_embedding')
   AND schemaname = 'public'
 ORDER BY tablename;
 
 SELECT indexname, indexdef
 FROM pg_indexes
-WHERE tablename IN ('vod_meta_embedding', 'user_embedding')
+WHERE tablename IN ('vod_meta_embedding', 'user_embedding', 'vod_series_embedding')
 ORDER BY tablename, indexname;
