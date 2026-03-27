@@ -7,6 +7,7 @@ class TopVod(BaseModel):
     series_id: str
     asset_nm: str
     poster_url: str | None
+    backdrop_url: str | None
 
 
 class PatternVodItem(BaseModel):
@@ -24,7 +25,7 @@ class PatternItem(BaseModel):
 
 class RecommendResponse(BaseModel):
     user_id: str
-    top_vod: TopVod | None
+    top_vod: list[TopVod]
     patterns: list[PatternItem]
     source: str  # 'personalized' | 'popular_fallback'
 

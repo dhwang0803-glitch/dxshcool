@@ -38,38 +38,62 @@ async def get_recommendations(user_id: str) -> dict:
     hybrid_table = "serving.hybrid_recommendation_test" if is_test else "serving.hybrid_recommendation"
     tag_table = "serving.tag_recommendation_test" if is_test else "serving.tag_recommendation"
 
-    # 1) top_vod: hybrid_recommendation — poster_url 있는 최상위 VOD 우선
-    top_vod = None
+    # 1) top_vods: hybrid score 내림차순 top 5 (backdrop_url 없으면 다음 순위로)
+    #    부족분은 cold_genre_detail (age_grp10 기반 연령대 맞춤 VOD)로 보충
+    #    테스터 계정: youtube_video_id 없는 VOD 제외 (트레일러 재생 불가 콘텐츠 숨김)
+    top_vods = []
+    youtube_filter = "AND v.youtube_video_id IS NOT NULL AND v.youtube_video_id != ''" if is_test else ""
     try:
         async with pool.acquire() as conn:
             rows = await conn.fetch(
                 f"""
-                SELECT r.vod_id_fk, v.series_nm, v.asset_nm, v.poster_url
+                SELECT r.vod_id_fk, v.series_nm, v.asset_nm, v.poster_url, v.backdrop_url
                 FROM {hybrid_table} r
                 JOIN public.vod v ON r.vod_id_fk = v.full_asset_id
                 WHERE r.user_id_fk = $1
+                  AND v.backdrop_url IS NOT NULL
+                  {youtube_filter}
                   AND (r.expires_at IS NULL OR r.expires_at > NOW())
-                ORDER BY r.rank
-                LIMIT 20
+                ORDER BY r.score DESC
+                LIMIT 5
                 """,
                 user_id,
             )
-            # poster_url 있는 VOD 우선, 없으면 1위 그대로
             for row in rows:
-                if row["poster_url"]:
-                    top_vod = {
-                        "series_id": row["vod_id_fk"],
-                        "asset_nm": row["asset_nm"],
-                        "poster_url": row["poster_url"],
-                    }
-                    break
-            if not top_vod and rows:
-                row = rows[0]
-                top_vod = {
+                top_vods.append({
                     "series_id": row["vod_id_fk"],
                     "asset_nm": row["asset_nm"],
                     "poster_url": row["poster_url"],
-                }
+                    "backdrop_url": row["backdrop_url"],
+                })
+
+            # cold start 보충: hybrid 부족분을 연령대 기반 cold_genre_detail VOD로 채움
+            if len(top_vods) < 5:
+                seen_ids = {v["series_id"] for v in top_vods}
+                cold_rows = await conn.fetch(
+                    f"""
+                    SELECT tr.vod_id_fk, v.series_nm, v.asset_nm, v.poster_url, v.backdrop_url
+                    FROM {tag_table} tr
+                    JOIN public.vod v ON tr.vod_id_fk = v.full_asset_id
+                    WHERE tr.user_id_fk = $1
+                      AND tr.tag_category = 'cold_genre_detail'
+                      AND v.backdrop_url IS NOT NULL
+                      {youtube_filter}
+                      AND (tr.expires_at IS NULL OR tr.expires_at > NOW())
+                    ORDER BY tr.vod_score DESC
+                    LIMIT $2
+                    """,
+                    user_id,
+                    5 - len(top_vods),
+                )
+                for row in cold_rows:
+                    if row["vod_id_fk"] not in seen_ids:
+                        top_vods.append({
+                            "series_id": row["vod_id_fk"],
+                            "asset_nm": row["asset_nm"],
+                            "poster_url": row["poster_url"],
+                            "backdrop_url": row["backdrop_url"],
+                        })
     except Exception:
         pass
 
@@ -188,29 +212,36 @@ async def get_recommendations(user_id: str) -> dict:
     if vector_pattern:
         patterns.append(vector_pattern)
 
-    if top_vod or patterns:
-        return {"top_vod": top_vod, "patterns": patterns, "source": "personalized"}
+    if top_vods or patterns:
+        return {"top_vod": top_vods, "patterns": patterns, "source": "personalized"}
 
     # Fallback: popular 기반
     try:
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                """
-                SELECT pr.vod_id_fk, pr.score, pr.ct_cl,
-                       v.asset_nm, v.poster_url
+                f"""
+                SELECT pr.vod_id_fk, pr.score,
+                       v.asset_nm, v.poster_url, v.backdrop_url
                 FROM serving.popular_recommendation pr
                 JOIN public.vod v ON pr.vod_id_fk = v.full_asset_id
+                WHERE v.backdrop_url IS NOT NULL
+                  {youtube_filter}
+                  AND (pr.expires_at IS NULL OR pr.expires_at > NOW())
                 ORDER BY pr.score DESC
                 LIMIT 10
                 """,
             )
 
         if rows:
-            top_vod = {
-                "series_id": rows[0]["vod_id_fk"],
-                "asset_nm": rows[0]["asset_nm"],
-                "poster_url": rows[0]["poster_url"],
-            }
+            top_vods = [
+                {
+                    "series_id": r["vod_id_fk"],
+                    "asset_nm": r["asset_nm"],
+                    "poster_url": r["poster_url"],
+                    "backdrop_url": r["backdrop_url"],
+                }
+                for r in rows[:5]
+            ]
             patterns = [{
                 "pattern_rank": 1,
                 "pattern_reason": "지금 인기 있는 콘텐츠",
@@ -221,10 +252,10 @@ async def get_recommendations(user_id: str) -> dict:
                         "poster_url": r["poster_url"],
                         "score": r["score"],
                     }
-                    for r in rows[1:]
+                    for r in rows[5:]
                 ],
             }]
     except Exception:
         pass
 
-    return {"top_vod": top_vod, "patterns": patterns, "source": "popular_fallback"}
+    return {"top_vod": top_vods, "patterns": patterns, "source": "popular_fallback"}
