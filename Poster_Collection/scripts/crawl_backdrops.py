@@ -27,7 +27,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from difflib import SequenceMatcher
 from pathlib import Path
-from urllib.parse import quote
 
 import psycopg2
 import requests
@@ -101,8 +100,8 @@ def _get_session() -> requests.Session:
 
 
 def _oci_object_name(series_nm: str, ct_cl: str) -> str:
-    """(series_nm, ct_cl) → OCI object name."""
-    return f"backdrops/{quote(series_nm, safe='')}_{quote(ct_cl or 'unknown', safe='')}.jpg"
+    """(series_nm, ct_cl) → OCI object name (raw, 인코딩 없음 — build_public_url이 처리)."""
+    return f"backdrops/{series_nm}__{ct_cl or 'unknown'}.jpg"
 
 
 def fetch_backdrop_path(series_nm: str, ct_cl: str) -> str | None:
