@@ -38,60 +38,22 @@ VOD 정보:
 - 영상 시각 패턴: {visual_keywords}
 """
 
-# 스포츠·교양·토크쇼 등 시각 묘사가 어려운 장르 전용 프롬프트
-_NON_VISUAL_PROMPT_TEMPLATE = """당신은 IPTV VOD 서비스의 감성 카피라이터입니다.
-아래 VOD 정보를 바탕으로 홈 배너 포스터 하단에 표시할 감성 문구를 작성하세요.
-
-규칙:
-- 정확히 2문장 (줄바꿈 1개로 구분)
-- 총 20자 이상 80자 이하 (공백 포함)
-- 이 콘텐츠는 시각 액션보다 지식·감동·현장감·몰입이 핵심 — 그 매력을 묘사할 것
-- 출연자명이 한국어면 적극 활용, 영문이면 사용하지 말 것
-- 제목·회차 번호를 문구 안에 반복 금지
-- "~보세요", "~하세요", "~세요" 등 권유·명령형 어미 금지
-- "~있습니다", "~합니다", "~됩니다" 등 합쇼체 어미 금지 — 서술형(~다/~네/~지) 또는 명사형 종결
-- 아래 단어 사용 금지 (클리셰): 어둠, 불꽃, 용기, 마법, 펼쳐지다, 선사하다
-- HTML 태그(<br> 등) 사용 금지
-- JSON 형식으로만 응답: {{"rec_sentence": "..."}}
-
-VOD 정보:
-- 제목: {asset_nm}
-- 장르: {genre_detail}
-- 감독: {director}
-- 출연: {cast_lead}
-- 줄거리: {smry}
-- 영상 시각 패턴: {visual_keywords}
-"""
-
-# 비시각 장르 ct_cl 목록
-_NON_VISUAL_CT_CL = {
-    "TV다큐멘터리", "시사/문화", "스포츠", "TV 연예/오락", "TV예능",
-    "골프", "격투기", "교양",
-}
-
-
-def select_prompt_template(ctx: dict, custom_template: str = None) -> str:
-    """ct_cl 기반으로 적합한 프롬프트 템플릿 선택."""
-    if custom_template:
-        return custom_template
-    if ctx.get("ct_cl", "") in _NON_VISUAL_CT_CL:
-        return _NON_VISUAL_PROMPT_TEMPLATE
-    return _DEFAULT_PROMPT_TEMPLATE
-
-
 def generate_sentence(
     ctx: dict,
     model: str = _DEFAULT_MODEL,
-    prompt_template: str = None,
+    prompt_template: str = _DEFAULT_PROMPT_TEMPLATE,
     temperature: float = 0.7,
     max_retries: int = 2,
 ) -> dict:
-    """단일 VOD → rec_sentence 생성.
+    """단일 VOD → rec_sentence 생성 (seed data 전용).
+
+    프로덕션 배치(batch_generate.py)는 segment_id 기반 페르소나를 직접 주입하므로
+    이 함수를 사용하지 않는다.
 
     Args:
         ctx: context_builder.fetch_vod_contexts()의 개별 항목
         model: Ollama 모델명
-        prompt_template: None이면 ct_cl 기반 자동 선택
+        prompt_template: 기본값 _DEFAULT_PROMPT_TEMPLATE
         temperature: 생성 다양성 (0.0~1.0)
         max_retries: JSON 파싱 실패 시 재시도 횟수
 
@@ -101,8 +63,7 @@ def generate_sentence(
     visual_kws = ctx.get("visual_keywords", [])
     visual_keywords_str = ", ".join(visual_kws) if visual_kws else "정보 없음"
 
-    template = select_prompt_template(ctx, custom_template=prompt_template)
-    prompt = template.format(
+    prompt = prompt_template.format(
         asset_nm=ctx.get("asset_nm", ""),
         genre=ctx.get("genre", ""),
         genre_detail=ctx.get("genre_detail", ""),
