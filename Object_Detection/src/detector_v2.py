@@ -8,12 +8,7 @@ detector_v2.py — YOLO 2단계 추론 (COCO 사전필터 + 파인튜닝 메뉴 
   - 사람 얼굴 → "해천탕" 같은 오탐 차단 (COCO에서 food context 없음)
   - 김치찌개 냄비 → COCO "bowl" 탐지 → 파인튜닝 결과 채택
 """
-import yaml
-from pathlib import Path
 from ultralytics import YOLO
-
-_CONFIG_DIR = Path(__file__).parent.parent / "config"
-_FOOD_NAMES_PATH = _CONFIG_DIR / "food_menu_names.yaml"
 
 # COCO 클래스 중 음식 컨텍스트로 인정하는 것들
 FOOD_CONTEXT_CLASSES = {
@@ -30,14 +25,6 @@ FOOD_CONTEXT_CLASSES = {
 # COCO 클래스 중 음식과 무관한 것 (이것만 있으면 food context 아님)
 NON_FOOD_ONLY = {"person", "car", "truck", "bus", "bicycle", "motorcycle",
                  "cat", "dog", "horse", "bird", "tv", "laptop", "cell phone"}
-
-
-def _load_food_names() -> dict[int, str] | None:
-    if not _FOOD_NAMES_PATH.exists():
-        return None
-    with open(_FOOD_NAMES_PATH, encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
-    return cfg.get("names")
 
 
 def _iou(box_a, box_b):
@@ -62,15 +49,10 @@ class DetectorV2:
         coco_confidence: float = 0.3,
         device: str = "cpu",
     ):
-        # 파인튜닝 모델 (761종 메뉴)
+        # COCO 모델 2개 (food_model도 COCO — 파인튜닝 미사용)
         self.food_detector = YOLO(food_model)
         self.confidence = confidence
         self.device = device
-
-        # 한국어 라벨 오버라이드
-        food_names = _load_food_names()
-        if food_names:
-            self.food_detector.model.names = food_names
 
         # COCO 모델 (사전필터용)
         self.coco_detector = YOLO(coco_model)

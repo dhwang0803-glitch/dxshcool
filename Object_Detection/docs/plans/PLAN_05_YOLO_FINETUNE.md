@@ -1,3 +1,6 @@
+> ✅ **완료**. best.pt 기본값 확정 (mAP@0.5=0.990, COCO대비 45배 탐지 향상).
+> 최신 → `docs/MATCHING_FLOW.md`
+
 # PLAN_05 — YOLOv11 파인튜닝 (한식 탐지 고도화)
 
 - **브랜치**: Object_Detection
@@ -5,7 +8,6 @@
 - **작성일**: 2026-03-16
 - **작성자**: 박아름
 - **선행 조건**: Phase 4 완료 (51/51 PASS), PR #31 MERGED ✅, Shopping_Ad 연동 완료
-- **참조**: 조장(황대원) 제안 (YoLov11_파인튜닝.txt), `docs/reports/phase5_yolo_finetune_plan.md`
 - **업데이트**: 2026-03-16 — 조장 Ollama 제안 반영, 4가지 접근 방식 비교 및 구현 우선순위 재정의
 
 ---
@@ -361,15 +363,20 @@ best.pt → Object_Detection/models/korean_food_v1_best.pt
 
 ---
 
-## 완료 기준
+## 완료 현황
 
 ### 데이터 준비
 - [x] TS.z01 전처리 완료 (train 20,872 / val 5,218, 2026-03-17)
-- [ ] finetune_dataset/ Drive 업로드
-- [ ] data.yaml 확인 (nc=71종, TS.z01 기준)
+- [x] finetune_dataset/ Drive 업로드
+- [x] data.yaml 확인 (nc=71종, TS.z01 기준)
+
+### 학습 + 배치
+- [x] best.pt 학습 완료 (mAP@0.5=0.990, COCO 대비 45배 탐지 향상)
+- [x] 19건 배치 완료 (739 TRIGGER, parquet 4종 생성)
 
 ### 문서
-- [ ] `docs/reports/phase5_ab_report.md` 작성 (A/B 비교 수치 포함)
+- [x] `docs/reports/phase5_pilot_result_20260318.md` — A/B 비교 수치 포함
+- [x] `docs/reports/batch_19_report_20260322.md` — 19건 배치 결과
 
 ---
 

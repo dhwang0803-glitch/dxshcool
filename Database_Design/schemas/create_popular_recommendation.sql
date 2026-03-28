@@ -1,13 +1,13 @@
 -- =============================================================
--- 장르별 인기 추천 테이블 DDL (Gold 계층)
+-- CT_CL별 인기 추천 테이블 DDL (Gold 계층)
 -- 파일: Database_Design/schemas/create_popular_recommendation.sql
--- 목적: 장르별 Top-N 인기 추천 결과 저장 (글로벌, 비개인화)
+-- 목적: CT_CL별 Top-N 인기 추천 결과 저장 (글로벌, 비개인화)
 -- 작성일: 2026-03-18
 -- 배경:
 --   serving.vod_recommendation은 유저 기반/콘텐츠 기반 개인화 추천 전용.
---   장르별 인기 추천은 기준 키(genre), 갱신 패턴(주 1회 일괄),
---   UNIQUE 제약(genre, rank)이 근본적으로 달라 별도 테이블로 분리.
---   다중 장르 VOD(드라마+영화)가 각 장르 Top-N에 중복 등장 가능.
+--   CT_CL별 인기 추천은 기준 키(ct_cl), 갱신 패턴(주 1회 일괄),
+--   UNIQUE 제약(ct_cl, rank)이 근본적으로 달라 별도 테이블로 분리.
+--   다중 CT_CL VOD(드라마+영화)가 각 CT_CL Top-N에 중복 등장 가능.
 -- 소비 브랜치: CF_Engine(쓰기), Vector_Search(쓰기), API_Server(읽기)
 -- =============================================================
 -- 실행 방법: psql -U <user> -d <dbname> -f create_popular_recommendation.sql
@@ -52,7 +52,7 @@ COMMENT ON TABLE serving.popular_recommendation IS
 COMMENT ON COLUMN serving.popular_recommendation.ct_cl IS
     'vod.ct_cl 값 (영화, TV드라마, TV애니메이션, TV 연예/오락 등). 고정 4개 카테고리 기준.';
 COMMENT ON COLUMN serving.popular_recommendation.rank IS
-    '장르 내 순위 (1부터 시작)';
+    'CT_CL 내 순위 (1부터 시작)';
 COMMENT ON COLUMN serving.popular_recommendation.vod_id_fk IS
     'FK → vod.full_asset_id (ON DELETE CASCADE)';
 COMMENT ON COLUMN serving.popular_recommendation.score IS

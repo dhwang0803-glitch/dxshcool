@@ -1,3 +1,5 @@
+> ✅ **완료** (Phase 1). 최신 플로우 → `docs/MATCHING_FLOW.md`
+
 # PLAN_01 — Object_Detection 환경 설정 및 파일럿
 
 - **브랜치**: Object_Detection

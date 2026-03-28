@@ -26,7 +26,7 @@ CREATE TABLE vod_tag (
     PRIMARY KEY (vod_id_fk, tag_category, tag_value),
 
     CONSTRAINT chk_vt_category CHECK (tag_category IN (
-        'director', 'actor', 'genre', 'genre_detail', 'rating'
+        'director', 'actor_lead', 'actor_guest', 'genre', 'genre_detail', 'rating'
     )),
     CONSTRAINT chk_vt_confidence CHECK (confidence >= 0.0 AND confidence <= 1.0)
 );
@@ -36,7 +36,7 @@ CREATE INDEX idx_vt_category_value ON vod_tag(tag_category, tag_value);
 COMMENT ON TABLE vod_tag IS
     'VOD 해석 가능 태그. 메타데이터(감독/배우/장르 등)에서 추출. Hybrid_Layer 설명 근거 생성에 사용.';
 COMMENT ON COLUMN vod_tag.vod_id_fk    IS 'FK → vod.full_asset_id (ON DELETE CASCADE)';
-COMMENT ON COLUMN vod_tag.tag_category IS '태그 카테고리: director, actor, genre, genre_detail, rating';
+COMMENT ON COLUMN vod_tag.tag_category IS '태그 카테고리: director, actor_lead, actor_guest, genre, genre_detail, rating';
 COMMENT ON COLUMN vod_tag.tag_value    IS '태그 값: 감독명, 배우명, 장르명 등';
 COMMENT ON COLUMN vod_tag.confidence   IS '태그 신뢰도 (메타데이터 기반 = 1.0)';
 
@@ -174,7 +174,7 @@ CREATE INDEX idx_tag_rec_expires
 
 COMMENT ON TABLE serving.tag_recommendation IS
     '[Gold/Serving] 유저 선호 태그별 VOD 추천 선반. 태그 top 5 × VOD top 10. TTL 7일.';
-COMMENT ON COLUMN serving.tag_recommendation.tag_category IS '선호 태그 카테고리 (director, actor, genre 등)';
+COMMENT ON COLUMN serving.tag_recommendation.tag_category IS '선호 태그 카테고리 (director, actor_lead, actor_guest, genre, genre_detail, rating)';
 COMMENT ON COLUMN serving.tag_recommendation.tag_value    IS '선호 태그 값 (봉준호, 송강호, 드라마 등)';
 COMMENT ON COLUMN serving.tag_recommendation.tag_rank     IS '유저 선호 태그 순위 (1=최선호, 최대 5)';
 COMMENT ON COLUMN serving.tag_recommendation.tag_affinity IS '유저의 해당 태그 선호 강도 (user_preference.affinity)';

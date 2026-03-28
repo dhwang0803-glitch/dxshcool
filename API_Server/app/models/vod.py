@@ -1,5 +1,4 @@
 from pydantic import BaseModel
-from datetime import date
 
 
 class VodDetailResponse(BaseModel):
@@ -12,5 +11,8 @@ class VodDetailResponse(BaseModel):
     cast_guest: str | None
     summary: str | None
     rating: str | None
-    release_date: date | None
+    release_year: int | None
     poster_url: str | None
+    youtube_url: str | None
+    is_free: bool
+    youtube_url: str | None
