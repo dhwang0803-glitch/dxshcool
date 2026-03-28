@@ -16,6 +16,8 @@ import logging
 import sys
 import time
 
+sys.stdout.reconfigure(encoding="utf-8")
+
 import yaml
 
 sys.path.insert(0, ".")
