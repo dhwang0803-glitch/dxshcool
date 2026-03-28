@@ -2,19 +2,48 @@ from app.services.db import get_pool
 
 
 async def get_watching(user_id: str, limit: int = 10) -> list[dict]:
-    """시청 중인 콘텐츠 — episode_progress 기반, 최신순."""
+    """시청 중인 콘텐츠 — watch_history + episode_progress UNION (시리즈 최신 1건)."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT ep.series_nm, ep.completion_rate, ep.watched_at,
-                   v.asset_nm, v.poster_url
-            FROM public.episode_progress ep
-            JOIN public.vod v ON ep.vod_id_fk = v.full_asset_id
-            WHERE ep.user_id_fk = $1
-              AND ep.completion_rate > 0
-              AND ep.completion_rate < 100
-            ORDER BY ep.watched_at DESC
+            SELECT series_nm, episode_title, poster_url,
+                   completion_rate, watched_at
+            FROM (
+                SELECT series_nm, episode_title, poster_url,
+                       completion_rate, watched_at,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY series_nm
+                           ORDER BY watched_at DESC
+                       ) AS rn
+                FROM (
+                    SELECT COALESCE(v.series_nm, v.asset_nm) AS series_nm,
+                           v.asset_nm AS episode_title,
+                           v.poster_url,
+                           ROUND(wh.completion_rate * 100)::int AS completion_rate,
+                           wh.strt_dt AS watched_at
+                    FROM public.watch_history wh
+                    JOIN public.vod v ON wh.vod_id_fk = v.full_asset_id
+                    WHERE wh.user_id_fk = $1
+                      AND wh.completion_rate > 0
+                      AND wh.completion_rate < 1
+
+                    UNION ALL
+
+                    SELECT ep.series_nm,
+                           v.asset_nm AS episode_title,
+                           v.poster_url,
+                           ep.completion_rate,
+                           ep.watched_at
+                    FROM public.episode_progress ep
+                    JOIN public.vod v ON ep.vod_id_fk = v.full_asset_id
+                    WHERE ep.user_id_fk = $1
+                      AND ep.completion_rate > 0
+                      AND ep.completion_rate < 100
+                ) combined
+            ) ranked
+            WHERE rn = 1
+            ORDER BY watched_at DESC
             LIMIT $2
             """,
             user_id,
@@ -23,7 +52,7 @@ async def get_watching(user_id: str, limit: int = 10) -> list[dict]:
     return [
         {
             "series_nm": r["series_nm"],
-            "episode_title": r["asset_nm"],
+            "episode_title": r["episode_title"],
             "poster_url": r["poster_url"],
             "completion_rate": r["completion_rate"],
             "watched_at": r["watched_at"],
@@ -104,17 +133,44 @@ async def get_points(user_id: str, limit: int = 20) -> dict:
 
 
 async def get_history(user_id: str, limit: int = 50) -> list[dict]:
-    """시청 내역 — episode_progress 기반 (watch_history 미노출)."""
+    """시청 내역 — watch_history 기본 + episode_progress 실시간 합산 (시리즈 최신 1건)."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT ep.series_nm, ep.completion_rate, ep.watched_at,
-                   v.asset_nm, v.poster_url
-            FROM public.episode_progress ep
-            JOIN public.vod v ON ep.vod_id_fk = v.full_asset_id
-            WHERE ep.user_id_fk = $1
-            ORDER BY ep.watched_at DESC
+            SELECT series_nm, episode_title, poster_url,
+                   completion_rate, watched_at
+            FROM (
+                SELECT series_nm, episode_title, poster_url,
+                       completion_rate, watched_at,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY series_nm
+                           ORDER BY watched_at DESC
+                       ) AS rn
+                FROM (
+                    SELECT COALESCE(v.series_nm, v.asset_nm) AS series_nm,
+                           v.asset_nm AS episode_title,
+                           v.poster_url,
+                           ROUND(wh.completion_rate * 100)::int AS completion_rate,
+                           wh.strt_dt AS watched_at
+                    FROM public.watch_history wh
+                    JOIN public.vod v ON wh.vod_id_fk = v.full_asset_id
+                    WHERE wh.user_id_fk = $1
+
+                    UNION ALL
+
+                    SELECT ep.series_nm,
+                           v.asset_nm AS episode_title,
+                           v.poster_url,
+                           ep.completion_rate,
+                           ep.watched_at
+                    FROM public.episode_progress ep
+                    JOIN public.vod v ON ep.vod_id_fk = v.full_asset_id
+                    WHERE ep.user_id_fk = $1
+                ) combined
+            ) ranked
+            WHERE rn = 1
+            ORDER BY watched_at DESC
             LIMIT $2
             """,
             user_id,
@@ -123,7 +179,7 @@ async def get_history(user_id: str, limit: int = 50) -> list[dict]:
     return [
         {
             "series_nm": r["series_nm"],
-            "episode_title": r["asset_nm"],
+            "episode_title": r["episode_title"],
             "poster_url": r["poster_url"],
             "completion_rate": r["completion_rate"],
             "watched_at": r["watched_at"],

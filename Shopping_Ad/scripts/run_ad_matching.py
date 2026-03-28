@@ -159,44 +159,98 @@ def load_stt_top_keywords(parquet_dir, top_n=3):
     return vod_keywords
 
 
-def find_clean_trigger_ts(parquet_dir, vod_id, min_pct=0.5):
-    """영상 50% 이후 + OCR 없는 클린 구간의 frame_ts 찾기"""
-    # YOLO에서 영상 길이 추정
+def _load_ocr_timestamps(parquet_dir, vod_id):
+    """OCR(자막) 타임스탬프 목록 로드 (정렬됨)."""
+    ocr_path = parquet_dir / "vod_ocr_concept.parquet"
+    if not ocr_path.exists():
+        return []
+    df_ocr = pd.read_parquet(str(ocr_path))
+    vod_ocr = df_ocr[df_ocr["vod_id"] == vod_id]
+    if len(vod_ocr) == 0:
+        return []
+    return sorted(vod_ocr["frame_ts"].tolist())
+
+
+def _find_nearest_ocr_end(ocr_timestamps, target_ts, window=5):
+    """target_ts 근처(±window초)에 자막이 있으면 자막 종료 + 1초 반환, 없으면 target_ts 그대로."""
+    nearby = [ts for ts in ocr_timestamps if target_ts - window <= ts <= target_ts + window]
+    if nearby:
+        return max(nearby) + 1.0  # 자막 끝 + 1초
+    return target_ts
+
+
+def find_clean_trigger_ts(parquet_dir, vod_id, ad_category="음식", min_pct=0.5):
+    """탐지 프레임 기준 트리거 타임스탬프 찾기.
+
+    음식: YOLO food_detected 프레임 기준 → signal_source='yolo'
+    관광지: CLIP 관광지 프레임 기준 → signal_source='clip'
+    fallback: STT 기반 → signal_source='stt'
+
+    Returns:
+        (ts, signal_source) 튜플. 탐지 없으면 (None, None)
+    """
     yolo_path = parquet_dir / "vod_detected_object.parquet"
     clip_path = parquet_dir / "vod_clip_concept.parquet"
-    ocr_path = parquet_dir / "vod_ocr_concept.parquet"
 
-    max_ts = 0
+    # ── 1단계: 탐지 프레임에서 후보 수집 ──
+    detection_frames = []
+    signal_source = None
+
+    if ad_category == "음식" and yolo_path.exists():
+        df_yolo = pd.read_parquet(str(yolo_path))
+        vod_yolo = df_yolo[df_yolo["vod_id"] == vod_id]
+        if len(vod_yolo) > 0:
+            detection_frames = sorted(vod_yolo["frame_ts"].tolist())
+            signal_source = "yolo"
+
+    elif ad_category == "관광지" and clip_path.exists():
+        df_clip = pd.read_parquet(str(clip_path))
+        vod_clip = df_clip[
+            (df_clip["vod_id"] == vod_id) & (df_clip["ad_category"] == "관광지")
+        ]
+        if len(vod_clip) > 0:
+            detection_frames = sorted(vod_clip["frame_ts"].tolist())
+            signal_source = "clip"
+
+    # ── 2단계: 50% 이후 밀집 구간(실제 음식/관광지 장면) ──
+    if detection_frames:
+        max_ts = max(detection_frames)
+        half_ts = max_ts * min_pct
+        late_frames = [ts for ts in detection_frames if ts >= half_ts]
+        candidates = late_frames if late_frames else detection_frames
+
+        # 밀집 구간 찾기: 30초 이내 연속 탐지 2건 이상 = 실제 장면
+        first_cluster_start = None
+        i = 0
+        while i < len(candidates):
+            cluster = [candidates[i]]
+            j = i + 1
+            while j < len(candidates) and candidates[j] - cluster[-1] <= 30:
+                cluster.append(candidates[j])
+                j += 1
+            if len(cluster) >= 2:
+                first_cluster_start = cluster[0]
+                break
+            i = j if j > i + 1 else i + 1
+
+        if first_cluster_start is not None:
+            return first_cluster_start, signal_source
+
+        return candidates[0], signal_source
+
+    # ── 3단계: fallback — STT 기반 (CLIP/YOLO 프레임 없음) ──
+    all_max_ts = 0
     for p in [yolo_path, clip_path]:
         if p.exists():
             df = pd.read_parquet(str(p))
             vod_df = df[df["vod_id"] == vod_id]
             if len(vod_df) > 0 and "frame_ts" in vod_df.columns:
-                max_ts = max(max_ts, vod_df["frame_ts"].max())
+                all_max_ts = max(all_max_ts, vod_df["frame_ts"].max())
 
-    if max_ts == 0:
-        return None
+    if all_max_ts == 0:
+        return None, None
 
-    half_ts = max_ts * min_pct
-
-    # OCR이 있는 타임스탬프 수집
-    ocr_timestamps = set()
-    if ocr_path.exists():
-        df_ocr = pd.read_parquet(str(ocr_path))
-        vod_ocr = df_ocr[df_ocr["vod_id"] == vod_id]
-        if len(vod_ocr) > 0:
-            ocr_timestamps = set(vod_ocr["frame_ts"].round(0).astype(int).tolist())
-
-    # 50% 이후 + OCR 없는 10초 구간 찾기
-    for t_start in range(int(half_ts), int(max_ts), 10):
-        t_end = t_start + 10
-        # 이 구간에 OCR이 없는지 확인
-        has_ocr = any(t_start <= ts < t_end for ts in ocr_timestamps)
-        if not has_ocr:
-            return float(t_start)
-
-    # 클린 구간 못 찾으면 50% 지점 반환
-    return half_ts
+    return all_max_ts * min_pct, "stt"
 
 
 def parse_product_region(product_name):
@@ -228,6 +282,16 @@ def main():
     df_summary = pd.read_parquet(args.summary)
     print(f"\n  VOD 요약: {len(df_summary)}건")
 
+    # vod_id → full_asset_id 매핑
+    mapping_path = DATA_DIR / "vod_id_mapping.json"
+    if mapping_path.exists():
+        with open(mapping_path, encoding="utf-8") as f:
+            vod_id_map = json.load(f)
+        print(f"  vod_id 매핑: {len(vod_id_map)}건")
+    else:
+        vod_id_map = {}
+        print("  ⚠ vod_id_mapping.json 없음 — file_id 그대로 사용")
+
     festival_matcher = FestivalMatcher(args.festivals)
     print(f"  축제: {festival_matcher.festival_count}건 / {len(festival_matcher.regions)}개 지역")
 
@@ -251,19 +315,24 @@ def main():
         primary_region = row["primary_region"]
         trigger_count = row["trigger_count"]
 
-        # 50% + 클린 화면 타이밍
-        trigger_ts = find_clean_trigger_ts(PARQUET_DIR, vod_id)
-
         # ── 관광지 → 축제 (우선 노출, VOD당 1건만) ──
         festival_count_this_vod = 0
         if "관광지" in ad_categories and primary_region:
+            trigger_ts, sig_src = find_clean_trigger_ts(PARQUET_DIR, vod_id, ad_category="관광지")
             festivals = festival_matcher.match(primary_region)
             for f in festivals[:1]:  # VOD당 축제 1건만
+                gif_name = f"popup_{f['region']}_{f['festival_name']}.gif"
+                gif_path = DATA_DIR / "ad_gifs" / gif_name
+                ad_image_url = f"ad_gifs/{gif_name}" if gif_path.exists() else None
                 candidates.append({
                     "vod_id": vod_id,
+                    "vod_id_fk": vod_id_map.get(vod_id, vod_id),
                     "ad_category": "관광지",
                     "ad_action_type": "local_gov_popup",
-                    "region": f["region"],
+                    "signal_source": sig_src or "stt",
+                    "score": round(min(trigger_count / 110, 1.0), 4),
+                    "ad_hints": json.dumps([f["region"], f["festival_name"]], ensure_ascii=False),
+                    "ad_image_url": ad_image_url,
                     "product_name": f["festival_name"],
                     "detail": f["period"],
                     "popup_title": f["popup_title"],
@@ -281,6 +350,7 @@ def main():
         if festival_count_this_vod > 0:
             pass  # 축제 있으면 제철장터 스킵
         elif "음식" in ad_categories:
+            trigger_ts, sig_src = find_clean_trigger_ts(PARQUET_DIR, vod_id, ad_category="음식")
             # STT Top N 키워드
             top_keywords = vod_keywords.get(vod_id, [])
 
@@ -312,8 +382,13 @@ def main():
             best_score, best = scored[0]
             candidates.append({
                 "vod_id": vod_id,
+                "vod_id_fk": vod_id_map.get(vod_id, vod_id),
                 "ad_category": "음식",
                 "ad_action_type": "seasonal_market",
+                "signal_source": sig_src or "stt",
+                "score": round(min(trigger_count / 110, 1.0), 4),
+                "ad_hints": json.dumps([best["product_name"], best.get("matched_keyword", "")], ensure_ascii=False),
+                "ad_image_url": None,
                 "region": primary_region,
                 "product_name": best["product_name"],
                 "detail": f"{best['broadcast_date']} {best['start_time']}~{best['end_time']}",

@@ -19,3 +19,11 @@ class AdActionMessage(BaseModel):
     type: str = "ad_action"
     action: str  # "reserve_watch" | "dismiss" | "minimize" | "reopen"
     vod_id: str
+
+
+class PlaybackUpdateMessage(BaseModel):
+    """Client → Server: VOD 재생 시간 업데이트."""
+
+    type: str = "playback_update"
+    vod_id: str
+    time_sec: float
