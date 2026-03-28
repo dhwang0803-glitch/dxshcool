@@ -5,6 +5,7 @@ class BannerItem(BaseModel):
     series_nm: str
     title: str
     poster_url: str | None
+    backdrop_url: str | None
     category: str | None
     score: float | None
 

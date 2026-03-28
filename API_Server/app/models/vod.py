@@ -15,3 +15,4 @@ class VodDetailResponse(BaseModel):
     poster_url: str | None
     youtube_url: str | None
     is_free: bool
+    youtube_url: str | None
