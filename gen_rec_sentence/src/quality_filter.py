@@ -22,6 +22,13 @@ _FORBIDDEN_WORDS = [
     "줄거리", "내용은",
 ]
 
+# 클리셰 패턴 — 프롬프트 금지와 이중 차단 (어미 변형 포함)
+_CLICHE_PATTERNS = [
+    r"선사하",    # 선사하다/선사합니다/선사해
+    r"펼쳐지",    # 펼쳐지다/펼쳐지는/펼쳐지며
+    r"불꽃",      # 불꽃처럼/불꽃이/불꽃의
+]
+
 _MIN_LEN = 20
 _MAX_LEN = 80
 
@@ -57,6 +64,11 @@ def validate(result: dict, ctx: dict) -> dict:
     for word in _FORBIDDEN_WORDS:
         if word in sentence:
             fail_reasons.append(f"forbidden:{word}")
+
+    # 3a. 클리셰 패턴 (어미 변형 포함)
+    for pattern in _CLICHE_PATTERNS:
+        if re.search(pattern, sentence):
+            fail_reasons.append(f"cliche:{pattern}")
 
     # 3b. "~보세요" / "~봐요" / "~봐" 계열 정규식 (공백 포함 변형 전부 차단)
     if re.search(r"[가-힣]\s*보세요|[가-힣]\s*봐요|[가-힣]\s*봐\b", sentence):
