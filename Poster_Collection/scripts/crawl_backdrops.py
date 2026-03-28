@@ -21,6 +21,7 @@ import tempfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from difflib import SequenceMatcher
 from pathlib import Path
 
 import psycopg2
@@ -118,7 +119,14 @@ def fetch_backdrop_path(asset_nm: str, ct_cl: str) -> str | None:
                 continue
 
             preferred = [x for x in results if x.get("media_type") == ("movie" if prefer_movie else "tv")]
-            candidate = (preferred or results)[0]
+            candidate = preferred[0] if preferred else None
+            if not candidate:
+                continue
+
+            matched_title = candidate.get("title") or candidate.get("name") or ""
+            sim = SequenceMatcher(None, query.lower(), matched_title.lower()).ratio()
+            if sim < 0.4:
+                continue
 
             bp = candidate.get("backdrop_path")
             if bp:
