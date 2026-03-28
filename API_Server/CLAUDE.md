@@ -94,7 +94,11 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 | `public.vod` | `director`, `cast_lead`, `cast_guest` | VARCHAR/TEXT | VOD 상세 응답 |
 | `public.vod` | `smry`, `rating`, `release_date`, `poster_url`, `asset_prod` | TEXT/VARCHAR/DATE/TEXT/VARCHAR | VOD 상세 응답. `release_date` → `release_year`(연도 int) 변환. `asset_prod='FOD'` → `is_free=true` |
 | `public."user"` | `sha2_hash` | VARCHAR | 사용자 존재 여부 확인 (PK) |
+| `public."user"` | `age_grp10` | VARCHAR | 콜드스타트 fallback 세그먼트 결정용 |
 | `public."user"` | `point_balance` | INT | 포인트 잔액 O(1) 조회 (DB 트리거가 point_history INSERT 시 자동 갱신) |
+| `public.user_segment` | `user_id_fk`, `segment_id` | VARCHAR/SMALLINT | K-Means 클러스터 결과 (gen_rec_sentence 브랜치 생성) |
+| `serving.rec_sentence` | `vod_id_fk`, `segment_id`, `rec_sentence` | VARCHAR/SMALLINT/TEXT | VOD × 세그먼트별 맞춤 문구 (gen_rec_sentence 브랜치 생성) |
+| `serving.popular_by_age` | `age_grp10`, `rank`, `vod_id_fk` | VARCHAR/SMALLINT/VARCHAR | 연령대별 인기 VOD (콜드스타트 추천 풀) |
 | `public.episode_progress` | `user_id_fk`, `vod_id_fk`, `series_nm`, `completion_rate`, `watched_at` | VARCHAR/VARCHAR/VARCHAR/SMALLINT/TIMESTAMPTZ | 시청 진행률 조회 (시청중/시청내역) |
 | `public.purchase_history` | `user_id_fk`, `series_nm`, `purchased_at`, `expires_at` | VARCHAR/VARCHAR/TIMESTAMPTZ/TIMESTAMPTZ | 구매 내역·만료 확인 |
 | `public.point_history` | `user_id_fk`, `amount`, `reason`, `created_at` | VARCHAR/INT/VARCHAR/TIMESTAMPTZ | 포인트 내역 조회 |

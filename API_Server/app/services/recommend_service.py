@@ -1,6 +1,7 @@
 """개인화 추천 서비스 — hybrid_recommendation + tag_recommendation 기반."""
 
 from app.services.db import get_pool
+from app.services.rec_sentence_service import get_rec_sentences, get_segment_id
 
 # pattern_reason 생성용 템플릿
 _REASON_TEMPLATES = {
@@ -116,6 +117,12 @@ async def get_recommendations(user_id: str) -> dict:
         pass
 
     if top_vod or patterns:
+        # top_vod rec_sentence 조회
+        if top_vod:
+            async with pool.acquire() as conn:
+                segment_id = await get_segment_id(conn, user_id)
+                rec_map = await get_rec_sentences(conn, [top_vod["series_id"]], segment_id)
+            top_vod["rec_sentence"] = rec_map.get(top_vod["series_id"])
         return {"top_vod": top_vod, "patterns": patterns, "source": "personalized"}
 
     # Fallback: popular 기반

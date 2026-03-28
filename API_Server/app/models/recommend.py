@@ -7,6 +7,7 @@ class TopVod(BaseModel):
     series_id: str
     asset_nm: str
     poster_url: str | None
+    rec_sentence: str | None = None  # 세그먼트 맞춤 문구
 
 
 class PatternVodItem(BaseModel):

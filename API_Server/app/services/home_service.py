@@ -1,4 +1,5 @@
 from app.services.db import get_pool
+from app.services.rec_sentence_service import get_rec_sentences, get_segment_id
 
 
 async def get_banner(user_id: str | None = None) -> list[dict]:
@@ -11,7 +12,8 @@ async def get_banner(user_id: str | None = None) -> list[dict]:
     """
     pool = await get_pool()
     seen: set[str] = set()
-    items: list[dict] = []
+    # vod_id_fk 보존 (rec_sentence 조회용)
+    raw_items: list[dict] = []
 
     def _append_rows(rows):
         for r in rows:
@@ -19,7 +21,8 @@ async def get_banner(user_id: str | None = None) -> list[dict]:
             if nm in seen:
                 continue
             seen.add(nm)
-            items.append({
+            raw_items.append({
+                "vod_id": r["vod_id_fk"],
                 "series_nm": nm,
                 "title": r["asset_nm"],
                 "poster_url": r["poster_url"],
@@ -46,7 +49,7 @@ async def get_banner(user_id: str | None = None) -> list[dict]:
                 )
                 _append_rows(rows)
             except Exception:
-                pass  # 테이블 미생성 시 무시
+                pass
 
         # 2단: popular_recommendation (항상)
         try:
@@ -84,6 +87,25 @@ async def get_banner(user_id: str | None = None) -> list[dict]:
                 _append_rows(rows)
             except Exception:
                 pass
+
+        # rec_sentence 일괄 조회 (로그인 유저만, 1회 bulk 쿼리)
+        rec_map: dict[str, str] = {}
+        if user_id and raw_items:
+            segment_id = await get_segment_id(conn, user_id)
+            vod_ids = [item["vod_id"] for item in raw_items]
+            rec_map = await get_rec_sentences(conn, vod_ids, segment_id)
+
+    # rec_sentence 합산
+    items = []
+    for item in raw_items:
+        items.append({
+            "series_nm": item["series_nm"],
+            "title": item["title"],
+            "poster_url": item["poster_url"],
+            "category": item["category"],
+            "score": item["score"],
+            "rec_sentence": rec_map.get(item["vod_id"]),
+        })
 
     return items
 
