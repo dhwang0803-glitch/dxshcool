@@ -23,6 +23,7 @@ def main():
     parser.add_argument("--limit", type=int, default=100, help="추출할 VOD 수 (기본 100)")
     parser.add_argument("--output", default="gen_rec_sentence/data/seed_examples.jsonl")
     parser.add_argument("--no-embedding", action="store_true", help="임베딩 없는 VOD도 포함")
+    parser.add_argument("--stratify", action="store_true", help="ct_cl별 균등 층화 추출 (드라마/영화/예능/애니 균형)")
     args = parser.parse_args()
 
     conn = get_conn()
@@ -32,6 +33,7 @@ def main():
             limit=args.limit,
             require_embedding=not args.no_embedding,
             require_poster=True,
+            stratify_by_ct_cl=args.stratify,
         )
     finally:
         conn.close()
@@ -43,6 +45,7 @@ def main():
                 "instruction": "VOD의 메타데이터와 시각 키워드를 바탕으로 포스터 하단에 표시할 감성 문구를 생성하세요.",
                 "input": {
                     "asset_nm": ctx["asset_nm"],
+                    "ct_cl": ctx["ct_cl"],
                     "genre": ctx["genre"],
                     "genre_detail": ctx["genre_detail"],
                     "director": ctx["director"],
