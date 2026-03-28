@@ -1,6 +1,7 @@
 """개인화 추천 서비스 — hybrid_recommendation + tag_recommendation 기반."""
 
 from app.services.db import get_pool
+from app.services.rec_sentence_service import get_rec_sentences, get_segment_id
 
 # pattern_reason 생성용 템플릿 (추천페이지: actor/director 관점만)
 _REASON_TEMPLATES = {
@@ -166,11 +167,9 @@ async def get_recommendations(user_id: str) -> dict:
         pass
 
     # 3) vector similarity: user_embedding meta부분(384D) vs vod_series_embedding (시리즈 대표)
-    #    2-step: ① meta 벡터 추출 → ② vod_series_embedding과 코사인 유사도
     vector_pattern = None
     try:
         async with pool.acquire() as conn:
-            # step 1: user_embedding에서 meta 파트(뒤 384차원) 추출
             await conn.execute("SET ivfflat.probes = 5")
             ue_row = await conn.fetchrow(
                 "SELECT (embedding::real[])[513:896]::vector(384) AS meta_vec "
@@ -178,7 +177,6 @@ async def get_recommendations(user_id: str) -> dict:
                 user_id,
             )
             if ue_row:
-                # step 2: vod_series_embedding과 cosine 유사도 (시리즈 단위, 중복제거 불필요)
                 vector_rows = await conn.fetch(
                     """
                     SELECT se.series_nm,
@@ -214,6 +212,17 @@ async def get_recommendations(user_id: str) -> dict:
         patterns.append(vector_pattern)
 
     if top_vods or patterns:
+        # top_vods rec_sentence 일괄 조회
+        if top_vods:
+            try:
+                async with pool.acquire() as conn:
+                    segment_id = await get_segment_id(conn, user_id)
+                    vod_ids = [v["series_id"] for v in top_vods]
+                    rec_map = await get_rec_sentences(conn, vod_ids, segment_id)
+                for v in top_vods:
+                    v["rec_sentence"] = rec_map.get(v["series_id"])
+            except Exception:
+                pass
         return {"top_vod": top_vods, "patterns": patterns, "source": "personalized"}
 
     # Fallback: popular 기반

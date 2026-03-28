@@ -1,4 +1,5 @@
 from app.services.db import get_pool
+from app.services.rec_sentence_service import get_rec_sentences, get_segment_id
 
 # genre_detail 채널/패키지명 필터 (Hybrid_Layer/src/tag_builder.py와 동기화)
 _GENRE_BLACKLIST = frozenset({
@@ -61,19 +62,40 @@ async def get_banner(user_id: str | None = None) -> list[dict]:
         )
 
     seen: set[str] = set()
-    items: list[dict] = []
+    raw_items: list[dict] = []
     for r in rows:
         nm = r["series_nm"] or r["asset_nm"]
         if nm in seen:
             continue
         seen.add(nm)
-        items.append({
+        raw_items.append({
+            "vod_id": r["vod_id_fk"],
             "series_nm": nm,
             "title": r["asset_nm"],
             "poster_url": r["poster_url"],
             "backdrop_url": r["backdrop_url"],
             "category": r["ct_cl"],
             "score": r["score"],
+        })
+
+    # rec_sentence 일괄 조회 (로그인 유저만, 1회 bulk 쿼리)
+    rec_map: dict[str, str] = {}
+    if user_id and raw_items:
+        async with pool.acquire() as conn:
+            segment_id = await get_segment_id(conn, user_id)
+            vod_ids = [item["vod_id"] for item in raw_items]
+            rec_map = await get_rec_sentences(conn, vod_ids, segment_id)
+
+    items = []
+    for item in raw_items:
+        items.append({
+            "series_nm": item["series_nm"],
+            "title": item["title"],
+            "poster_url": item["poster_url"],
+            "backdrop_url": item["backdrop_url"],
+            "category": item["category"],
+            "score": item["score"],
+            "rec_sentence": rec_map.get(item["vod_id"]),
         })
     return items
 
