@@ -1,5 +1,5 @@
 from app.services.db import get_pool
-from app.services.rec_sentence_service import get_rec_sentences, get_segment_id
+from app.services.rec_sentence_service import get_segment_id
 
 # genre_detail 채널/패키지명 필터 (Hybrid_Layer/src/tag_builder.py와 동기화)
 _GENRE_BLACKLIST = frozenset({
@@ -42,7 +42,7 @@ async def _is_test_user(pool, user_id: str) -> bool:
         return False
 
 
-async def get_banner(user_id: str | None = None) -> list[dict]:
+async def get_banner() -> list[dict]:
     """히어로 배너: popular_recommendation score 내림차순 top 5.
     backdrop_url 없는 VOD는 건너뛰고 다음 순위로 대체.
     """
@@ -78,26 +78,17 @@ async def get_banner(user_id: str | None = None) -> list[dict]:
             "score": r["score"],
         })
 
-    # rec_sentence 일괄 조회 (로그인 유저만, 1회 bulk 쿼리)
-    rec_map: dict[str, str] = {}
-    if user_id and raw_items:
-        async with pool.acquire() as conn:
-            segment_id = await get_segment_id(conn, user_id)
-            vod_ids = [item["vod_id"] for item in raw_items]
-            rec_map = await get_rec_sentences(conn, vod_ids, segment_id)
-
-    items = []
-    for item in raw_items:
-        items.append({
+    return [
+        {
             "series_nm": item["series_nm"],
             "title": item["title"],
             "poster_url": item["poster_url"],
             "backdrop_url": item["backdrop_url"],
             "category": item["category"],
             "score": item["score"],
-            "rec_sentence": rec_map.get(item["vod_id"]),
-        })
-    return items
+        }
+        for item in raw_items
+    ]
 
 
 async def get_sections() -> list[dict]:
@@ -250,22 +241,22 @@ async def get_personalized_sections(user_id: str) -> list[dict]:
 
         # ── 3) TOP10: 전체 태그 score 상위 10 + 추천 문구 ──
         try:
+            segment_id = await get_segment_id(conn, user_id)
             top10_rows = await conn.fetch(
                 f"""
                 SELECT tr.vod_id_fk, tr.vod_score,
                        v.series_nm, v.asset_nm, v.poster_url,
-                       rs.rec_reason, rs.rec_sentence
+                       rs.rec_sentence
                 FROM {tag_table} tr
                 JOIN public.vod v ON tr.vod_id_fk = v.full_asset_id
                 LEFT JOIN serving.rec_sentence rs
-                    ON rs.user_id_fk = tr.user_id_fk AND rs.vod_id_fk = tr.vod_id_fk
-                    AND (rs.expires_at IS NULL OR rs.expires_at > NOW())
+                    ON rs.vod_id_fk = tr.vod_id_fk AND rs.segment_id = $2
                 WHERE tr.user_id_fk = $1
                   AND (tr.expires_at IS NULL OR tr.expires_at > NOW())
                 ORDER BY tr.vod_score DESC
                 LIMIT 50
                 """,
-                user_id,
+                user_id, segment_id,
             )
             seen_top10: set[str] = set()
             top10_vods: list[dict] = []
@@ -279,7 +270,6 @@ async def get_personalized_sections(user_id: str) -> list[dict]:
                     "asset_nm": r["asset_nm"],
                     "poster_url": r["poster_url"],
                     "rank": len(top10_vods) + 1,
-                    "rec_reason": r["rec_reason"],
                     "rec_sentence": r["rec_sentence"],
                 })
                 if len(top10_vods) >= 10:
