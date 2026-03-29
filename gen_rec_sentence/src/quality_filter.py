@@ -1,10 +1,13 @@
 """생성된 rec_sentence 품질 검증.
 
 검증 항목:
-  1. 길이 제약 (20~120자)
-  2. 금칙어 필터
-  3. 메타데이터 사실 검증 (장르/감독명 포함 여부)
-  4. 줄거리 복붙 감지 (smry와 과도한 n-gram 중복)
+  1. 길이 제약 (20~80자)
+  2. 금칙어 필터 + 클리셰 패턴
+  3. 문장 완결성 (허공에 뜬 줄임 감지)
+  4. 한글 문맥 내 영어 혼입 감지 (고유명사·약어 제외)
+  5. 줄거리 복붙 감지 (smry와 과도한 n-gram 중복)
+  6. 제목 반복 / 영문 감독명 포함 여부
+  7. 시청자 평 톤 감지 ("기대된다" 등 → 소개문이 아닌 리뷰)
 """
 
 import re
@@ -20,6 +23,8 @@ _FORBIDDEN_WORDS = [
     "경험해봐", "해봐", "들어봐",
     # 줄거리 요약 직접 언급
     "줄거리", "내용은",
+    # 시청자 평 톤 (소개문 ≠ 리뷰)
+    "기대된다", "기대가 된다", "기대를 모은다",
 ]
 
 # 클리셰 패턴 — 프롬프트 금지와 이중 차단 (어미 변형 포함)
@@ -28,6 +33,16 @@ _CLICHE_PATTERNS = [
     r"펼쳐지",    # 펼쳐지다/펼쳐지는/펼쳐지며
     r"불꽃",      # 불꽃처럼/불꽃이/불꽃의
 ]
+
+# 한글 문맥 내 영어 삽입 감지 — 고유명사·약어는 허용
+# [가-힣] 뒤에 영어 소문자 4자 이상 단어가 오면 감지 (고유명사 대문자 시작은 제외)
+_ENGLISH_IN_KOREAN_RE = re.compile(r"[가-힣]\s+[a-z]{4,}")
+
+# 허공에 뜬 줄임 감지: "...만난 후..." 처럼 방향성 없이 끝나는 경우
+# OK: "마주한 진실은..." / NG: "만난 후..."
+_DANGLING_ELLIPSIS_RE = re.compile(
+    r"(?:만난|도착한|시작된|된|한|하는|하며|에서)\s*(?:후|뒤)\.{2,3}$"
+)
 
 _MIN_LEN = 20
 _MAX_LEN = 80
@@ -79,9 +94,22 @@ def validate(result: dict, ctx: dict) -> dict:
     if re.search(r"[가-힣]니다", sentence):
         fail_reasons.append("formal_ending")
 
-    # 3d. HTML 태그 금지
-    if re.search(r"<[^>]+>", sentence):
+    # 3d. 느낌표 남발 금지 (최대 1개)
+    if sentence.count("!") > 1:
+        fail_reasons.append(f"too_many_exclamation({sentence.count('!')})")
+
+    # 3e. HTML 태그 금지 (한글 꺾쇠 <제목> 등은 허용)
+    if re.search(r"</?[a-zA-Z][^>]*>", sentence):
         fail_reasons.append("html_tag")
+
+    # 3f. 한글 문맥 내 영어 혼입 (고유명사·약어가 아닌 일반 영어)
+    if _ENGLISH_IN_KOREAN_RE.search(sentence):
+        fail_reasons.append("english_in_korean")
+
+    # 3g. 허공에 뜬 줄임 감지 ("만난 후..." 등 방향성 없는 종결)
+    stripped = sentence.rstrip()
+    if _DANGLING_ELLIPSIS_RE.search(stripped):
+        fail_reasons.append("dangling_ellipsis")
 
     # 4. 줄거리 복붙 감지 (smry와 과도한 n-gram 중복)
     smry = ctx.get("smry", "")
@@ -92,8 +120,16 @@ def validate(result: dict, ctx: dict) -> dict:
     asset_nm = ctx.get("asset_nm", "")
     # 회차 번호 제거한 순수 제목 추출 (예: "트리거 02회" → "트리거")
     pure_title = re.sub(r"\s*\d+회$", "", asset_nm).strip()
+    has_episode = pure_title != asset_nm.strip()  # 회차가 있는 VOD
     if len(pure_title) >= 3 and pure_title in sentence:
-        fail_reasons.append(f"title_repeat:{pure_title}")
+        if not has_episode:
+            # 단편/영화: 제목 반복 금지
+            fail_reasons.append(f"title_repeat:{pure_title}")
+        # 회차 VOD는 제목=주제이므로 허용 (회차 번호 반복만 금지)
+    # 회차 번호 반복 감지 ("05회", "5회" 등)
+    ep_match = re.search(r"(\d+)회$", asset_nm)
+    if ep_match and re.search(rf"\b0*{ep_match.group(1)}회", sentence):
+        fail_reasons.append("episode_number_repeat")
 
     # 6. 영문 감독명 포함 여부 (영문 2단어 이상 연속)
     if re.search(r"[A-Z][a-z]+ [A-Z][a-z]+", sentence):
