@@ -1,4 +1,4 @@
-# Shopping_Ad 매칭 로직 변경 보고서 (2026-03-27)
+# Shopping_Ad 매칭 로직 변경 보고서 (2026-03-29)
 
 ## 변경 파일
 
@@ -165,14 +165,25 @@ score = 1                                    # 기본 (STT 키워드 매칭)
 
 ### 실행 결과 비교 (타이밍 변화)
 
-| VOD | Before | After | 변화 |
+#### 제철장터 (음식)
+
+| VOD | Before | After | 차이 |
 |-----|--------|-------|------|
-| `food_altoran_490` | 후반부 | **@1초** | YOLO 즉시 |
-| `food_altoran_418` | 후반부 | **@198초** | YOLO 밀집 구간 |
-| `travel_chonnom_01` | 후반부 | **@105초** | 20% 완화 |
-| `travel_chonnom_07` | 후반부 | **@120초** | 20% 완화 |
-| `travel_dongwon_06` | @477초 | @477초 | CLIP 탐지 자체가 후반부 — 변경 불가 |
-| `travel_dongwon_12` | 후반부 | **@444초** | YOLO 밀집 구간 (후반부에 음식 등장) |
+| `food_altoran_418` | 6분 16초 | **3분 18초** | -2분 58초 |
+| `food_altoran_490` | 5분 27초 | **0분 01초** | -5분 26초 |
+| `travel_chonnom_03` | 4분 57초 | 5분 13초 | +16초 |
+| `travel_dongwon_12` | 3분 59초 | 7분 24초 | +3분 25초 |
+
+#### 축제 (관광지)
+
+| VOD | Before | After | 차이 |
+|-----|--------|-------|------|
+| `food_altoran_496` | 14분 51초 | **5분 56초** | -8분 55초 |
+| `food_local_dakgalbi` | 6분 05초 | **2분 26초** | -3분 39초 |
+| `travel_chonnom_01` | 4분 24초 | **1분 45초** | -2분 39초 |
+| `travel_chonnom_07` | 5분 00초 | **2분 00초** | -3분 00초 |
+| `travel_dongwon_06` | 16분 29초 | **7분 57초** | -8분 32초 |
+| `travel_dongwon_16` | 13분 22초 | **5분 21초** | -8분 01초 |
 
 ### 매칭 건수 — 변경 없음
 
@@ -197,11 +208,35 @@ score = 1                                    # 기본 (STT 키워드 매칭)
 
 ---
 
-## 5. 후속 작업
+## 5. 버그 수정 (2026-03-29)
+
+### 축제 candidate dict에 `region` 키 누락
+
+- **증상**: 축제 후보 dict에 `"region"` 키가 없어 출력 루프에서 `KeyError` 발생
+- **원인**: 제철장터 후보에는 `"region": primary_region`이 있었으나, 축제 후보에만 빠져있었음
+- **수정**: `"region": f["region"]` 추가
+- **parquet 영향**: `region` 컬럼이 축제 행에도 정상 포함됨
+
+---
+
+## 6. DB 제약조건 검증 (최종)
+
+| CHECK 제약 | 결과 |
+|-----------|------|
+| NOT NULL 7개 컬럼 (`vod_id_fk`, `signal_source`, `score`, `ad_action_type`, `ad_category`, `ts_start`, `ts_end`) | ✅ null 0건 |
+| `score` 0.0~1.0 | ✅ min=0.0545, max=1.0 |
+| `signal_source` IN ('stt','clip','yolo','ocr') | ✅ 위반 0건 |
+| `ad_action_type` IN ('local_gov_popup','seasonal_market') | ✅ |
+| `ts_end >= ts_start` | ✅ 위반 0건 |
+| `vod_id_fk` FK 형식 (cjc\|M...) | ✅ 10건 전부 |
+
+---
+
+## 7. 후속 작업
 
 | 작업 | 담당 | 상태 |
 |------|------|------|
-| 새 parquet → 조장 전달 | 아름 | `shopping_ad_candidates.parquet` 재생성 완료 |
+| 새 parquet → 조장 전달 | 아름 | ✅ 재생성 완료 + PR #104 |
 | `serving.shopping_ad` 재적재 | 조장 | 대기 |
 | 시연용 VOD 선별 | 아름+조장 | 잘 매칭되는 VOD를 테스터 계정에 배치 |
 | `travel_dongwon_06` 477초 | - | CLIP 탐지 후반부 밀집 → 시연에서 제외 권장 |
