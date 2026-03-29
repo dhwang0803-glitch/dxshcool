@@ -8,28 +8,38 @@
     python gen_rec_sentence/scripts/batch_generate.py \
         --offline gen_rec_sentence/data/colab_data
 
+    vLLM 백엔드 (Colab A100 — 병렬 처리):
+    python gen_rec_sentence/scripts/batch_generate.py \
+        --offline gen_rec_sentence/data/colab_data \
+        --backend vllm --model google/gemma-2-27b-it \
+        --concurrency 16
+
     결과: {offline_dir}/results.parquet
     로컬에서 ingest_results.py로 DB 적재
 """
 
 import argparse
+import asyncio
 import json
 import logging
 import os
 import re
 import sys
+import time
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 sys.path.insert(0, ".")
 
-import ollama
-
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
+# ollama는 --backend ollama일 때만 import (vllm 모드에서 불필요)
+_ollama = None
+
 _N_SEGMENTS = 5
 _SAVE_EVERY = 200
+_MIN_LEN = 20
 
 # ── 세그먼트 페르소나 ───────────────────────────────────────────────────────────
 _SEGMENT_PERSONAS = {
@@ -111,9 +121,13 @@ def _trim_to_limit(sentence: str, limit: int = 80) -> str:
 
 def _call_ollama(prompt: str, model: str, temperature: float) -> str | None:
     from gen_rec_sentence.src.sentence_generator import _parse_json_response
+    global _ollama
+    if _ollama is None:
+        import ollama as _ol
+        _ollama = _ol
     for attempt in range(3):
         try:
-            response = ollama.chat(
+            response = _ollama.chat(
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
                 options={"temperature": temperature + attempt * 0.1},
@@ -125,6 +139,77 @@ def _call_ollama(prompt: str, model: str, temperature: float) -> str | None:
             return None
         except Exception as e:
             log.warning("  ollama 실패 (시도 %d): %s", attempt + 1, e)
+    return None
+
+
+# ── vLLM 비동기 호출 ─────────────────────────────────────────────────────────
+
+async def _call_vllm(
+    session: "aiohttp.ClientSession",
+    prompt: str,
+    model: str,
+    temperature: float,
+    base_url: str = "http://localhost:8000",
+) -> str | None:
+    """vLLM OpenAI-compatible API 비동기 호출."""
+    from gen_rec_sentence.src.sentence_generator import _parse_json_response
+
+    url = f"{base_url}/v1/chat/completions"
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": temperature,
+        "max_tokens": 256,
+    }
+    for attempt in range(3):
+        try:
+            async with session.post(url, json=payload) as resp:
+                if resp.status != 200:
+                    log.warning("  vLLM HTTP %d (시도 %d)", resp.status, attempt + 1)
+                    continue
+                data = await resp.json()
+            content = data["choices"][0]["message"]["content"].strip()
+            parsed = _parse_json_response(content)
+            sentence = parsed.get("rec_sentence")
+            if sentence:
+                return _trim_to_limit(sentence)
+            return None
+        except Exception as e:
+            log.warning("  vLLM 실패 (시도 %d): %s", attempt + 1, e)
+    return None
+
+
+async def _process_one_vllm(
+    session: "aiohttp.ClientSession",
+    semaphore: asyncio.Semaphore,
+    vod_id: str,
+    seg_id: int,
+    ctx: dict,
+    model: str,
+    base_temperature: float,
+    validate_fn,
+    base_url: str,
+) -> dict | None:
+    """단일 (vod_id, segment_id) 쌍을 vLLM으로 처리 (재시도 포함)."""
+    _MAX_RETRIES = 5
+    async with semaphore:
+        for retry in range(_MAX_RETRIES):
+            temp = base_temperature + retry * 0.1
+            sentence = await _call_vllm(
+                session, _build_prompt(ctx, seg_id), model, temp, base_url,
+            )
+            if sentence is None:
+                continue
+            validated = validate_fn(
+                {"vod_id": vod_id, "rec_sentence": sentence}, ctx,
+            )
+            if validated["pass"]:
+                return {
+                    "vod_id": vod_id,
+                    "segment_id": seg_id,
+                    "rec_sentence": sentence,
+                    "model_name": model,
+                }
     return None
 
 
@@ -289,13 +374,21 @@ def _run_offline(args) -> None:
         log.info("DRY-RUN 또는 대상 없음. 종료.")
         return
 
-    log.info("[3/4] 모델: %s / temperature: %.1f", args.model, args.temperature)
+    log.info("[3/4] 모델: %s / temperature: %.1f / backend: %s",
+             args.model, args.temperature, args.backend)
 
-    # Step 4: 생성
-    log.info("[4/4] 문구 생성 시작 (총 %d쌍)...", len(todo))
+    # Step 4: 백엔드에 따라 분기
+    if args.backend == "vllm":
+        _run_offline_vllm(args, todo, ctx_map, done_rows, result_path, validate)
+    else:
+        _run_offline_ollama(args, todo, ctx_map, done_rows, result_path, validate)
+
+
+def _run_offline_ollama(args, todo, ctx_map, done_rows, result_path, validate) -> None:
+    """기존 Ollama 순차 처리 (로컬용)."""
+    log.info("[4/4] Ollama 순차 생성 시작 (총 %d쌍)...", len(todo))
     new_rows = []
     total_ok = total_fail = 0
-
     _MAX_RETRIES = 5
 
     for i, (vod_id, seg_id) in enumerate(todo):
@@ -325,15 +418,86 @@ def _run_offline(args) -> None:
         if not success:
             total_fail += 1
 
-        # 주기적 저장 (세션 끊김 대비)
-        if len(new_rows) % _SAVE_EVERY == 0:
+        if (total_ok + total_fail) % _SAVE_EVERY == 0 and new_rows:
             _save_results(result_path, done_rows + new_rows)
             log.info("  진행: %d/%d | 성공 %d / 실패 %d | 저장 완료",
                      i + 1, len(todo), total_ok, total_fail)
 
-    # 최종 저장
     _save_results(result_path, done_rows + new_rows)
     log.info("완료 — 성공: %d쌍 | 실패: %d쌍", total_ok, total_fail)
+    log.info("결과: %s (%d건)", result_path, len(done_rows) + len(new_rows))
+
+
+def _run_offline_vllm(args, todo, ctx_map, done_rows, result_path, validate) -> None:
+    """vLLM 비동기 병렬 처리 (Colab A100용)."""
+    import aiohttp
+
+    # aiohttp / urllib3 등의 HTTP 요청 로그 억제 (Colab 브라우저 부하 방지)
+    for noisy in ("aiohttp", "urllib3", "httpcore", "httpx"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
+    concurrency = getattr(args, "concurrency", 16)
+    base_url = getattr(args, "vllm_url", "http://localhost:8000")
+    log.info("[4/4] vLLM 병렬 생성 시작 (총 %d쌍, 동시 %d개)...", len(todo), concurrency)
+
+    new_rows = []
+    total_ok = 0
+    total_fail = 0
+    t_start = time.time()
+
+    async def _run_batch(batch):
+        """batch 단위 비동기 실행."""
+        sem = asyncio.Semaphore(concurrency)
+        conn = aiohttp.TCPConnector(limit=concurrency + 4)
+        async with aiohttp.ClientSession(connector=conn) as session:
+            tasks = []
+            for vod_id, seg_id in batch:
+                ctx = ctx_map.get(vod_id)
+                if ctx is None:
+                    continue
+                tasks.append(
+                    _process_one_vllm(
+                        session, sem, vod_id, seg_id, ctx,
+                        args.model, args.temperature, validate, base_url,
+                    )
+                )
+            return await asyncio.gather(*tasks)
+
+    # _SAVE_EVERY 단위로 배치 실행 + 중간 저장
+    _LOG_EVERY = 1000  # 로그는 1000건마다 (Colab 출력 부하 방지)
+    _last_log_count = 0
+
+    for batch_start in range(0, len(todo), _SAVE_EVERY):
+        batch = todo[batch_start : batch_start + _SAVE_EVERY]
+        results = asyncio.run(_run_batch(batch))
+
+        for r in results:
+            if r is not None:
+                new_rows.append(r)
+                total_ok += 1
+            else:
+                total_fail += 1
+
+        _save_results(result_path, done_rows + new_rows)
+
+        # 로그는 _LOG_EVERY 단위로만 출력
+        processed = total_ok + total_fail
+        if processed - _last_log_count >= _LOG_EVERY or batch_start + len(batch) >= len(todo):
+            elapsed = time.time() - t_start
+            speed = processed / elapsed if elapsed > 0 else 0
+            eta_min = (len(todo) - batch_start - len(batch)) / speed / 60 if speed > 0 else 0
+            log.info(
+                "  진행: %d/%d (%.0f%%) | 성공 %d / 실패 %d | %.1f건/초 | ETA %.0f분",
+                batch_start + len(batch), len(todo),
+                (batch_start + len(batch)) / len(todo) * 100,
+                total_ok, total_fail, speed, eta_min,
+            )
+            _last_log_count = processed
+
+    elapsed = time.time() - t_start
+    log.info("완료 — 성공: %d쌍 | 실패: %d쌍 | 소요: %.0f초 (%.1f건/초)",
+             total_ok, total_fail, elapsed,
+             (total_ok + total_fail) / elapsed if elapsed > 0 else 0)
     log.info("결과: %s (%d건)", result_path, len(done_rows) + len(new_rows))
 
 
@@ -353,6 +517,12 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="LLM 호출 없이 대상 건수만 확인")
     parser.add_argument("--offline", type=str, default=None,
                         help="오프라인 모드: parquet 디렉토리 경로 (Colab용, DB 불필요)")
+    parser.add_argument("--backend", choices=["ollama", "vllm"], default="ollama",
+                        help="LLM 백엔드 (default: ollama)")
+    parser.add_argument("--concurrency", type=int, default=16,
+                        help="vLLM 동시 요청 수 (default: 16)")
+    parser.add_argument("--vllm-url", default="http://localhost:8000",
+                        help="vLLM 서버 URL (default: http://localhost:8000)")
     args = parser.parse_args()
 
     if args.offline:
