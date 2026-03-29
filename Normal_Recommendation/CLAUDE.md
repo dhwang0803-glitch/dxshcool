@@ -102,7 +102,7 @@ watch_count >= WARM_THRESHOLD    → warm stage (자체 시청 기반)
 ### Cold Stage 공식
 
 ```
-score_cold = 0.65 * vote_score + 0.35 * freshness
+score_cold = 0.45 * vote_score + 0.55 * freshness
 ```
 
 ### Warm Stage 공식
@@ -126,7 +126,7 @@ score_warm = 0.45 * watch_heat + 0.25 * quality + 0.15 * vote_score + 0.15 * fre
 |---------|---|------|
 | `WARM_THRESHOLD` | 10 | warm stage 전환 시청 수 기준 |
 | `QUALITY_MIN_WC` | 5 | quality 계산 최소 시청 수 |
-| `VC_CREDIBILITY_CAP` | 50 | vote_count 신뢰도 댐핑 상한 |
+| `VC_CREDIBILITY_CAP` | 10 | vote_count 신뢰도 댐핑 상한 (한국 로컬 영화 저투표수 불이익 완화) |
 
 ### 시리즈 집약 기준
 

@@ -62,7 +62,7 @@ async def get_recommendations(user_id: str) -> dict:
             )
             for row in rows:
                 top_vods.append({
-                    "series_id": row["vod_id_fk"],
+                    "series_id": row["series_nm"] or row["asset_nm"],
                     "asset_nm": row["asset_nm"],
                     "poster_url": row["poster_url"],
                     "backdrop_url": row["backdrop_url"],
@@ -70,7 +70,7 @@ async def get_recommendations(user_id: str) -> dict:
 
             # cold start 보충: hybrid 부족분을 연령대 기반 cold_genre_detail VOD로 채움
             if len(top_vods) < 5:
-                seen_ids = {v["series_id"] for v in top_vods}
+                seen_ids = {v["series_id"] for v in top_vods}  # series_nm 기준
                 cold_rows = await conn.fetch(
                     f"""
                     SELECT tr.vod_id_fk, v.series_nm, v.asset_nm, v.poster_url, v.backdrop_url
@@ -88,9 +88,10 @@ async def get_recommendations(user_id: str) -> dict:
                     5 - len(top_vods),
                 )
                 for row in cold_rows:
-                    if row["vod_id_fk"] not in seen_ids:
+                    sid = row["series_nm"] or row["asset_nm"]
+                    if sid not in seen_ids:
                         top_vods.append({
-                            "series_id": row["vod_id_fk"],
+                            "series_id": sid,
                             "asset_nm": row["asset_nm"],
                             "poster_url": row["poster_url"],
                             "backdrop_url": row["backdrop_url"],
@@ -149,7 +150,7 @@ async def get_recommendations(user_id: str) -> dict:
                 seen_per_rank[rank].add(nm)
 
             grouped[rank]["vod_list"].append({
-                "series_id": r["vod_id_fk"],
+                "series_id": r["series_nm"] or r["asset_nm"],
                 "asset_nm": r["asset_nm"],
                 "poster_url": r["poster_url"],
                 "score": r["vod_score"],
