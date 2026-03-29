@@ -365,6 +365,11 @@ def main():
             if not all_keywords:
                 continue
 
+            # 1위 키워드가 제철장터에 없으면 스킵
+            # (동치미 → 매칭 없음 → "김치"로 "아산 포기김치" 잘못 매칭 방지)
+            if not seasonal_matcher.match(all_keywords[0]):
+                continue
+
             matched = seasonal_matcher.match_keywords(all_keywords)
 
             if not matched:
