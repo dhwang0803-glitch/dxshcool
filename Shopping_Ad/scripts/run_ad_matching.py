@@ -330,6 +330,7 @@ def main():
                     "score": round(min(trigger_count / 110, 1.0), 4),
                     "ad_hints": json.dumps([f["region"], f["festival_name"]], ensure_ascii=False),
                     "ad_image_url": ad_image_url,
+                    "region": f["region"],
                     "product_name": f["festival_name"],
                     "detail": f["period"],
                     "popup_title": f["popup_title"],
