@@ -5,8 +5,10 @@ class BannerItem(BaseModel):
     series_nm: str
     title: str
     poster_url: str | None
+    backdrop_url: str | None
     category: str | None
     score: float | None
+    rec_sentence: str | None = None  # 세그먼트 맞춤 문구 (비로그인/미생성 시 None)
 
 
 class BannerResponse(BaseModel):

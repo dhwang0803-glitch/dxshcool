@@ -120,6 +120,28 @@ python Hybrid_Layer/scripts/run_pipeline.py --test-mode
 
 ---
 
+## ✅ Positive 테스터 전체 User ID (빠른 복사용)
+
+> `hybrid_recommendation_test` 데이터 있음 → 개인화 추천 정상 서빙
+
+| 레이블 | Full User ID |
+|--------|-------------|
+| `C0_저관여_50대` | `f7328b318d191e3ef3ab456c7d7c8cc55ca85ff9f069ccd098f600a8e9561129` |
+| `C1_충성_40대` | `877f7ce17f19e6e4503c13dc2b67e2e8b69d0830407cd53409a4907f25c7ee53` |
+| `C1_충성_60대` | `cf535eb5910e56c5e597fff165a6e6ecf6eb17c28bf30a3b77739787b4120f18` |
+| `C2_헤비_50대` | `da3da6ae52381ff5782832a3d908ce46057a5771d155dd690f2279b53455c79a` |
+| `C3_키즈_40대` | `0486b86e555429e746661fe3bb6b7f1b5aa57171bfdf06434777e0d359b36f1e` |
+
+**Base URL**: `https://vod-api-dev-121620013082.asia-northeast3.run.app`
+
+```bash
+# 예시 — C1_충성_40대 추천 조회
+curl -H "Authorization: Bearer <JWT_TOKEN>" \
+  https://vod-api-dev-121620013082.asia-northeast3.run.app/recommend/877f7ce17f19e6e4503c13dc2b67e2e8b69d0830407cd53409a4907f25c7ee53
+```
+
+---
+
 ## 군집별 테스터 계정
 
 ### C0 — 저관여 (2명)

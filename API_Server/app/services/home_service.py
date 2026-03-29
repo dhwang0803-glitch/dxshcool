@@ -1,4 +1,5 @@
 from app.services.db import get_pool
+from app.services.rec_sentence_service import get_rec_sentences, get_segment_id
 
 # genre_detail 채널/패키지명 필터 (Hybrid_Layer/src/tag_builder.py와 동기화)
 _GENRE_BLACKLIST = frozenset({
@@ -42,67 +43,60 @@ async def _is_test_user(pool, user_id: str) -> bool:
 
 
 async def get_banner(user_id: str | None = None) -> list[dict]:
-    """히어로 배너 2단 구조.
-
-    1단: popular_recommendation score 내림차순 top 5 — 항상 (비개인화 히어로)
-    2단: hybrid_recommendation top 10 — 로그인 유저 (하단 개인화, seen 중복 제거)
-    비로그인 시 1단만 반환.
+    """히어로 배너: popular_recommendation score 내림차순 top 5.
+    backdrop_url 없는 VOD는 건너뛰고 다음 순위로 대체.
     """
     pool = await get_pool()
-    seen: set[str] = set()
-    items: list[dict] = []
-
-    def _append_rows(rows):
-        for r in rows:
-            nm = r["series_nm"] or r["asset_nm"]
-            if nm in seen:
-                continue
-            seen.add(nm)
-            items.append({
-                "series_nm": nm,
-                "title": r["asset_nm"],
-                "poster_url": r["poster_url"],
-                "category": r["ct_cl"],
-                "score": r["score"],
-            })
-
     async with pool.acquire() as conn:
-        # 1단: popular_recommendation 히어로 top 5 (항상)
         rows = await conn.fetch(
             """
             SELECT pr.vod_id_fk, pr.score,
-                   v.series_nm, v.asset_nm, v.poster_url, v.ct_cl
+                   v.series_nm, v.asset_nm, v.poster_url, v.backdrop_url, v.ct_cl
             FROM serving.popular_recommendation pr
             JOIN public.vod v ON pr.vod_id_fk = v.full_asset_id
-            WHERE pr.expires_at IS NULL OR pr.expires_at > NOW()
+            WHERE v.backdrop_url IS NOT NULL
+              AND (pr.expires_at IS NULL OR pr.expires_at > NOW())
             ORDER BY pr.score DESC
             LIMIT 5
             """,
         )
-        _append_rows(rows)
 
-        # 2단: hybrid_recommendation 개인화 top 10 (로그인 유저만)
-        if user_id:
-            is_test = await _is_test_user(pool, user_id)
-            hybrid_table = "serving.hybrid_recommendation_test" if is_test else "serving.hybrid_recommendation"
-            try:
-                rows = await conn.fetch(
-                    f"""
-                    SELECT r.vod_id_fk, r.score,
-                           v.series_nm, v.asset_nm, v.poster_url, v.ct_cl
-                    FROM {hybrid_table} r
-                    JOIN public.vod v ON r.vod_id_fk = v.full_asset_id
-                    WHERE r.user_id_fk = $1
-                      AND (r.expires_at IS NULL OR r.expires_at > NOW())
-                    ORDER BY r.rank
-                    LIMIT 10
-                    """,
-                    user_id,
-                )
-                _append_rows(rows)
-            except Exception:
-                pass
+    seen: set[str] = set()
+    raw_items: list[dict] = []
+    for r in rows:
+        nm = r["series_nm"] or r["asset_nm"]
+        if nm in seen:
+            continue
+        seen.add(nm)
+        raw_items.append({
+            "vod_id": r["vod_id_fk"],
+            "series_nm": nm,
+            "title": r["asset_nm"],
+            "poster_url": r["poster_url"],
+            "backdrop_url": r["backdrop_url"],
+            "category": r["ct_cl"],
+            "score": r["score"],
+        })
 
+    # rec_sentence 일괄 조회 (로그인 유저만, 1회 bulk 쿼리)
+    rec_map: dict[str, str] = {}
+    if user_id and raw_items:
+        async with pool.acquire() as conn:
+            segment_id = await get_segment_id(conn, user_id)
+            vod_ids = [item["vod_id"] for item in raw_items]
+            rec_map = await get_rec_sentences(conn, vod_ids, segment_id)
+
+    items = []
+    for item in raw_items:
+        items.append({
+            "series_nm": item["series_nm"],
+            "title": item["title"],
+            "poster_url": item["poster_url"],
+            "backdrop_url": item["backdrop_url"],
+            "category": item["category"],
+            "score": item["score"],
+            "rec_sentence": rec_map.get(item["vod_id"]),
+        })
     return items
 
 
@@ -208,16 +202,17 @@ async def get_personalized_sections(user_id: str) -> list[dict]:
                 user_id,
             )
             if ue_row:
+                # vod_series_embedding 사용: 시리즈당 1건이므로 에피소드 중복 없음
                 vector_rows = await conn.fetch(
                     """
-                    SELECT vme.vod_id_fk,
-                           1 - (vme.embedding <=> $1) AS similarity,
-                           v.series_nm, v.asset_nm, v.poster_url,
-                           v.genre_detail, v.ct_cl
-                    FROM public.vod_meta_embedding vme
-                    JOIN public.vod v ON vme.vod_id_fk = v.full_asset_id
-                    WHERE v.poster_url IS NOT NULL
-                    ORDER BY vme.embedding <=> $1
+                    SELECT se.series_nm,
+                           1 - (se.embedding <=> $1) AS similarity,
+                           se.poster_url, se.ct_cl,
+                           v.asset_nm, v.genre_detail
+                    FROM public.vod_series_embedding se
+                    JOIN public.vod v ON v.full_asset_id = se.representative_vod_id
+                    WHERE se.poster_url IS NOT NULL
+                    ORDER BY se.embedding <=> $1
                     LIMIT 60
                     """,
                     ue_row["meta_vec"],
@@ -225,7 +220,7 @@ async def get_personalized_sections(user_id: str) -> list[dict]:
                 # 장르별 그룹핑 (genre_detail 정제 → ct_cl fallback)
                 genre_groups: dict[str, list] = {}
                 for r in vector_rows:
-                    nm = r["series_nm"] or r["asset_nm"]
+                    nm = r["series_nm"]
                     if nm in seen_vods:
                         continue
                     genre = _clean_genre_detail(r["genre_detail"]) or r["ct_cl"] or "콘텐츠"

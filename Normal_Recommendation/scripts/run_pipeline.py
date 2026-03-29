@@ -11,6 +11,8 @@ import os
 import sys
 from datetime import date
 
+sys.stdout.reconfigure(encoding="utf-8")
+
 import pandas as pd
 import yaml
 

@@ -1,5 +1,6 @@
 """광고 서비스 — serving.shopping_ad 조회."""
 
+import json
 import logging
 
 from app.services.db import get_pool
@@ -41,21 +42,30 @@ async def get_ads_for_vod(vod_id: str, time_sec: float) -> list[dict]:
             "local_gov" if r["ad_action_type"] == "local_gov_popup"
             else "seasonal_market"
         )
+        data = {
+            "shopping_ad_id": r["shopping_ad_id"],
+            "ad_category": r["ad_category"],
+            "signal_source": r["signal_source"],
+            "score": float(r["score"]),
+            "ad_image_url": r["ad_image_url"],
+            "product_name": r["product_name"],
+            "channel": r["channel"],
+        }
+        # ad_hints JSON을 data에 풀어서 프론트엔드에 전달
+        # (broadcast_date, start_time, end_time 등)
+        if r["ad_hints"]:
+            try:
+                hints = json.loads(r["ad_hints"])
+                if isinstance(hints, dict):
+                    data.update(hints)
+            except (json.JSONDecodeError, TypeError):
+                pass
         results.append({
             "type": "ad_popup",
             "ad_type": ad_type,
             "vod_id": r["vod_id_fk"],
             "time_sec": int(r["ts_start"]),
-            "data": {
-                "shopping_ad_id": r["shopping_ad_id"],
-                "ad_category": r["ad_category"],
-                "signal_source": r["signal_source"],
-                "score": float(r["score"]),
-                "ad_hints": r["ad_hints"],
-                "ad_image_url": r["ad_image_url"],
-                "product_name": r["product_name"],
-                "channel": r["channel"],
-            },
+            "data": data,
         })
 
     if results:
