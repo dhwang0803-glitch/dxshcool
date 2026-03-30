@@ -330,9 +330,18 @@ def _upsert_batch(conn, rows):
 #  오프라인 모드 (Colab — parquet 기반)
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _validate_passthrough(result: dict, ctx: dict) -> dict:
+    """품질 필터 비활성화 시 항상 통과."""
+    return {"pass": True, "reasons": []}
+
+
 def _run_offline(args) -> None:
     import pandas as pd
-    from gen_rec_sentence.src.quality_filter import validate
+    if args.no_filter:
+        validate = _validate_passthrough
+        log.info("⚠ --no-filter: 품질 필터 비활성화")
+    else:
+        from gen_rec_sentence.src.quality_filter import validate
 
     offline_dir = args.offline
     ctx_path = os.path.join(offline_dir, "vod_contexts.parquet")
@@ -523,6 +532,8 @@ def main() -> None:
                         help="vLLM 동시 요청 수 (default: 16)")
     parser.add_argument("--vllm-url", default="http://localhost:8000",
                         help="vLLM 서버 URL (default: http://localhost:8000)")
+    parser.add_argument("--no-filter", action="store_true",
+                        help="품질 필터 비활성화 (실패분 강제 생성용)")
     args = parser.parse_args()
 
     if args.offline:

@@ -7,8 +7,6 @@
 import json
 import logging
 
-import ollama
-
 log = logging.getLogger(__name__)
 
 _DEFAULT_MODEL = "gemma3:12b-it-qat"
@@ -79,6 +77,7 @@ def generate_sentence(
 
     for attempt in range(max_retries + 1):
         try:
+            import ollama
             response = ollama.chat(
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
