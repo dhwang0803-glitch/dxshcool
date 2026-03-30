@@ -55,6 +55,7 @@ async def get_banner() -> list[dict]:
             FROM serving.popular_recommendation pr
             JOIN public.vod v ON pr.vod_id_fk = v.full_asset_id
             WHERE v.backdrop_url IS NOT NULL
+              AND v.poster_url IS NOT NULL
               AND (pr.expires_at IS NULL OR pr.expires_at > NOW())
               AND v.release_date >= NOW() - INTERVAL '2 years'
             ORDER BY pr.score DESC
@@ -72,7 +73,7 @@ async def get_banner() -> list[dict]:
         raw_items.append({
             "vod_id": r["vod_id_fk"],
             "series_nm": nm,
-            "title": r["asset_nm"],
+            "title": nm,
             "poster_url": r["poster_url"],
             "backdrop_url": r["backdrop_url"],
             "category": r["ct_cl"],
@@ -104,6 +105,7 @@ async def get_sections() -> list[dict]:
                    v.series_nm, v.asset_nm, v.poster_url
             FROM serving.popular_recommendation pr
             JOIN public.vod v ON pr.vod_id_fk = v.full_asset_id
+            WHERE v.poster_url IS NOT NULL
             ORDER BY pr.ct_cl, pr.rank
             """
         )
@@ -116,7 +118,7 @@ async def get_sections() -> list[dict]:
         sections[ct].append(
             {
                 "series_nm": r["series_nm"] or r["asset_nm"],
-                "title": r["asset_nm"],
+                "title": r["series_nm"] or r["asset_nm"],
                 "poster_url": r["poster_url"],
                 "score": r["score"],
                 "rank": r["rank"],
@@ -149,8 +151,10 @@ async def get_personalized_sections(user_id: str) -> list[dict]:
             FROM {tag_table} tr
             JOIN public.vod v ON tr.vod_id_fk = v.full_asset_id
             WHERE tr.user_id_fk = $1
-              AND tr.tag_category IN ('genre', 'cold_genre_detail')
+              AND (tr.tag_category = 'genre'
+                   OR (tr.tag_category = 'cold_genre_detail' AND tr.tag_rank <= 3))
               AND (tr.expires_at IS NULL OR tr.expires_at > NOW())
+              AND v.poster_url IS NOT NULL
             ORDER BY
                 CASE WHEN tr.tag_category = 'genre' THEN 0 ELSE 1 END,
                 tr.tag_rank, tr.vod_rank
@@ -256,6 +260,7 @@ async def get_personalized_sections(user_id: str) -> list[dict]:
                     ON rs.vod_id_fk = tr.vod_id_fk AND rs.segment_id = $2
                 WHERE tr.user_id_fk = $1
                   AND (tr.expires_at IS NULL OR tr.expires_at > NOW())
+                  AND v.poster_url IS NOT NULL
                 ORDER BY tr.vod_score DESC
                 LIMIT 50
                 """,
