@@ -18,6 +18,7 @@
 | `public.watch_history` | *(초기 데이터 적재)* | `User_Embedding`(읽기), `CF_Engine`(읽기) |
 | `public.vod_embedding` | `VOD_Embedding` | `User_Embedding`(읽기), `Vector_Search`(읽기), `CF_Engine`(읽기), `gen_rec_sentence`(읽기) |
 | `public.vod_meta_embedding` | `VOD_Embedding` | `User_Embedding`(읽기), `Vector_Search`(읽기), `API_Server`(읽기) |
+| `public.vod_series_embedding` | `VOD_Embedding` | `Vector_Search`(읽기), `API_Server`(읽기) |
 | `public.user_embedding` | `User_Embedding` | `CF_Engine`(읽기), `Vector_Search`(읽기), `API_Server`(읽기) |
 | `public.detected_object_yolo` | `Object_Detection` | `Shopping_Ad`(읽기) |
 | `public.detected_object_clip` | `Object_Detection` | `Shopping_Ad`(읽기) |
@@ -90,6 +91,11 @@
 | 쓰기 | `public.vod_meta_embedding` | `embedding` | VECTOR(384) | paraphrase-multilingual-MiniLM-L12-v2 |
 | 쓰기 | `public.vod_meta_embedding` | `input_text` | TEXT | 결합 텍스트 (선택) |
 | 쓰기 | `public.vod_meta_embedding` | `source_fields` | TEXT[] | 기본: `['asset_nm','genre','director','cast_lead','smry']` |
+| 쓰기 | `public.vod_series_embedding` | `series_nm` | VARCHAR(255) | UNIQUE, COALESCE(series_nm, asset_nm) |
+| 쓰기 | `public.vod_series_embedding` | `representative_vod_id` | VARCHAR(64) | FK → vod.full_asset_id |
+| 쓰기 | `public.vod_series_embedding` | `embedding` | VECTOR(384) | 대표 에피소드의 메타 임베딩 |
+| 쓰기 | `public.vod_series_embedding` | `ct_cl`, `poster_url` | VARCHAR(64)/TEXT | 서빙 편의 (JOIN 불필요) |
+| 쓰기 | `public.vod_series_embedding` | `episode_count` | INTEGER | 시리즈 에피소드 수 |
 
 ### User_Embedding
 
@@ -117,7 +123,8 @@
 | 방향 | 테이블 | 컬럼 | 타입 | 비고 |
 |------|--------|------|------|------|
 | 읽기 | `public.vod_embedding` | `vod_id_fk`, `embedding` | VECTOR(512) | 콘텐츠 유사도 검색 |
-| 읽기 | `public.vod_meta_embedding` | `vod_id_fk`, `embedding` | VECTOR(384) | |
+| 읽기 | `public.vod_meta_embedding` | `vod_id_fk`, `embedding` | VECTOR(384) | 에피소드 단위 (레거시) |
+| 읽기 | `public.vod_series_embedding` | `series_nm`, `representative_vod_id`, `embedding`, `ct_cl`, `poster_url` | 각종 | 시리즈 대표 메타 유사도 검색 |
 | 읽기 | `public.user_embedding` | `user_id_fk`, `embedding` | VECTOR(896) | 개인화 검색 |
 | 쓰기 | `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | - | 유저 기반: `'VISUAL_SIMILARITY'`, UNIQUE(user_id_fk, vod_id_fk, recommendation_type) |
 | 쓰기 | `serving.vod_recommendation` | `source_vod_id`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | VARCHAR(64)/VARCHAR(64)/SMALLINT/REAL/VARCHAR(32) | 콘텐츠 기반: `'CONTENT_BASED'` |

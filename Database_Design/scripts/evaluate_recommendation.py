@@ -274,6 +274,23 @@ def evaluate_vector_with_jan(
     }
 
 
+def load_hybrid_recommendations(conn, exclude_vods: set[str]) -> dict[str, list[str]]:
+    """serving.hybrid_recommendation에서 유저별 추천 로드 (rank 순)."""
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT user_id_fk, vod_id_fk, rank
+        FROM serving.hybrid_recommendation
+        ORDER BY user_id_fk, rank
+    """)
+    recs: dict[str, list[str]] = {}
+    for user_id, vod_id, rank in cur.fetchall():
+        if vod_id in exclude_vods:
+            continue
+        recs.setdefault(user_id, []).append(vod_id)
+    cur.close()
+    return recs
+
+
 def main():
     parser = argparse.ArgumentParser(description="추천 엔진 오프라인 평가")
     parser.add_argument("--parquet", default=DEFAULT_PARQUET, help="2월 watch_history parquet 경로")
@@ -327,21 +344,38 @@ def main():
         for k, v in vec_result.items():
             print(f"  {k}: {v}")
 
+        # 5. Hybrid 평가
+        print("\n" + "-" * 60)
+        print("[Hybrid_Layer] hybrid_recommendation 평가")
+        print("-" * 60)
+        hybrid_recs = load_hybrid_recommendations(conn, exclude_vods)
+        print(f"  추천 유저: {len(hybrid_recs):,}명")
+
+        if hybrid_recs:
+            hybrid_result = evaluate_cf(hybrid_recs, ground_truth, args.top_k)
+            for k, v in hybrid_result.items():
+                print(f"  {k}: {v}")
+        else:
+            hybrid_result = {"error": "hybrid_recommendation 데이터 없음"}
+            print("  [WARN] serving.hybrid_recommendation 테이블이 비어 있습니다.")
+
     finally:
         conn.close()
 
-    # 5. 요약
+    # 6. 요약
     print("\n" + "=" * 60)
     print(f"평가 요약 (Top-{args.top_k})")
     print("=" * 60)
-    print(f"{'지표':<20s} {'CF':>10s} {'Vector':>10s}")
-    print("-" * 42)
+    print(f"{'지표':<20s} {'CF':>10s} {'Vector':>10s} {'Hybrid':>10s}")
+    print("-" * 54)
     for metric in ["hit_rate", "precision@k", "recall@k", "ndcg@k"]:
         cf_val = cf_result.get(metric, "N/A")
         vec_val = vec_result.get(metric, "N/A")
+        hyb_val = hybrid_result.get(metric, "N/A")
         cf_str = f"{cf_val:.4f}" if isinstance(cf_val, float) else str(cf_val)
         vec_str = f"{vec_val:.4f}" if isinstance(vec_val, float) else str(vec_val)
-        print(f"  {metric:<18s} {cf_str:>10s} {vec_str:>10s}")
+        hyb_str = f"{hyb_val:.4f}" if isinstance(hyb_val, float) else str(hyb_val)
+        print(f"  {metric:<18s} {cf_str:>10s} {vec_str:>10s} {hyb_str:>10s}")
     print("=" * 60)
 
 
