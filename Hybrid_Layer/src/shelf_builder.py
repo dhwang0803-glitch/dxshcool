@@ -128,6 +128,7 @@ def build_tag_shelves(
             ) t
             JOIN public.vod v ON v.full_asset_id = t.vod_id_fk
             WHERE t.rn <= %s
+              AND v.poster_url IS NOT NULL
             """,
             (tag_cats, tag_vals, _TAG_VOD_BUFFER),
         )
@@ -222,6 +223,7 @@ def build_tag_shelves(
                 ) t
                 JOIN public.vod v ON v.full_asset_id = t.vod_id_fk
                 WHERE t.rn <= %s
+                  AND v.poster_url IS NOT NULL
                 """,
                 (cold_cats, cold_vals, _TAG_VOD_BUFFER),
             )
