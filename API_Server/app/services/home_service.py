@@ -56,8 +56,9 @@ async def get_banner() -> list[dict]:
             JOIN public.vod v ON pr.vod_id_fk = v.full_asset_id
             WHERE v.backdrop_url IS NOT NULL
               AND (pr.expires_at IS NULL OR pr.expires_at > NOW())
+              AND v.release_date >= NOW() - INTERVAL '2 years'
             ORDER BY pr.score DESC
-            LIMIT 5
+            LIMIT 15
             """,
         )
 
@@ -77,6 +78,8 @@ async def get_banner() -> list[dict]:
             "category": r["ct_cl"],
             "score": r["score"],
         })
+        if len(raw_items) >= 5:
+            break
 
     return [
         {
