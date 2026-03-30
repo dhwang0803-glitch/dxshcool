@@ -104,47 +104,74 @@ def _oci_object_name(series_nm: str, ct_cl: str) -> str:
     return f"backdrops/{series_nm}__{ct_cl or 'unknown'}.jpg"
 
 
+def _item_best_title(item: dict) -> str:
+    """TMDB 결과 아이템에서 가장 대표적인 제목 반환."""
+    return (item.get("title") or item.get("name")
+            or item.get("original_title") or item.get("original_name") or "")
+
+
+def _title_similarity(query: str, item: dict) -> float:
+    """query와 TMDB 결과 아이템의 제목 유사도 (최대값)."""
+    candidates = [
+        item.get("title") or "",
+        item.get("name") or "",
+        item.get("original_title") or "",
+        item.get("original_name") or "",
+    ]
+    candidates = [c for c in candidates if c]
+    if not candidates:
+        return 0.0
+    q = query.lower().strip()
+    return max(SequenceMatcher(None, q, c.lower().strip()).ratio() for c in candidates)
+
+
 def fetch_backdrop_path(series_nm: str, ct_cl: str) -> str | None:
     """TMDB 검색 → backdrop_path 반환. 실패 시 None.
 
-    series_nm으로 검색해 ct_cl에 맞는 media_type 결과를 우선 선택.
+    ct_cl에 따라 search/movie 또는 search/tv 엔드포인트를 직접 호출하여
+    다른 media_type 결과가 섞이는 문제를 방지.
+    한국어(ko-KR) → 영어(en-US) 순으로 검색하며, 제목 유사도 0.5 이상인
+    결과 중 가장 유사도가 높은 항목을 선택.
     """
-    prefer_movie = _CT_CL_MEDIA.get(ct_cl, "tv") == "movie"
+    media_type = _CT_CL_MEDIA.get(ct_cl, "tv")
+    endpoint = f"{TMDB_URL}/search/{'movie' if media_type == 'movie' else 'tv'}"
     session = _get_session()
 
-    for query in [series_nm, series_nm.split()[0] if " " in series_nm else None]:
-        if not query:
-            continue
-        try:
-            r = session.get(
-                f"{TMDB_URL}/search/multi",
-                params=_tmdb_params({"query": query, "page": 1}),
-                timeout=REQUEST_TIMEOUT,
-            )
-            if r.status_code == 429:
-                time.sleep(SLEEP_ON_429)
+    for lang in ("ko-KR", "en-US"):
+        for query in [series_nm, series_nm.split()[0] if " " in series_nm else None]:
+            if not query:
                 continue
-            if r.status_code != 200:
-                continue
-            results = r.json().get("results", [])
-            if not results:
-                continue
+            try:
+                r = session.get(
+                    endpoint,
+                    params=_tmdb_params({"query": query, "language": lang, "page": 1}),
+                    timeout=REQUEST_TIMEOUT,
+                )
+                if r.status_code == 429:
+                    time.sleep(SLEEP_ON_429)
+                    continue
+                if r.status_code != 200:
+                    continue
+                results = r.json().get("results", [])
+                if not results:
+                    continue
 
-            preferred = [x for x in results if x.get("media_type") == ("movie" if prefer_movie else "tv")]
-            candidate = preferred[0] if preferred else None
-            if not candidate:
-                continue
+                # 유사도 기준 정렬, 0.5 미만 제외
+                scored = [(item, _title_similarity(query, item)) for item in results]
+                scored = [(item, sim) for item, sim in scored if sim >= 0.5]
+                if not scored:
+                    continue
+                scored.sort(key=lambda x: x[1], reverse=True)
+                candidate, best_sim = scored[0]
 
-            matched_title = candidate.get("title") or candidate.get("name") or ""
-            sim = SequenceMatcher(None, query.lower(), matched_title.lower()).ratio()
-            if sim < 0.4:
+                bp = candidate.get("backdrop_path")
+                if bp:
+                    matched = _item_best_title(candidate)
+                    log.debug("backdrop 매칭: '%s' → '%s' (sim=%.2f, lang=%s)",
+                              query, matched, best_sim, lang)
+                    return bp
+            except Exception:
                 continue
-
-            bp = candidate.get("backdrop_path")
-            if bp:
-                return bp
-        except Exception:
-            continue
     return None
 
 
