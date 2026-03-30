@@ -20,7 +20,7 @@ async def home_banner(
     로그인: personalized(5) + popular(5) + hybrid(10)
     비로그인: popular(5)
     """
-    items = await home_service.get_banner(user_id=current_user)
+    items = await home_service.get_banner()
     return BannerResponse(items=items, total=len(items))
 
 

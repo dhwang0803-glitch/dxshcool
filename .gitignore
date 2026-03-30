@@ -255,6 +255,16 @@ RAG/data/fill_episodes.log
 # 개인 작업 메모
 work.md
 
+# 교육용 내부 문서 — 커밋 제외
+docs/TEST_AUTOMATION_GUIDE.md
+
 # 박아름 개인 스크립트 — 로컬 전용, PR 제외
 VOD_Embedding/scripts/*_아름.py
 VOD_Embedding/scripts/fix_phantom_success_아름.py
+
+# Claude Code 자동 스케줄 잠금
+.claude/scheduled_tasks.lock
+
+# Database_Design 로컬 분석 데이터
+Database_Design/docs/sampling.ipynb
+Database_Design/docs/vod_mart_data.csv

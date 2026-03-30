@@ -14,7 +14,7 @@ TARGET_GENRES = ["영화", "TV드라마", "TV 연예/오락", "TV애니메이션
 # ── 파라미터 기본값 (recommend_config.yaml과 동기화) ───────────────────
 WARM_THRESHOLD      = 10   # 시청 이력 >= 10건이면 warm stage
 QUALITY_MIN_WC      = 5    # quality 계산 최소 시청 수
-VC_CREDIBILITY_CAP  = 50   # vote_count 신뢰도 댐핑 상한
+VC_CREDIBILITY_CAP  = 10   # vote_count 신뢰도 댐핑 상한 (한국 로컬 영화 저투표수 불이익 완화: 50→10)
 
 
 def load_vod_data(conn) -> pd.DataFrame:

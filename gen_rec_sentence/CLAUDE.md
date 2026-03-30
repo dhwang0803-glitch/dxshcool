@@ -180,14 +180,14 @@ gen_rec_sentence/
 
 | 테이블 | 컬럼 | 타입 | 비고 |
 |--------|------|------|------|
-| `serving.rec_sentence` (신규) | `vod_id_fk` | VARCHAR(64) | FK → vod.full_asset_id, UNIQUE |
-| `serving.rec_sentence` | `rec_sentence` | TEXT | 생성된 감성 카피 (2문장) |
-| `serving.rec_sentence` | `embedding_used` | BOOLEAN | 임베딩 입력 사용 여부 |
-| `serving.rec_sentence` | `model_name` | VARCHAR(100) | 생성 모델명 |
+| `serving.rec_sentence` | `user_id_fk` | VARCHAR(64) | FK → user.sha2_hash, UNIQUE(user_id_fk, vod_id_fk) |
+| `serving.rec_sentence` | `vod_id_fk` | VARCHAR(64) | FK → vod.full_asset_id |
+| `serving.rec_sentence` | `rec_reason` | TEXT | TOP10 선정 이유 (포스터 우측 상단) |
+| `serving.rec_sentence` | `rec_sentence` | TEXT | 감성 카피 (포스터 하단) |
 | `serving.rec_sentence` | `generated_at` | TIMESTAMPTZ | 생성 시각 |
-| `serving.rec_sentence` | `expires_at` | TIMESTAMPTZ | TTL (기본 30일) |
+| `serving.rec_sentence` | `expires_at` | TIMESTAMPTZ | TTL (기본 7일) |
 
-> DDL은 Database_Design 브랜치와 협의 후 확정. 위 스키마는 초안.
+> DDL 확정: `Database_Design/schemas/create_rec_sentence.sql` 참조.
 
 ---
 
@@ -195,7 +195,7 @@ gen_rec_sentence/
 
 - **VOD_Embedding** → `vod_embedding` 테이블에 CLIP 벡터가 적재되어 있어야 함
 - **RAG** → `vod` 테이블에 `smry`, `director`, `cast_lead` 등 메타가 채워져 있어야 함
-- **Database_Design** → `serving.rec_sentence` DDL 확정 필요
+- **Database_Design** → `serving.rec_sentence` DDL 확정 완료 (`schemas/create_rec_sentence.sql`)
 - **API_Server** → 홈 배너 응답에 `rec_sentence` 필드 추가 필요
 
 ---

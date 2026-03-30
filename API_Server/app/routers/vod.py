@@ -12,6 +12,9 @@ async def vod_detail(asset_id: str):
     vod = await get_vod_detail(asset_id)
     if vod is None:
         raise VOD_NOT_FOUND()
+    yt_id = vod.get("youtube_video_id")
+    youtube_url = f"https://www.youtube.com/embed/{yt_id}" if yt_id else None
+
     return VodDetailResponse(
         asset_id=vod["full_asset_id"],
         title=vod["asset_nm"],
@@ -25,4 +28,5 @@ async def vod_detail(asset_id: str):
         release_year=vod["release_date"].year if vod["release_date"] else None,
         poster_url=vod["poster_url"],
         is_free=vod.get("asset_prod") == "FOD",
+        youtube_url=youtube_url,
     )

@@ -20,7 +20,7 @@ async def recommend(
     """개인화 추천 — top_vod + patterns(태그별 그룹핑)."""
     result = await get_recommendations(user_id)
 
-    top_vod = TopVod(**result["top_vod"]) if result["top_vod"] else None
+    top_vod = [TopVod(**v) for v in result["top_vod"]]
 
     patterns = [
         PatternItem(
