@@ -122,44 +122,46 @@ async def get_recommendations(user_id: str) -> dict:
         # cold_genre_detail 라벨에 필요한 유저 이름(해시 앞 5자)
         user_label = user_id[:5]
 
-        # tag_rank별 그룹핑 + 조건부 중복 제거
+        # (tag_category, tag_value)별 그룹핑 + 조건부 중복 제거
         # cold_genre_detail은 개인화 태그 뒤에 배치하기 위해 rank 오프셋 적용
-        grouped: dict[int, dict] = {}
-        seen_per_rank: dict[int, set] = {}
         cold_offset = 100  # cold 태그 rank를 뒤로 밀기
+        grouped: dict[tuple, dict] = {}          # key: (category, value)
+        seen_per_group: dict[tuple, set] = {}    # series 중복 제거용
         for r in rows:
             category = r["tag_category"]
+            tag_value = r["tag_value"]
             rank = r["tag_rank"] + (cold_offset if category == "cold_genre_detail" else 0)
             ct_cl = r["ct_cl"] or ""
             nm = r["series_nm"] or r["asset_nm"]
-            if rank not in grouped:
-                grouped[rank] = {
-                    "pattern_rank": rank,
-                    "pattern_reason": _make_reason(category, r["tag_value"], user_label),
-                    "tag_category": category,
+            group_key = (category, tag_value)
+            if group_key not in grouped:
+                grouped[group_key] = {
+                    "sort_rank": rank,
+                    "pattern_reason": _make_reason(category, tag_value, user_label),
                     "vod_list": [],
                 }
-                seen_per_rank[rank] = set()
+                seen_per_group[group_key] = set()
 
             # actor_guest/director + TV 연예/오락 → 에피소드 단위 (중복 제거 안함)
             is_actor_variety = (category in ("actor_guest", "director") and ct_cl == "TV 연예/오락")
             if not is_actor_variety:
-                if nm in seen_per_rank[rank]:
+                if nm in seen_per_group[group_key]:
                     continue
-                seen_per_rank[rank].add(nm)
+                seen_per_group[group_key].add(nm)
 
-            grouped[rank]["vod_list"].append({
+            grouped[group_key]["vod_list"].append({
                 "series_id": r["series_nm"] or r["asset_nm"],
                 "asset_nm": r["asset_nm"],
                 "poster_url": r["poster_url"],
                 "score": r["vod_score"],
             })
 
-        # tag_category는 내부용이므로 응답에서 제거, rank 재번호
+        # sort_rank 기준 정렬 → pattern_rank 재번호
         patterns = []
-        for idx, k in enumerate(sorted(grouped.keys()), 1):
-            g = grouped[k]
-            g.pop("tag_category", None)
+        for idx, (_, g) in enumerate(
+            sorted(grouped.items(), key=lambda x: x[1]["sort_rank"]), 1
+        ):
+            g.pop("sort_rank", None)
             g["pattern_rank"] = idx
             patterns.append(g)
     except Exception:
