@@ -111,13 +111,25 @@ def _item_best_title(item: dict) -> str:
 
 
 def _title_similarity(query: str, item: dict) -> float:
-    """query와 TMDB 결과 아이템의 제목 유사도 (최대값)."""
-    candidates = [
-        item.get("title") or "",
-        item.get("name") or "",
-        item.get("original_title") or "",
-        item.get("original_name") or "",
-    ]
+    """query와 TMDB 결과 아이템의 제목 유사도.
+
+    한국 콘텐츠(original_language=ko): 모든 제목 후보로 비교.
+    비한국 콘텐츠: original_title/original_name으로만 비교하여
+    한국어 번역 제목과의 오매칭 방지.
+    """
+    is_ko = item.get("original_language") == "ko"
+    if is_ko:
+        candidates = [
+            item.get("title") or "",
+            item.get("name") or "",
+            item.get("original_title") or "",
+            item.get("original_name") or "",
+        ]
+    else:
+        candidates = [
+            item.get("original_title") or "",
+            item.get("original_name") or "",
+        ]
     candidates = [c for c in candidates if c]
     if not candidates:
         return 0.0
@@ -156,13 +168,19 @@ def fetch_backdrop_path(series_nm: str, ct_cl: str) -> str | None:
                 if not results:
                     continue
 
-                # 유사도 기준 정렬, 0.5 미만 제외
+                # 유사도 기준 정렬, 0.5 미만 제외 + 한국 콘텐츠 우선
                 scored = [(item, _title_similarity(query, item)) for item in results]
                 scored = [(item, sim) for item, sim in scored if sim >= 0.5]
                 if not scored:
                     continue
-                scored.sort(key=lambda x: x[1], reverse=True)
-                candidate, best_sim = scored[0]
+                ko = [(item, sim) for item, sim in scored
+                      if item.get("original_language") == "ko"]
+                if ko:
+                    ko.sort(key=lambda x: x[1], reverse=True)
+                    candidate, best_sim = ko[0]
+                else:
+                    scored.sort(key=lambda x: x[1], reverse=True)
+                    candidate, best_sim = scored[0]
 
                 bp = candidate.get("backdrop_path")
                 if bp:

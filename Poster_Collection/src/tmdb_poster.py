@@ -75,6 +75,24 @@ def _title_similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, a, b).ratio()
 
 
+def _item_sim(query: str, item: dict) -> float:
+    """query와 TMDB 결과의 제목 유사도.
+
+    한국 콘텐츠(original_language=ko): 모든 제목 후보로 비교.
+    비한국 콘텐츠: original_title/original_name으로만 비교하여
+    한국어 번역 제목과의 오매칭 방지.
+    """
+    is_ko = item.get("original_language") == "ko"
+    if is_ko:
+        names = _item_names(item)
+    else:
+        names = [item.get("original_title") or "", item.get("original_name") or ""]
+        names = [n for n in names if n]
+    if not names:
+        return 0.0
+    return max((_title_similarity(query, n) for n in names), default=0.0)
+
+
 def _item_names(item: dict) -> list[str]:
     """media_type에 관계없이 제목 후보 반환."""
     candidates = [
@@ -134,21 +152,28 @@ def _search_by_type(series_nm: str, ct_cl: str = None) -> Optional[dict]:
                     continue
                 results = r.json().get("results", [])
                 if not media_hint:
-                    # search/multi: person 제외
                     results = [x for x in results if x.get("media_type") in ("movie", "tv")]
                 if not results:
                     continue
 
-                def _sim(item: dict, q: str = query) -> float:
-                    names = _item_names(item)
-                    return max((_title_similarity(q, n) for n in names), default=0.0)
+                scored = [(item, _item_sim(query, item)) for item in results]
+                scored = [(item, sim) for item, sim in scored if sim >= _SIM_THRESHOLD]
+                if not scored:
+                    continue
 
-                best = max(results, key=_sim)
-                if _sim(best) >= _SIM_THRESHOLD:
-                    # search/movie, search/tv 결과에는 media_type이 없으므로 설정
-                    if media_hint and "media_type" not in best:
-                        best["media_type"] = media_hint
-                    return best
+                # 한국 콘텐츠 우선 선택
+                ko = [(item, sim) for item, sim in scored
+                      if item.get("original_language") == "ko"]
+                if ko:
+                    ko.sort(key=lambda x: x[1], reverse=True)
+                    best, _ = ko[0]
+                else:
+                    scored.sort(key=lambda x: x[1], reverse=True)
+                    best, _ = scored[0]
+
+                if media_hint and "media_type" not in best:
+                    best["media_type"] = media_hint
+                return best
             except Exception as e:
                 logger.debug("TMDB search 오류 (%s): %s", endpoint, e)
 

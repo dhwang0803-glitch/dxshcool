@@ -111,8 +111,17 @@ def _get_session():
 
 
 def _title_sim(query, item):
-    """query와 TMDB 결과의 제목 유사도 (최대값)."""
-    names = [item.get(k) or "" for k in ("title", "name", "original_title", "original_name")]
+    """query와 TMDB 결과의 제목 유사도.
+
+    한국 콘텐츠(original_language=ko): 모든 제목 후보로 비교.
+    비한국 콘텐츠: original_title/original_name으로만 비교하여
+    한국어 번역 제목과의 오매칭 방지 (예: "샤이닝" ↛ "The Shining").
+    """
+    is_ko = item.get("original_language") == "ko"
+    if is_ko:
+        names = [item.get(k) or "" for k in ("title", "name", "original_title", "original_name")]
+    else:
+        names = [item.get(k) or "" for k in ("original_title", "original_name")]
     names = [n for n in names if n]
     if not names:
         return 0.0
@@ -127,6 +136,10 @@ def _best_title(item):
 
 def search_tmdb(series_nm, ct_cl):
     """ct_cl 기반 TMDB 검색 → poster_path + backdrop_path 동시 반환.
+
+    한국 콘텐츠 우선: original_language=ko 결과를 먼저 선택.
+    비한국 결과는 원제(original_title)로만 유사도를 계산하여
+    한국어 번역 제목으로 인한 오매칭을 방지.
 
     Returns:
         {"poster_path": str|None, "backdrop_path": str|None,
@@ -157,8 +170,16 @@ def search_tmdb(series_nm, ct_cl):
             scored = [(item, sim) for item, sim in scored if sim >= SIM_THRESHOLD]
             if not scored:
                 continue
-            scored.sort(key=lambda x: x[1], reverse=True)
-            best, sim = scored[0]
+
+            # 한국 콘텐츠 우선 선택
+            ko_results = [(item, sim) for item, sim in scored
+                          if item.get("original_language") == "ko"]
+            if ko_results:
+                ko_results.sort(key=lambda x: x[1], reverse=True)
+                best, sim = ko_results[0]
+            else:
+                scored.sort(key=lambda x: x[1], reverse=True)
+                best, sim = scored[0]
 
             return {
                 "poster_path": best.get("poster_path"),
