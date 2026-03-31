@@ -256,8 +256,14 @@ async def get_personalized_sections(user_id: str) -> list[dict]:
                        rs.rec_sentence
                 FROM {tag_table} tr
                 JOIN public.vod v ON tr.vod_id_fk = v.full_asset_id
-                LEFT JOIN serving.rec_sentence rs
-                    ON rs.vod_id_fk = tr.vod_id_fk AND rs.segment_id = $2
+                LEFT JOIN LATERAL (
+                    SELECT rs2.rec_sentence
+                    FROM serving.rec_sentence rs2
+                    JOIN public.vod v2 ON rs2.vod_id_fk = v2.full_asset_id
+                    WHERE v2.series_nm = v.series_nm
+                      AND rs2.segment_id = $2
+                    LIMIT 1
+                ) rs ON true
                 WHERE tr.user_id_fk = $1
                   AND (tr.expires_at IS NULL OR tr.expires_at > NOW())
                   AND v.poster_url IS NOT NULL
