@@ -63,6 +63,7 @@ async def get_recommendations(user_id: str) -> dict:
             )
             for row in rows:
                 top_vods.append({
+                    "vod_id": row["vod_id_fk"],
                     "series_id": row["series_nm"] or row["asset_nm"],
                     "asset_nm": row["asset_nm"],
                     "poster_url": row["poster_url"],
@@ -93,6 +94,7 @@ async def get_recommendations(user_id: str) -> dict:
                     sid = row["series_nm"] or row["asset_nm"]
                     if sid not in seen_ids:
                         top_vods.append({
+                            "vod_id": row["vod_id_fk"],
                             "series_id": sid,
                             "asset_nm": row["asset_nm"],
                             "poster_url": row["poster_url"],
@@ -223,10 +225,10 @@ async def get_recommendations(user_id: str) -> dict:
             try:
                 async with pool.acquire() as conn:
                     segment_id = await get_segment_id(conn, user_id)
-                    vod_ids = [v["series_id"] for v in top_vods]
+                    vod_ids = [v["vod_id"] for v in top_vods]
                     rec_map = await get_rec_sentences(conn, vod_ids, segment_id)
                 for v in top_vods:
-                    v["rec_sentence"] = rec_map.get(v["series_id"])
+                    v["rec_sentence"] = rec_map.get(v["vod_id"])
             except Exception:
                 pass
         return {"top_vod": top_vods, "patterns": patterns, "source": "personalized"}
