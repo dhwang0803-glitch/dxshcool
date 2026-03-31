@@ -39,7 +39,7 @@ async def get_recommendations(user_id: str) -> dict:
     hybrid_table = "serving.hybrid_recommendation_test" if is_test else "serving.hybrid_recommendation"
     tag_table = "serving.tag_recommendation_test" if is_test else "serving.tag_recommendation"
 
-    # 1) top_vods: hybrid score 내림차순 top 5 (backdrop_url 없으면 다음 순위로)
+    # 1) top_vods: hybrid score 내림차순 top 10 (backdrop_url 없으면 다음 순위로)
     #    부족분은 cold_genre_detail (age_grp10 기반 연령대 맞춤 VOD)로 보충
     #    테스터 계정: youtube_video_id 없는 VOD 제외 (트레일러 재생 불가 콘텐츠 숨김)
     top_vods = []
@@ -53,15 +53,17 @@ async def get_recommendations(user_id: str) -> dict:
                 JOIN public.vod v ON r.vod_id_fk = v.full_asset_id
                 WHERE r.user_id_fk = $1
                   AND v.backdrop_url IS NOT NULL
+                  AND v.poster_url IS NOT NULL
                   {youtube_filter}
                   AND (r.expires_at IS NULL OR r.expires_at > NOW())
                 ORDER BY r.score DESC
-                LIMIT 5
+                LIMIT 10
                 """,
                 user_id,
             )
             for row in rows:
                 top_vods.append({
+                    "vod_id": row["vod_id_fk"],
                     "series_id": row["series_nm"] or row["asset_nm"],
                     "asset_nm": row["asset_nm"],
                     "poster_url": row["poster_url"],
@@ -69,7 +71,7 @@ async def get_recommendations(user_id: str) -> dict:
                 })
 
             # cold start 보충: hybrid 부족분을 연령대 기반 cold_genre_detail VOD로 채움
-            if len(top_vods) < 5:
+            if len(top_vods) < 10:
                 seen_ids = {v["series_id"] for v in top_vods}  # series_nm 기준
                 cold_rows = await conn.fetch(
                     f"""
@@ -79,18 +81,20 @@ async def get_recommendations(user_id: str) -> dict:
                     WHERE tr.user_id_fk = $1
                       AND tr.tag_category = 'cold_genre_detail'
                       AND v.backdrop_url IS NOT NULL
+                      AND v.poster_url IS NOT NULL
                       {youtube_filter}
                       AND (tr.expires_at IS NULL OR tr.expires_at > NOW())
                     ORDER BY tr.vod_score DESC
                     LIMIT $2
                     """,
                     user_id,
-                    5 - len(top_vods),
+                    10 - len(top_vods),
                 )
                 for row in cold_rows:
                     sid = row["series_nm"] or row["asset_nm"]
                     if sid not in seen_ids:
                         top_vods.append({
+                            "vod_id": row["vod_id_fk"],
                             "series_id": sid,
                             "asset_nm": row["asset_nm"],
                             "poster_url": row["poster_url"],
@@ -113,7 +117,9 @@ async def get_recommendations(user_id: str) -> dict:
                 FROM {tag_table} tr
                 JOIN public.vod v ON tr.vod_id_fk = v.full_asset_id
                 WHERE tr.user_id_fk = $1
-                  AND tr.tag_category IN ('genre_detail', 'director', 'actor_lead', 'actor_guest', 'cold_genre_detail')
+                  AND (tr.tag_category IN ('genre_detail', 'director', 'actor_lead', 'actor_guest')
+                       OR (tr.tag_category = 'cold_genre_detail' AND tr.tag_rank >= 4))
+                  AND v.poster_url IS NOT NULL
                   AND (tr.expires_at IS NULL OR tr.expires_at > NOW())
                 ORDER BY tr.tag_rank, tr.vod_rank
                 """,
@@ -123,44 +129,46 @@ async def get_recommendations(user_id: str) -> dict:
         # cold_genre_detail 라벨에 필요한 유저 이름(해시 앞 5자)
         user_label = user_id[:5]
 
-        # tag_rank별 그룹핑 + 조건부 중복 제거
+        # (tag_category, tag_value)별 그룹핑 + 조건부 중복 제거
         # cold_genre_detail은 개인화 태그 뒤에 배치하기 위해 rank 오프셋 적용
-        grouped: dict[int, dict] = {}
-        seen_per_rank: dict[int, set] = {}
         cold_offset = 100  # cold 태그 rank를 뒤로 밀기
+        grouped: dict[tuple, dict] = {}          # key: (category, value)
+        seen_per_group: dict[tuple, set] = {}    # series 중복 제거용
         for r in rows:
             category = r["tag_category"]
+            tag_value = r["tag_value"]
             rank = r["tag_rank"] + (cold_offset if category == "cold_genre_detail" else 0)
             ct_cl = r["ct_cl"] or ""
             nm = r["series_nm"] or r["asset_nm"]
-            if rank not in grouped:
-                grouped[rank] = {
-                    "pattern_rank": rank,
-                    "pattern_reason": _make_reason(category, r["tag_value"], user_label),
-                    "tag_category": category,
+            group_key = (category, tag_value)
+            if group_key not in grouped:
+                grouped[group_key] = {
+                    "sort_rank": rank,
+                    "pattern_reason": _make_reason(category, tag_value, user_label),
                     "vod_list": [],
                 }
-                seen_per_rank[rank] = set()
+                seen_per_group[group_key] = set()
 
             # actor_guest/director + TV 연예/오락 → 에피소드 단위 (중복 제거 안함)
             is_actor_variety = (category in ("actor_guest", "director") and ct_cl == "TV 연예/오락")
             if not is_actor_variety:
-                if nm in seen_per_rank[rank]:
+                if nm in seen_per_group[group_key]:
                     continue
-                seen_per_rank[rank].add(nm)
+                seen_per_group[group_key].add(nm)
 
-            grouped[rank]["vod_list"].append({
+            grouped[group_key]["vod_list"].append({
                 "series_id": r["series_nm"] or r["asset_nm"],
                 "asset_nm": r["asset_nm"],
                 "poster_url": r["poster_url"],
                 "score": r["vod_score"],
             })
 
-        # tag_category는 내부용이므로 응답에서 제거, rank 재번호
+        # sort_rank 기준 정렬 → pattern_rank 재번호
         patterns = []
-        for idx, k in enumerate(sorted(grouped.keys()), 1):
-            g = grouped[k]
-            g.pop("tag_category", None)
+        for idx, (_, g) in enumerate(
+            sorted(grouped.items(), key=lambda x: x[1]["sort_rank"]), 1
+        ):
+            g.pop("sort_rank", None)
             g["pattern_rank"] = idx
             patterns.append(g)
     except Exception:
@@ -217,10 +225,10 @@ async def get_recommendations(user_id: str) -> dict:
             try:
                 async with pool.acquire() as conn:
                     segment_id = await get_segment_id(conn, user_id)
-                    vod_ids = [v["series_id"] for v in top_vods]
+                    vod_ids = [v["vod_id"] for v in top_vods]
                     rec_map = await get_rec_sentences(conn, vod_ids, segment_id)
                 for v in top_vods:
-                    v["rec_sentence"] = rec_map.get(v["series_id"])
+                    v["rec_sentence"] = rec_map.get(v["vod_id"])
             except Exception:
                 pass
         return {"top_vod": top_vods, "patterns": patterns, "source": "personalized"}
@@ -231,10 +239,11 @@ async def get_recommendations(user_id: str) -> dict:
             rows = await conn.fetch(
                 f"""
                 SELECT pr.vod_id_fk, pr.score,
-                       v.asset_nm, v.poster_url, v.backdrop_url
+                       v.series_nm, v.asset_nm, v.poster_url, v.backdrop_url
                 FROM serving.popular_recommendation pr
                 JOIN public.vod v ON pr.vod_id_fk = v.full_asset_id
                 WHERE v.backdrop_url IS NOT NULL
+                  AND v.poster_url IS NOT NULL
                   {youtube_filter}
                   AND (pr.expires_at IS NULL OR pr.expires_at > NOW())
                 ORDER BY pr.score DESC
@@ -245,7 +254,8 @@ async def get_recommendations(user_id: str) -> dict:
         if rows:
             top_vods = [
                 {
-                    "series_id": r["vod_id_fk"],
+                    "vod_id": r["vod_id_fk"],
+                    "series_id": r["series_nm"] or r["asset_nm"],
                     "asset_nm": r["asset_nm"],
                     "poster_url": r["poster_url"],
                     "backdrop_url": r["backdrop_url"],
@@ -257,7 +267,7 @@ async def get_recommendations(user_id: str) -> dict:
                 "pattern_reason": "지금 인기 있는 콘텐츠",
                 "vod_list": [
                     {
-                        "series_id": r["vod_id_fk"],
+                        "series_id": r["series_nm"] or r["asset_nm"],
                         "asset_nm": r["asset_nm"],
                         "poster_url": r["poster_url"],
                         "score": r["score"],
