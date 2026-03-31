@@ -239,7 +239,7 @@ async def get_recommendations(user_id: str) -> dict:
             rows = await conn.fetch(
                 f"""
                 SELECT pr.vod_id_fk, pr.score,
-                       v.asset_nm, v.poster_url, v.backdrop_url
+                       v.series_nm, v.asset_nm, v.poster_url, v.backdrop_url
                 FROM serving.popular_recommendation pr
                 JOIN public.vod v ON pr.vod_id_fk = v.full_asset_id
                 WHERE v.backdrop_url IS NOT NULL
@@ -254,7 +254,8 @@ async def get_recommendations(user_id: str) -> dict:
         if rows:
             top_vods = [
                 {
-                    "series_id": r["vod_id_fk"],
+                    "vod_id": r["vod_id_fk"],
+                    "series_id": r["series_nm"] or r["asset_nm"],
                     "asset_nm": r["asset_nm"],
                     "poster_url": r["poster_url"],
                     "backdrop_url": r["backdrop_url"],
@@ -266,7 +267,7 @@ async def get_recommendations(user_id: str) -> dict:
                 "pattern_reason": "지금 인기 있는 콘텐츠",
                 "vod_list": [
                     {
-                        "series_id": r["vod_id_fk"],
+                        "series_id": r["series_nm"] or r["asset_nm"],
                         "asset_nm": r["asset_nm"],
                         "poster_url": r["poster_url"],
                         "score": r["score"],
