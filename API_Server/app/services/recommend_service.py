@@ -53,6 +53,7 @@ async def get_recommendations(user_id: str) -> dict:
                 JOIN public.vod v ON r.vod_id_fk = v.full_asset_id
                 WHERE r.user_id_fk = $1
                   AND v.backdrop_url IS NOT NULL
+                  AND v.poster_url IS NOT NULL
                   {youtube_filter}
                   AND (r.expires_at IS NULL OR r.expires_at > NOW())
                 ORDER BY r.score DESC
@@ -62,6 +63,7 @@ async def get_recommendations(user_id: str) -> dict:
             )
             for row in rows:
                 top_vods.append({
+                    "vod_id": row["vod_id_fk"],
                     "series_id": row["series_nm"] or row["asset_nm"],
                     "asset_nm": row["asset_nm"],
                     "poster_url": row["poster_url"],
@@ -79,6 +81,7 @@ async def get_recommendations(user_id: str) -> dict:
                     WHERE tr.user_id_fk = $1
                       AND tr.tag_category = 'cold_genre_detail'
                       AND v.backdrop_url IS NOT NULL
+                      AND v.poster_url IS NOT NULL
                       {youtube_filter}
                       AND (tr.expires_at IS NULL OR tr.expires_at > NOW())
                     ORDER BY tr.vod_score DESC
@@ -91,6 +94,7 @@ async def get_recommendations(user_id: str) -> dict:
                     sid = row["series_nm"] or row["asset_nm"]
                     if sid not in seen_ids:
                         top_vods.append({
+                            "vod_id": row["vod_id_fk"],
                             "series_id": sid,
                             "asset_nm": row["asset_nm"],
                             "poster_url": row["poster_url"],
@@ -113,7 +117,9 @@ async def get_recommendations(user_id: str) -> dict:
                 FROM {tag_table} tr
                 JOIN public.vod v ON tr.vod_id_fk = v.full_asset_id
                 WHERE tr.user_id_fk = $1
-                  AND tr.tag_category IN ('genre_detail', 'director', 'actor_lead', 'actor_guest', 'cold_genre_detail')
+                  AND (tr.tag_category IN ('genre_detail', 'director', 'actor_lead', 'actor_guest')
+                       OR (tr.tag_category = 'cold_genre_detail' AND tr.tag_rank >= 4))
+                  AND v.poster_url IS NOT NULL
                   AND (tr.expires_at IS NULL OR tr.expires_at > NOW())
                 ORDER BY tr.tag_rank, tr.vod_rank
                 """,
@@ -219,10 +225,10 @@ async def get_recommendations(user_id: str) -> dict:
             try:
                 async with pool.acquire() as conn:
                     segment_id = await get_segment_id(conn, user_id)
-                    vod_ids = [v["series_id"] for v in top_vods]
+                    vod_ids = [v["vod_id"] for v in top_vods]
                     rec_map = await get_rec_sentences(conn, vod_ids, segment_id)
                 for v in top_vods:
-                    v["rec_sentence"] = rec_map.get(v["series_id"])
+                    v["rec_sentence"] = rec_map.get(v["vod_id"])
             except Exception:
                 pass
         return {"top_vod": top_vods, "patterns": patterns, "source": "personalized"}
@@ -237,6 +243,7 @@ async def get_recommendations(user_id: str) -> dict:
                 FROM serving.popular_recommendation pr
                 JOIN public.vod v ON pr.vod_id_fk = v.full_asset_id
                 WHERE v.backdrop_url IS NOT NULL
+                  AND v.poster_url IS NOT NULL
                   {youtube_filter}
                   AND (pr.expires_at IS NULL OR pr.expires_at > NOW())
                 ORDER BY pr.score DESC
