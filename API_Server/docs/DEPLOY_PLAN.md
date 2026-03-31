@@ -1,8 +1,8 @@
 # API Server 배포 계획
 
-> 작성일: 2026-03-23
+> 작성일: 2026-03-23 / 최종 수정: 2026-03-31
 > 대상: Cloud Run Service (GCP)
-> 상태: 계획 확정
+> 상태: 운영 중 (dev + prod 배포 완료)
 
 ---
 
@@ -162,13 +162,13 @@ Cloud Run 서비스에 설정할 변수:
 
 ## 4. 배포 전 체크리스트
 
-### 1회성 초기 설정
+### 1회성 초기 설정 (완료)
 
-- [ ] `release` 브랜치 생성 (`main` 기준)
-- [ ] VPC 커넥터 생성
-- [ ] Cloud Build 트리거 생성
-- [ ] 환경변수 / Secret Manager 등록
-- [ ] `main.py` CORS에 `FRONTEND_URL` 환경변수 반영
+- [x] `release` 브랜치 생성 (`main` 기준)
+- [x] VPC 커넥터 생성
+- [x] Cloud Build 트리거 생성
+- [x] 환경변수 / Secret Manager 등록
+- [x] `main.py` CORS에 Frontend URL 반영 (dev + release)
 
 ### 매 배포 시
 
