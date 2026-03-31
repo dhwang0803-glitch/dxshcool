@@ -45,7 +45,7 @@ import uvicorn
 
 | 메서드 | 경로 | 설명 | 소스 |
 |--------|------|------|------|
-| GET | `/recommend/{user_id}` | 스마트 추천: 태그 배너(genre_detail 3 + director 2 + actor 4) + 벡터 유사도 + top_vod | hybrid_recommendation + tag_recommendation + user_embedding + vod_meta_embedding |
+| GET | `/recommend/{user_id}` | 스마트 추천: top_vod 10건(backdrop 히어로) + 태그 패턴(genre_detail/director/actor_lead/actor_guest/cold_genre_detail) + 벡터 유사도 + rec_sentence | hybrid_recommendation + tag_recommendation + user_embedding + vod_series_embedding + rec_sentence |
 | GET | `/similar/{asset_id}` | 유사 콘텐츠 | Vector_Search (`source_vod_id` + `recommendation_type = 'CONTENT_BASED'`) |
 | WS | `/ad/popup` | 실시간 광고 팝업 (WebSocket) | Shopping_Ad |
 | GET | `/vod/{asset_id}` | VOD 상세 메타데이터 (+is_free, release_year) | DB |
@@ -69,7 +69,7 @@ import uvicorn
 | POST | `/reservations` | 시청예약 등록 | watch_reservation |
 | GET | `/reservations` | 시청예약 목록 (미알림) | watch_reservation |
 | DELETE | `/reservations/{id}` | 시청예약 취소 | watch_reservation |
-| GET | `/home/sections/{user_id}` | 홈 개인화: genre 태그 3 + 벡터 유사도 2그룹 + TOP10(rec_sentence) = 6개 배너 | tag_recommendation + user_embedding + vod_meta_embedding + rec_sentence |
+| GET | `/home/sections/{user_id}` | 홈 개인화: genre 태그 + cold_genre_detail + 벡터 유사도 2그룹 + TOP10(rec_sentence) 최대 ~10개 배너 | tag_recommendation + user_embedding + vod_series_embedding + rec_sentence |
 | GET | `/user/me/notifications` | 알림 목록 (최신순) | notifications |
 | PATCH | `/user/me/notifications/{id}/read` | 알림 읽음 처리 | notifications |
 | POST | `/user/me/notifications/read-all` | 전체 읽음 처리 | notifications |

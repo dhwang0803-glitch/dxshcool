@@ -39,7 +39,7 @@ async def get_recommendations(user_id: str) -> dict:
     hybrid_table = "serving.hybrid_recommendation_test" if is_test else "serving.hybrid_recommendation"
     tag_table = "serving.tag_recommendation_test" if is_test else "serving.tag_recommendation"
 
-    # 1) top_vods: hybrid score 내림차순 top 5 (backdrop_url 없으면 다음 순위로)
+    # 1) top_vods: hybrid score 내림차순 top 10 (backdrop_url 없으면 다음 순위로)
     #    부족분은 cold_genre_detail (age_grp10 기반 연령대 맞춤 VOD)로 보충
     #    테스터 계정: youtube_video_id 없는 VOD 제외 (트레일러 재생 불가 콘텐츠 숨김)
     top_vods = []
@@ -57,7 +57,7 @@ async def get_recommendations(user_id: str) -> dict:
                   {youtube_filter}
                   AND (r.expires_at IS NULL OR r.expires_at > NOW())
                 ORDER BY r.score DESC
-                LIMIT 5
+                LIMIT 10
                 """,
                 user_id,
             )
@@ -71,7 +71,7 @@ async def get_recommendations(user_id: str) -> dict:
                 })
 
             # cold start 보충: hybrid 부족분을 연령대 기반 cold_genre_detail VOD로 채움
-            if len(top_vods) < 5:
+            if len(top_vods) < 10:
                 seen_ids = {v["series_id"] for v in top_vods}  # series_nm 기준
                 cold_rows = await conn.fetch(
                     f"""
@@ -88,7 +88,7 @@ async def get_recommendations(user_id: str) -> dict:
                     LIMIT $2
                     """,
                     user_id,
-                    5 - len(top_vods),
+                    10 - len(top_vods),
                 )
                 for row in cold_rows:
                     sid = row["series_nm"] or row["asset_nm"]
