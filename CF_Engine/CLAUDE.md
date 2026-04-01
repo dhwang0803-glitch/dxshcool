@@ -27,8 +27,11 @@ CF_Engine/
 | 추천 결과 포매터 | `src/recommender.py` |
 | 모델 학습 실행 | `scripts/train.py` |
 | 모델 평가 (NDCG, MRR) | `scripts/evaluate.py` |
+| 전체 평가 실행 | `scripts/full_eval.py` |
 | 추천 결과 DB 적재 | `scripts/export_to_db.py` |
-| pytest | `tests/` |
+| 추천 결과 검사 | `scripts/inspect_recommendations.py` |
+| 유사 추천 복사 | `scripts/copy_similar_recommendations.py` |
+| pytest | `tests/test_als_model.py`, `test_data_loader.py`, `test_recommender.py` |
 | 하이퍼파라미터 설정 | `config/als_config.yaml` |
 
 **`CF_Engine/` 루트 또는 프로젝트 루트에 `.py` 파일 직접 생성 금지.**
@@ -97,3 +100,8 @@ python scripts/train.py --dry-run
 | `serving.vod_recommendation` | `rank` | SMALLINT | Top-K 순위 |
 | `serving.vod_recommendation` | `score` | REAL | ALS 추천 점수 |
 | `serving.vod_recommendation` | `recommendation_type` | VARCHAR | 고정값: `'COLLABORATIVE'` |
+| `serving.popular_recommendation` | `ct_cl` | VARCHAR(64) | CT_CL별 Top-N |
+| `serving.popular_recommendation` | `rank` | SMALLINT | 순위 |
+| `serving.popular_recommendation` | `vod_id_fk` | VARCHAR(64) | FK → vod |
+| `serving.popular_recommendation` | `score` | REAL | 인기 점수 |
+| `serving.popular_recommendation` | `recommendation_type` | VARCHAR(32) | 고정값: `'POPULAR'` |
