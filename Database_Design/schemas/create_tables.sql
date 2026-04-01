@@ -76,6 +76,7 @@ CREATE TABLE vod (
     -- Poster_Collection 파이프라인이 채우는 포스터 경로 (2026-03-11 추가)
     -- VPC 업로드 후 경로 또는 URL. NULL = 미수집.
     poster_url          TEXT,
+    backdrop_url        TEXT,                   -- TMDB backdrop 이미지 URL. 히어로 배너 배경용. (2026-04-01 추가)
 
     -- disp_rtm를 분 단위로 변환한 값 (2026-03-14 추가)
     disp_rtm_min        SMALLINT,               -- ROUND(disp_rtm_sec / 60). 프론트엔드 표시용.
