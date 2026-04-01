@@ -3,6 +3,8 @@ Poster_Collection 클래스 구조 및 하위호환 검증 테스트.
 """
 import os
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 _root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, _root)
@@ -134,3 +136,75 @@ class TestDBUpdaterClass:
         from Poster_Collection.src.db_updater import DBUpdater
         result = DBUpdater.update_poster_urls(None, {})
         assert result == 0
+
+
+class TestThreadSafety:
+    """TvingPoster 캐시의 병렬 접근 안전성 검증."""
+
+    def test_channel_cache_concurrent_writes(self):
+        """여러 스레드가 동시에 _channel_cache에 쓸 때 race condition 없음."""
+        from Poster_Collection.src.tving_poster import TvingPoster
+
+        # 테스트 전 캐시 초기화
+        with TvingPoster._channel_lock:
+            TvingPoster._channel_cache.clear()
+
+        errors = []
+
+        def _write(i):
+            try:
+                key = f"TEST_P{i:04d}"
+                with TvingPoster._channel_lock:
+                    TvingPoster._channel_cache[key] = f"CH{i}"
+            except Exception as e:
+                errors.append(e)
+
+        with ThreadPoolExecutor(max_workers=10) as ex:
+            futures = [ex.submit(_write, i) for i in range(100)]
+            for f in as_completed(futures):
+                f.result()
+
+        assert len(errors) == 0
+        with TvingPoster._channel_lock:
+            assert len(TvingPoster._channel_cache) == 100
+            # 정리
+            for i in range(100):
+                TvingPoster._channel_cache.pop(f"TEST_P{i:04d}", None)
+
+    def test_index_cache_double_checked_locking(self):
+        """_load_index의 double-checked locking이 정상 동작하는지 검증."""
+        from Poster_Collection.src.tving_poster import TvingPoster
+
+        # 캐시에 테스트 데이터 주입
+        original = TvingPoster._index_cache
+        test_data = {"test_key": [{"base_nm": "test", "season": 1}]}
+
+        with TvingPoster._index_lock:
+            TvingPoster._index_cache = test_data
+
+        results = []
+
+        def _load(_):
+            try:
+                cache = TvingPoster._load_index()
+                results.append(id(cache))
+            except Exception:
+                pass
+
+        with ThreadPoolExecutor(max_workers=5) as ex:
+            futures = [ex.submit(_load, i) for i in range(20)]
+            for f in as_completed(futures):
+                f.result()
+
+        # 모든 스레드가 동일 객체를 반환해야 함
+        assert len(set(results)) == 1
+
+        # 복원
+        with TvingPoster._index_lock:
+            TvingPoster._index_cache = original
+
+    def test_has_threading_locks(self):
+        """TvingPoster에 lock 속성이 존재하는지 확인."""
+        from Poster_Collection.src.tving_poster import TvingPoster
+        assert isinstance(TvingPoster._index_lock, type(threading.Lock()))
+        assert isinstance(TvingPoster._channel_lock, type(threading.Lock()))

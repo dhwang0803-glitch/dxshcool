@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -75,11 +76,17 @@ _TRAIL_NUM = re.compile(r'\s+(\d{1,2})$')
 
 
 class TvingPoster(PosterBase):
-    """Tving 사이트맵 기반 포스터 검색 클래스."""
+    """Tving 사이트맵 기반 포스터 검색 클래스.
 
-    # 인스턴스별 캐시 (모듈-레벨 캐시 대체)
+    _index_cache / _channel_cache는 threading.Lock으로 보호하여
+    ThreadPoolExecutor 병렬 크롤링 시 race condition을 방지한다.
+    """
+
     _index_cache: dict | None = None
+    _index_lock = threading.Lock()
+
     _channel_cache: dict[str, str] = {}
+    _channel_lock = threading.Lock()
 
     @staticmethod
     def parse_season_from_title(title: str) -> tuple[str, int]:
@@ -226,23 +233,30 @@ class TvingPoster(PosterBase):
 
     @classmethod
     def _load_index(cls, index_path: str | Path = _DEFAULT_INDEX_PATH) -> dict:
+        # 빠른 경로: 이미 로드됨 (lock 없이 읽기 — dict 참조는 atomic)
         if cls._index_cache is not None:
             return cls._index_cache
-        index_path = Path(index_path)
-        if not index_path.exists():
-            raise FileNotFoundError(
-                f"tving_index.json 없음: {index_path}\n"
-                "먼저 tving_poster.build_index() 를 실행하세요."
-            )
-        with open(index_path, encoding="utf-8") as f:
-            cls._index_cache = json.load(f)
-        return cls._index_cache
+        # 느린 경로: 최초 로드 시 lock으로 보호 (중복 로드 방지)
+        with cls._index_lock:
+            if cls._index_cache is not None:
+                return cls._index_cache
+            index_path = Path(index_path)
+            if not index_path.exists():
+                raise FileNotFoundError(
+                    f"tving_index.json 없음: {index_path}\n"
+                    "먼저 tving_poster.build_index() 를 실행하세요."
+                )
+            with open(index_path, encoding="utf-8") as f:
+                cls._index_cache = json.load(f)
+            return cls._index_cache
 
     @classmethod
     def _get_channel(cls, p_code: str) -> str:
-        """P-code 콘텐츠 페이지에서 방송 채널 추출 (캐시 적용)."""
-        if p_code in cls._channel_cache:
-            return cls._channel_cache[p_code]
+        """P-code 콘텐츠 페이지에서 방송 채널 추출 (thread-safe 캐시)."""
+        with cls._channel_lock:
+            if p_code in cls._channel_cache:
+                return cls._channel_cache[p_code]
+        # lock 밖에서 HTTP 요청 (I/O 블로킹을 lock 안에서 하면 병렬성 저하)
         try:
             r = requests.get(
                 f"https://www.tving.com/contents/{p_code}",
@@ -253,7 +267,8 @@ class TvingPoster(PosterBase):
             channel = m.group(1) if m else ""
         except Exception:
             channel = ""
-        cls._channel_cache[p_code] = channel
+        with cls._channel_lock:
+            cls._channel_cache[p_code] = channel
         return channel
 
     @classmethod
@@ -342,6 +357,5 @@ _similarity = TvingPoster.title_similarity
 _fetch_one = TvingPoster._fetch_one
 _get_channel = TvingPoster._get_channel
 
-# 모듈-레벨 캐시 호환 (기존 코드에서 직접 접근하던 경우)
-_INDEX_CACHE = None
-_CHANNEL_CACHE = TvingPoster._channel_cache
+# 모듈-레벨 캐시 접근은 TvingPoster 클래스 메서드를 통해서만 (lock 보호)
+# 직접 _INDEX_CACHE/_CHANNEL_CACHE 접근은 thread-unsafe이므로 제거
