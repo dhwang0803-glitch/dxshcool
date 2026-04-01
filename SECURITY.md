@@ -76,24 +76,22 @@ data/
 
 ---
 
-## 5. 커밋 전 점검 (Claude Code 사용 시)
+## 5. 커밋 전 점검
 
-Claude Code를 사용한다면 커밋 전 보안 감사 커맨드를 실행하세요:
-```
-/security-audit
-```
+PR 생성 시 `/PR-report` 스킬이 아래 보안 점검을 자동 수행합니다:
 
-수동으로 점검할 경우:
 ```bash
 # 하드코딩 자격증명 스캔
-grep -rn "API_KEY\s*=\s*[\"'][^\"']\+[\"']" --include="*.py" .
+git diff | grep -E "(password|secret|api_key|token|host)\s*=\s*['\"][^'\"]{4,}"
 
-# os.getenv 기본값 스캔
-grep -rn "os\.getenv(" --include="*.py" .
+# os.getenv 기본값에 실제 인프라 정보 스캔
+git diff | grep -E "os\.getenv\(.+,\s*['\"]"
 
 # staged 파일에 .env 포함 여부
 git diff --cached --name-only | grep '\.env'
 ```
+
+수동 점검 시에도 위 명령어를 사용하세요.
 
 ---
 
