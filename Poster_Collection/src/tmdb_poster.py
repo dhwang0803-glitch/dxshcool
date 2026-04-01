@@ -1,15 +1,16 @@
 """
-TMDB 포스터 수집 모듈 (search/multi 통합).
+TMDB 포스터 수집 모듈 (ct_cl 기반 search/movie · search/tv 분리).
 
 전략:
-  1. search/multi 로 series_nm 검색 → media_type(movie/tv) 자동 판별
-  2. movie → 바로 poster_path 사용
-  3. tv    → /tv/{id} 상세 조회 → seasons[].poster_path 에서 시즌 포스터 획득
-  4. 시즌 포스터 없으면 시리즈 메인 poster_path로 fallback
+  1. ct_cl로 media_type 결정 → search/movie 또는 search/tv 엔드포인트 직접 호출
+  2. ct_cl 없으면 search/multi fallback (기존 동작)
+  3. movie → 바로 poster_path 사용
+  4. tv    → /tv/{id} 상세 조회 → seasons[].poster_path 에서 시즌 포스터 획득
+  5. 시즌 포스터 없으면 시리즈 메인 poster_path로 fallback
 
 사용 예:
     from Poster_Collection.src import tmdb_poster
-    r = tmdb_poster.search("신서유기", season=2)
+    r = tmdb_poster.search("신서유기", season=2, ct_cl="TV드라마")
     # -> {"image_url": "https://image.tmdb.org/t/p/w500/...", "width": 500, "height": 750}
 """
 
@@ -74,6 +75,24 @@ def _title_similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, a, b).ratio()
 
 
+def _item_sim(query: str, item: dict) -> float:
+    """query와 TMDB 결과의 제목 유사도.
+
+    한국 콘텐츠(original_language=ko): 모든 제목 후보로 비교.
+    비한국 콘텐츠: original_title/original_name으로만 비교하여
+    한국어 번역 제목과의 오매칭 방지.
+    """
+    is_ko = item.get("original_language") == "ko"
+    if is_ko:
+        names = _item_names(item)
+    else:
+        names = [item.get("original_title") or "", item.get("original_name") or ""]
+        names = [n for n in names if n]
+    if not names:
+        return 0.0
+    return max((_title_similarity(query, n) for n in names), default=0.0)
+
+
 def _item_names(item: dict) -> list[str]:
     """media_type에 관계없이 제목 후보 반환."""
     candidates = [
@@ -85,8 +104,28 @@ def _item_names(item: dict) -> list[str]:
     return [n for n in candidates if n]
 
 
-def _search_multi(series_nm: str) -> Optional[dict]:
-    """TMDB search/multi → movie/tv 중 최고 유사도 결과 반환 (person 제외)."""
+# ct_cl → TMDB media_type 매핑
+_CT_CL_MEDIA = {
+    "영화":        "movie",
+    "TV드라마":    "tv",
+    "TV애니메이션": "tv",
+    "키즈":        "tv",
+    "TV 시사/교양": "tv",
+    "TV 연예/오락": "tv",
+    "공연/음악":   "movie",
+    "다큐":        "tv",
+    "교육":        "tv",
+}
+
+_SIM_THRESHOLD = 0.5
+
+
+def _search_by_type(series_nm: str, ct_cl: str = None) -> Optional[dict]:
+    """ct_cl 기반으로 search/movie 또는 search/tv 엔드포인트 직접 호출.
+
+    ct_cl이 없으면 search/multi fallback.
+    유사도 0.5 이상인 결과 중 최고 유사도 항목 반환.
+    """
     if not _tmdb_available():
         return None
 
@@ -94,11 +133,17 @@ def _search_multi(series_nm: str) -> Optional[dict]:
     spaced = re.sub(r'([가-힣A-Za-z])(\d)', r'\1 \2', clean)
     queries = list(dict.fromkeys([clean, spaced]))
 
+    media_hint = _CT_CL_MEDIA.get(ct_cl) if ct_cl else None
+    if media_hint:
+        endpoint = f"{_TMDB_URL}/search/{'movie' if media_hint == 'movie' else 'tv'}"
+    else:
+        endpoint = f"{_TMDB_URL}/search/multi"
+
     for lang in ("ko-KR", "en-US"):
         for query in queries:
             try:
                 r = requests.get(
-                    f"{_TMDB_URL}/search/multi",
+                    endpoint,
                     params=_tmdb_params({"query": query, "language": lang, "page": 1}),
                     headers=_tmdb_headers(),
                     timeout=REQUEST_TIMEOUT,
@@ -106,20 +151,31 @@ def _search_multi(series_nm: str) -> Optional[dict]:
                 if r.status_code != 200:
                     continue
                 results = r.json().get("results", [])
-                # person 결과 제외
-                results = [x for x in results if x.get("media_type") in ("movie", "tv")]
+                if not media_hint:
+                    results = [x for x in results if x.get("media_type") in ("movie", "tv")]
                 if not results:
                     continue
 
-                def _sim(item: dict, q: str = query) -> float:
-                    names = _item_names(item)
-                    return max((_title_similarity(q, n) for n in names), default=0.0)
+                scored = [(item, _item_sim(query, item)) for item in results]
+                scored = [(item, sim) for item, sim in scored if sim >= _SIM_THRESHOLD]
+                if not scored:
+                    continue
 
-                best = max(results, key=_sim)
-                if _sim(best) > 0.3:
-                    return best
+                # 한국 콘텐츠 우선 선택
+                ko = [(item, sim) for item, sim in scored
+                      if item.get("original_language") == "ko"]
+                if ko:
+                    ko.sort(key=lambda x: x[1], reverse=True)
+                    best, _ = ko[0]
+                else:
+                    scored.sort(key=lambda x: x[1], reverse=True)
+                    best, _ = scored[0]
+
+                if media_hint and "media_type" not in best:
+                    best["media_type"] = media_hint
+                return best
             except Exception as e:
-                logger.debug("TMDB multi search 오류: %s", e)
+                logger.debug("TMDB search 오류 (%s): %s", endpoint, e)
 
     return None
 
@@ -149,7 +205,7 @@ def search(
     sleep: float = 0.25,
 ) -> Optional[dict]:
     """
-    TMDB search/multi로 포스터 URL 조회 (movie/tv 자동 판별).
+    ct_cl 기반 TMDB 검색으로 포스터 URL 조회 (movie/tv 엔드포인트 분리).
 
     Returns:
         {"image_url": str, "width": 500, "height": 750,
@@ -161,7 +217,7 @@ def search(
         logger.warning("TMDB API 키 없음 — TMDB_API_KEY 또는 TMDB_READ_ACCESS_TOKEN 설정 필요")
         return None
 
-    result = _search_multi(series_nm)
+    result = _search_by_type(series_nm, ct_cl=ct_cl)
     if not result:
         return None
 

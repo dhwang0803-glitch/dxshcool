@@ -21,11 +21,22 @@ except Exception:
     pass
 
 import pandas as pd
+import json as json_module
 
 PROJECT_ROOT = Path(__file__).parent.parent
 DEFAULT_PARQUET_DIR = PROJECT_ROOT.parent / "Object_Detection" / "data" / "parquet_output"
+METADATA_PATH = PROJECT_ROOT.parent / "Object_Detection" / "data" / "batch_target" / "vod_metadata.json"
 OUTPUT_DIR = PROJECT_ROOT / "data"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def load_metadata_locations():
+    """vod_metadata.json에서 primary_location 로드"""
+    if not METADATA_PATH.exists():
+        return {}
+    with open(METADATA_PATH, encoding="utf-8") as f:
+        data = json_module.load(f)
+    return {item["file_id"]: item.get("primary_location") for item in data}
 
 
 def load_parquet(parquet_dir, name):
@@ -42,6 +53,9 @@ def build_summary(parquet_dir):
     df_clip = load_parquet(parquet_dir, "vod_clip_concept.parquet")
     df_stt = load_parquet(parquet_dir, "vod_stt_concept.parquet")
     df_ocr = load_parquet(parquet_dir, "vod_ocr_concept.parquet")
+
+    # 메타데이터 기반 primary_location (1차 필터링)
+    metadata_locations = load_metadata_locations()
 
     # 모든 VOD ID 수집
     all_vods = set()
@@ -78,27 +92,34 @@ def build_summary(parquet_dir):
 
         ad_regions = [r for r, _ in regions.most_common(10)]
 
-        # primary_region: 도시/지역명 우선, 명소(경기전, 태종대 등) 후순위
-        # 명소는 보통 3글자 이상 + 산/사/궁/대교/시장 등 포함
-        LANDMARK_SUFFIXES = ("산", "사", "궁", "대교", "시장", "오일장", "해변", "해수욕장",
-                             "마을", "성", "봉", "폭포", "길", "공원")
-        KNOWN_LANDMARKS = {"경기전", "객사", "태종대", "광안대교", "상당산성",
-                           "정선아리랑시장", "정선오일장", "한옥마을", "순천만"}
+        # primary_region 결정: 메타데이터 > 도시 > 명소
+        # 1차: 메타데이터 primary_location (asset_nm/smry 기반, 가장 정확)
+        meta_location = metadata_locations.get(vod_id)
 
-        def is_landmark(name):
-            if name in KNOWN_LANDMARKS:
-                return True
-            for suffix in LANDMARK_SUFFIXES:
-                if name.endswith(suffix):
+        if meta_location:
+            primary_region = meta_location
+        else:
+            # 2차: STT/OCR에서 도시 우선, 명소 후순위
+            LANDMARK_SUFFIXES = ("산", "사", "궁", "대교", "시장", "오일장", "해변", "해수욕장",
+                                 "마을", "성", "봉", "폭포", "길", "공원")
+            KNOWN_LANDMARKS = {"경기전", "객사", "태종대", "광안대교", "상당산성",
+                               "정선아리랑시장", "정선오일장", "한옥마을", "순천만"}
+
+            def is_landmark(name):
+                if name in KNOWN_LANDMARKS:
                     return True
-            return False
+                for suffix in LANDMARK_SUFFIXES:
+                    if name.endswith(suffix):
+                        return True
+                return False
 
-        # 도시 우선 정렬: 명소가 아닌 것 먼저
-        cities = [r for r in ad_regions if not is_landmark(r)]
-        landmarks = [r for r in ad_regions if is_landmark(r)]
-        ad_regions_sorted = cities + landmarks
-        ad_regions = ad_regions_sorted[:5]
-        primary_region = ad_regions[0] if ad_regions else None
+            cities = [r for r in ad_regions if not is_landmark(r)]
+            landmarks = [r for r in ad_regions if is_landmark(r)]
+            ad_regions = (cities + landmarks)[:5]
+            primary_region = ad_regions[0] if ad_regions else None
+
+        # ad_regions는 STT/OCR 기준 유지 (참고용)
+        ad_regions = [r for r, _ in regions.most_common(5)]
 
         # 상위 키워드 (STT 기준)
         top_keywords = []

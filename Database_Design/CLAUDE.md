@@ -64,6 +64,7 @@ import sqlalchemy        # ORM (선택)
 | `public.point_history` | 포인트 적립/사용 내역 — INSERT 트리거가 user.point_balance 자동 갱신 (API_Server 읽기/쓰기) |
 | `public.watch_reservation` | 시청예약 — 채널+시각 지정, 30초 주기 알림 (API_Server 읽기/쓰기) |
 | `public.notifications` | GNB 알림 — new_episode/reservation/system. vod INSERT 트리거 자동 생성 (API_Server 읽기/쓰기) |
+| `public.user_segment` | K-Means(k=5) 유저 세그먼트 — PK(user_id_fk) (gen_rec_sentence 생산, API_Server 소비) |
 
 ### Gold 계층 (serving 스키마)
 
@@ -76,7 +77,8 @@ import sqlalchemy        # ORM (선택)
 | `serving.shopping_ad` | 쇼핑 광고 팝업 서빙 (비정규화, TTL 30일) |
 | `serving.popular_recommendation` | 장르별 인기 추천 Top-N (글로벌, TTL 7일) |
 | `serving.hybrid_recommendation` | 설명 가능한 최종 추천 — CF+Vector 리랭킹 (TTL 7일) |
-| `serving.tag_recommendation` | 유저 선호 태그별 VOD 추천 선반 — top 5 태그 × top 10 VOD (TTL 7일) |
+| `serving.tag_recommendation` | 카테고리별 태그 선반 — genre 3 + genre_detail 3 + director 2 + actor 4 × VOD 10 (TTL 7일) |
+| `serving.rec_sentence` | 세그먼트별 VOD 추천 문구 — PK(vod_id_fk, segment_id), K-Means 5그룹 × VOD (gen_rec_sentence 생산) |
 
 ## 인터페이스
 

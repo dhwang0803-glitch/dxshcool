@@ -8,8 +8,9 @@ reranking:
   top_k_tags: 3                # tag_overlap_score 계산 시 상위 k개 태그 사용
 
 tag_recommendation:
-  top_tags: 5                  # 유저별 선호 태그 개수
-  vods_per_tag: 10             # 태그별 추천 VOD 개수
+  # 카테고리별 슬롯: shelf_builder._CATEGORY_SLOTS 참조
+  # genre 3, genre_detail 3, director 2, actor_lead 2, actor_guest 2
+  vods_per_tag: 10             # 태그별 추천 VOD 개수 (미달 시 스킵 → 후순위 대체)
 
 user_preference:
   min_watch_count: 2           # user_preference 최소 시청 횟수 (DDL CHECK 제약)

@@ -45,14 +45,18 @@ def load_matrix(conn, alpha: float = 40, filter_quality: bool = False):
             FROM watch_history w
             JOIN public.vod v ON w.vod_id_fk = v.full_asset_id
             JOIN public.vod_embedding ve ON w.vod_id_fk = ve.vod_id_fk
+            JOIN public."user" u ON u.sha2_hash = w.user_id_fk
             WHERE w.completion_rate IS NOT NULL
               AND v.poster_url IS NOT NULL
+              AND u.is_test = FALSE
         """)
     else:
         cur.execute("""
-            SELECT user_id_fk, vod_id_fk, completion_rate
-            FROM watch_history
-            WHERE completion_rate IS NOT NULL
+            SELECT w.user_id_fk, w.vod_id_fk, w.completion_rate
+            FROM public.watch_history w
+            JOIN public."user" u ON u.sha2_hash = w.user_id_fk
+            WHERE w.completion_rate IS NOT NULL
+              AND u.is_test = FALSE
         """)
     rows = cur.fetchall()
     cur.close()
