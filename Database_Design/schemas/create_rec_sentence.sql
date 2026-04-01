@@ -1,32 +1,44 @@
 -- ============================================================
--- serving.rec_sentence — 개인화 추천 문구 (gen_rec_sentence 브랜치 생성)
+-- public.user_segment — K-Means 유저 세그먼트 (gen_rec_sentence 브랜치 생성)
 -- ============================================================
--- 유저별 VOD 추천 이유 + 추천 문구를 저장.
+-- K-Means(k=5) 클러스터링 결과. 유저 시청 패턴을 5개 세그먼트로 분류.
+-- rec_sentence가 세그먼트별 맞춤 문구를 생성할 때 사용.
+--
+-- 생성: gen_rec_sentence 브랜치
+-- 소비: API_Server rec_sentence_service.py (세그먼트 결정)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS public.user_segment (
+    user_id_fk   VARCHAR(64) NOT NULL PRIMARY KEY,
+    segment_id   SMALLINT    NOT NULL,
+    assigned_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+COMMENT ON TABLE public.user_segment IS 'K-Means(k=5) 유저 세그먼트 — gen_rec_sentence 생성, API_Server 소비';
+
+-- ============================================================
+-- serving.rec_sentence — 세그먼트별 VOD 추천 문구 (gen_rec_sentence 브랜치 생성)
+-- ============================================================
+-- VOD × 세그먼트(0~4)별 맞춤 추천 문구를 저장.
 -- 홈 "TOP10 추천 시리즈" 배너에서 포스터 위에 표시.
 --
--- 생성: gen_rec_sentence 브랜치 (LLM 기반 문구 생성)
--- 소비: API_Server /home/sections/{user_id}
+-- 설계 변경 이력:
+--   v1(DDL 초안): user_id_fk 기반 유저별 문구 → 유저 수 × VOD 수 폭증 문제
+--   v2(현행):     segment_id 기반 세그먼트별 문구 → 5 세그먼트 × VOD 수로 축소
+--
+-- 생성: gen_rec_sentence 브랜치 (LLM gemma3:27b-it-qat 기반 문구 생성)
+-- 소비: API_Server /home/sections/{user_id} TOP10 배너
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS serving.rec_sentence (
-    rec_sentence_id  SERIAL PRIMARY KEY,
-    user_id_fk       VARCHAR(64) NOT NULL
-                     REFERENCES public."user"(sha2_hash) ON DELETE CASCADE,
-    vod_id_fk        VARCHAR(64) NOT NULL
-                     REFERENCES public.vod(full_asset_id) ON DELETE CASCADE,
-    rec_reason       TEXT NOT NULL,       -- 포스터 우측 상단: TOP10 선정 이유
-                                          -- 예: "파스텔 톤의 부드러운 영화"
-    rec_sentence     TEXT NOT NULL,       -- 포스터 하단: 추천 문구
-                                          -- 예: "긴장감 넘치는 전개가 당신을 사로잡을 작품"
-    generated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    expires_at       TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '7 days'),
+    vod_id_fk    VARCHAR(64) NOT NULL,
+    segment_id   SMALLINT    NOT NULL,
+    rec_sentence TEXT        NOT NULL,
+    model_name   VARCHAR(100),            -- 생성 모델 (예: 'gemma3:27b-it-qat')
+    generated_at TIMESTAMPTZ DEFAULT NOW(),
 
-    CONSTRAINT uq_rec_sentence_user_vod UNIQUE (user_id_fk, vod_id_fk)
+    CONSTRAINT rec_sentence_pkey PRIMARY KEY (vod_id_fk, segment_id)
 );
 
--- API 조회 패턴: user_id_fk 기준 score 상위 10건 JOIN
-CREATE INDEX idx_rec_sentence_user ON serving.rec_sentence (user_id_fk);
-CREATE INDEX idx_rec_sentence_expires ON serving.rec_sentence (expires_at)
-    WHERE expires_at IS NOT NULL;
-
-COMMENT ON TABLE serving.rec_sentence IS '개인화 추천 문구 — gen_rec_sentence 브랜치 생성, API_Server 소비';
+-- API 조회 패턴: vod_id_fk IN (...) AND segment_id = ? → PK 커버링
+COMMENT ON TABLE serving.rec_sentence IS '세그먼트별 VOD 추천 문구 — gen_rec_sentence 생성, API_Server 소비';
