@@ -18,6 +18,7 @@
 | `public.watch_history` | *(초기 데이터 적재)* | `User_Embedding`(읽기), `CF_Engine`(읽기) |
 | `public.vod_embedding` | `VOD_Embedding` | `User_Embedding`(읽기), `Vector_Search`(읽기), `CF_Engine`(읽기), `gen_rec_sentence`(읽기) |
 | `public.vod_meta_embedding` | `VOD_Embedding` | `User_Embedding`(읽기), `Vector_Search`(읽기), `API_Server`(읽기) |
+| `public.vod_series_embedding` | `VOD_Embedding` | `Vector_Search`(읽기), `API_Server`(읽기) |
 | `public.user_embedding` | `User_Embedding` | `CF_Engine`(읽기), `Vector_Search`(읽기), `API_Server`(읽기) |
 | `public.detected_object_yolo` | `Object_Detection` | `Shopping_Ad`(읽기) |
 | `public.detected_object_clip` | `Object_Detection` | `Shopping_Ad`(읽기) |
@@ -31,6 +32,7 @@
 | `public.point_history` | `API_Server` | `API_Server`(읽기/쓰기) |
 | `public.watch_reservation` | `API_Server` | `API_Server`(읽기/쓰기) |
 | `public.notifications` | `API_Server`, DB 트리거(`fn_notify_new_episode`) | `API_Server`(읽기/쓰기) |
+| `public.user_segment` | `gen_rec_sentence` | `API_Server`(읽기) |
 
 ### Gold 계층 (serving 스키마)
 
@@ -44,7 +46,7 @@
 | `serving.popular_recommendation` | `CF_Engine`, `Vector_Search` | `API_Server`(읽기) |
 | `serving.hybrid_recommendation` | `Hybrid_Layer` | `API_Server`(읽기) |
 | `serving.tag_recommendation` | `Hybrid_Layer` | `API_Server`(읽기) |
-| `serving.rec_sentence` | `gen_rec_sentence` | `API_Server`(읽기) |
+| `serving.rec_sentence` | `gen_rec_sentence` | `API_Server`(읽기) — segment_id 기반 조회 |
 
 ---
 
@@ -90,6 +92,11 @@
 | 쓰기 | `public.vod_meta_embedding` | `embedding` | VECTOR(384) | paraphrase-multilingual-MiniLM-L12-v2 |
 | 쓰기 | `public.vod_meta_embedding` | `input_text` | TEXT | 결합 텍스트 (선택) |
 | 쓰기 | `public.vod_meta_embedding` | `source_fields` | TEXT[] | 기본: `['asset_nm','genre','director','cast_lead','smry']` |
+| 쓰기 | `public.vod_series_embedding` | `series_nm` | VARCHAR(255) | UNIQUE, COALESCE(series_nm, asset_nm) |
+| 쓰기 | `public.vod_series_embedding` | `representative_vod_id` | VARCHAR(64) | FK → vod.full_asset_id |
+| 쓰기 | `public.vod_series_embedding` | `embedding` | VECTOR(384) | 대표 에피소드의 메타 임베딩 |
+| 쓰기 | `public.vod_series_embedding` | `ct_cl`, `poster_url` | VARCHAR(64)/TEXT | 서빙 편의 (JOIN 불필요) |
+| 쓰기 | `public.vod_series_embedding` | `episode_count` | INTEGER | 시리즈 에피소드 수 |
 
 ### User_Embedding
 
@@ -112,15 +119,17 @@
 | 쓰기 | `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | - | `'COLLABORATIVE'`, UNIQUE(user_id_fk, vod_id_fk, recommendation_type) |
 | 쓰기 | `serving.popular_recommendation` | `ct_cl`, `rank`, `vod_id_fk`, `score`, `recommendation_type` | VARCHAR(64)/SMALLINT/VARCHAR(64)/REAL/VARCHAR(32) | `'POPULAR'` CT_CL별 Top-N |
 
-### Vector_Search *(미구현)*
+### Vector_Search
 
 | 방향 | 테이블 | 컬럼 | 타입 | 비고 |
 |------|--------|------|------|------|
-| 읽기 | `public.vod_embedding` | `vod_id_fk`, `embedding` | VECTOR(512) | 콘텐츠 유사도 검색 |
-| 읽기 | `public.vod_meta_embedding` | `vod_id_fk`, `embedding` | VECTOR(384) | |
-| 읽기 | `public.user_embedding` | `user_id_fk`, `embedding` | VECTOR(896) | 개인화 검색 |
-| 쓰기 | `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | - | 유저 기반: `'VISUAL_SIMILARITY'`, UNIQUE(user_id_fk, vod_id_fk, recommendation_type) |
-| 쓰기 | `serving.vod_recommendation` | `source_vod_id`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | VARCHAR(64)/VARCHAR(64)/SMALLINT/REAL/VARCHAR(32) | 콘텐츠 기반: `'CONTENT_BASED'` |
+| 읽기 | `public.vod_embedding` | `vod_id_fk`, `embedding` | VARCHAR(64), VECTOR(512) | CLIP 유사도 검색 (CONTENT_BASED + VISUAL_SIMILARITY) |
+| 읽기 | `public.vod_meta_embedding` | `vod_id_fk`, `embedding` | VARCHAR(64), VECTOR(384) | 에피소드 단위 (레거시, 폴백) |
+| 읽기 | `public.vod_series_embedding` | `series_nm`, `representative_vod_id`, `embedding`, `ct_cl`, `poster_url` | VARCHAR(255)/VARCHAR(64)/VECTOR(384)/VARCHAR(64)/TEXT | 시리즈 대표 메타 유사도 검색 |
+| 읽기 | `public.user_embedding` | `user_id_fk`, `embedding`, `vod_count` | VARCHAR(64), VECTOR(896), INTEGER | VISUAL_SIMILARITY: CLIP 부분([:512]) 추출 |
+| 읽기 | `public.watch_history` | `user_id_fk`, `vod_id_fk` | VARCHAR(64), VARCHAR(64) | VISUAL_SIMILARITY: 시청 이력 제외 필터 |
+| 쓰기 | `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | VARCHAR(64)/VARCHAR(64)/SMALLINT/REAL/VARCHAR(32) | 유저 기반: `'VISUAL_SIMILARITY'`, `source_vod_id=NULL` |
+| 쓰기 | `serving.vod_recommendation` | `source_vod_id`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | VARCHAR(64)/VARCHAR(64)/SMALLINT/REAL/VARCHAR(32) | 콘텐츠 기반: `'CONTENT_BASED'`, `user_id_fk=NULL` |
 | 쓰기 | `serving.popular_recommendation` | `ct_cl`, `rank`, `vod_id_fk`, `score`, `recommendation_type` | VARCHAR(64)/SMALLINT/VARCHAR(64)/REAL/VARCHAR(32) | `'POPULAR'` CT_CL별 Top-N |
 
 ### Hybrid_Layer
@@ -165,13 +174,14 @@
 
 | 방향 | 테이블 | 컬럼 | 타입 | 비고 |
 |------|--------|------|------|------|
-| 읽기 | `public.vod` | `full_asset_id`, `asset_nm`, `genre`, `ct_cl`, `director`, `cast_lead`, `smry`, `poster_url`, `release_date`, `rating`, `series_nm`, `asset_prod`, `disp_rtm_min` | 각종 VARCHAR/TEXT/SMALLINT | VOD 상세/시리즈 조회. `release_date` → `release_year`(연도 int) 변환. `asset_prod='FOD'` → `is_free=true`. `disp_rtm_min` 분 단위 러닝타임. `series_nm` 커버링 인덱스 활용 |
+| 읽기 | `public.vod` | `full_asset_id`, `asset_nm`, `genre`, `ct_cl`, `director`, `cast_lead`, `smry`, `poster_url`, `backdrop_url`, `release_date`, `rating`, `series_nm`, `asset_prod`, `disp_rtm_min` | 각종 VARCHAR/TEXT/SMALLINT | VOD 상세/시리즈 조회. `backdrop_url` 히어로 배너 배경. `release_date` → `release_year`(연도 int) 변환. `asset_prod='FOD'` → `is_free=true`. `disp_rtm_min` 분 단위 러닝타임. `series_nm` 커버링 인덱스 활용 |
 | 읽기 | `public."user"` | `sha2_hash` | VARCHAR | 사용자 존재 여부 확인 (PK) |
 | 읽기 | `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type`, `expires_at` | VARCHAR/REAL/TIMESTAMPTZ | `/recommend/{user_id}` — `WHERE recommendation_type = 'HYBRID'`, UNIQUE(user_id_fk, vod_id_fk, recommendation_type) |
 | 읽기 | `serving.vod_recommendation` | `source_vod_id`, `vod_id_fk`, `rank`, `score`, `recommendation_type`, `expires_at` | VARCHAR/REAL/TIMESTAMPTZ | `/similar/{asset_id}` — `WHERE source_vod_id = $1 AND recommendation_type = 'CONTENT_BASED'` |
 | 읽기 | `serving.popular_recommendation` | `ct_cl`, `rank`, `vod_id_fk`, `score`, `recommendation_type`, `expires_at` | VARCHAR(64)/SMALLINT/REAL/VARCHAR(32)/TIMESTAMPTZ | CT_CL별 인기 추천 Top-N |
 | 읽기 | `serving.shopping_ad` | `vod_id_fk`, `ts_start`, `ts_end`, `ad_category`, `score`, `ad_hints`, `product_name`, `product_price`, `product_url`, `image_url`, `channel` | 각종 | 쇼핑 광고 팝업 서빙 |
-| 읽기 | `serving.rec_sentence` | `user_id_fk`, `vod_id_fk`, `rec_reason`, `rec_sentence`, `expires_at` | VARCHAR/TEXT/TIMESTAMPTZ | 홈 TOP10 배너 추천 문구 (LEFT JOIN) |
+| 읽기 | `public.user_segment` | `user_id_fk`, `segment_id` | VARCHAR(64)/SMALLINT | K-Means 세그먼트 결정 (rec_sentence 조회용) |
+| 읽기 | `serving.rec_sentence` | `vod_id_fk`, `segment_id`, `rec_sentence` | VARCHAR(64)/SMALLINT/TEXT | 홈 TOP10 배너 추천 문구 (PK: vod_id_fk, segment_id) |
 | 읽기 | `public.user_embedding` | `user_id_fk`, `embedding` | VARCHAR/VECTOR(896) | 벡터 유사도: meta part [513:896] 384D 추출 |
 | 읽기 | `public.vod_meta_embedding` | `vod_id_fk`, `embedding` | VARCHAR/VECTOR(384) | 벡터 유사도: cosine distance (<=>), IVFFlat probes=5 |
 | 읽기 | `serving.mv_vod_watch_stats` | *(스키마 확인 필요)* | - | 인기 콘텐츠 배너 |
@@ -194,11 +204,12 @@
 | 읽기 | `public.vod` | `cast_lead`, `smry`, `rating` | TEXT/VARCHAR | 메타데이터 → LLM 입력 |
 | 읽기 | `public.vod` | `poster_url` | TEXT | 포스터 존재 여부 필터 |
 | 읽기 | `public.vod_embedding` | `vod_id_fk`, `embedding` | VARCHAR/VECTOR(512) | CLIP 영상 벡터 → LLM 입력 |
-| 쓰기 | `serving.rec_sentence` | `user_id_fk` | VARCHAR(64) | FK → user.sha2_hash, UNIQUE(user_id_fk, vod_id_fk) |
-| 쓰기 | `serving.rec_sentence` | `vod_id_fk` | VARCHAR(64) | FK → vod.full_asset_id |
-| 쓰기 | `serving.rec_sentence` | `rec_reason` | TEXT | TOP10 선정 이유 (포스터 우측 상단) |
+| 쓰기 | `public.user_segment` | `user_id_fk` | VARCHAR(64) | PK, K-Means 클러스터 할당 |
+| 쓰기 | `public.user_segment` | `segment_id` | SMALLINT | 세그먼트 0~4 |
+| 쓰기 | `serving.rec_sentence` | `vod_id_fk` | VARCHAR(64) | PK(vod_id_fk, segment_id) |
+| 쓰기 | `serving.rec_sentence` | `segment_id` | SMALLINT | K-Means 세그먼트 ID (0~4) |
 | 쓰기 | `serving.rec_sentence` | `rec_sentence` | TEXT | 감성 카피 (포스터 하단) |
-| 쓰기 | `serving.rec_sentence` | `generated_at`, `expires_at` | TIMESTAMPTZ | TTL 관리 (기본 7일) |
+| 쓰기 | `serving.rec_sentence` | `model_name` | VARCHAR(100) | 생성 모델명 (gemma3:27b-it-qat) |
 
 ---
 

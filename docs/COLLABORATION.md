@@ -14,7 +14,7 @@ Phase 2-1: RAG 메타데이터 보충                   ← 담당자 B
 Phase 2-2: VOD 임베딩                            ← 담당자 C
 Phase 2-3: 시청패턴 임베딩                        ← 담당자 D
 Phase 3:   행렬분해 추천                          ← 담당자 D
-Phase 4:   사물인식 + 홈쇼핑 채널 연동            ← 담당자 E
+Phase 4:   사물인식 + 지자체 광고/제철장터 연동    ← 담당자 E
 Phase 5:   웹서비스 통합                          ← 전원
 ```
 
@@ -28,7 +28,7 @@ Phase 5:   웹서비스 통합                          ← 전원
 | B | vod 테이블 업로드 + .env 파일 팀 배포 | Phase 2-1 RAG + 콘텐츠 기반 추천 |
 | C | watch_history 업로드 (2025-01-01 ~ 2025-01-10) | Phase 2-2 VOD 임베딩 |
 | D | watch_history 업로드 (2025-01-11 ~ 2025-01-20) | Phase 2-3 시청패턴 임베딩 → Phase 3 행렬분해 추천 |
-| E | watch_history 업로드 (2025-01-21 ~ 2025-01-31) | Phase 4 사물인식 + 홈쇼핑 연동 |
+| E | watch_history 업로드 (2025-01-21 ~ 2025-01-31) | Phase 4 사물인식 + 지자체 광고/제철장터 연동 |
 
 ---
 
@@ -168,14 +168,16 @@ GROUP BY ct_cl;
 
 ---
 
-## Phase 4: 사물인식 + 홈쇼핑 채널 연동
+## Phase 4: 사물인식 + 지자체 광고/제철장터 연동
 
 **담당**: 담당자 E
-**연계**: VOD 영상 분석 → 실시간 편성표 매칭 → Phase 5
+**연계**: VOD 영상 분석 → 광고 트리거 매칭 → Phase 5
 
-- VOD 영상 다운로드 및 사물 인식 모델 적용 (로컬 처리)
-- 실시간 홈쇼핑 채널 편성표 API 연동
-- 연관 상품 매칭 로직 및 시청 예약 기능 설계
+> **2026-03-19 방향 전환**: 홈쇼핑 연동 폐기 → 지자체 광고 팝업 + 제철장터 채널 연계로 전환.
+
+- VOD 영상 YOLO/CLIP/STT 3종 배치 인식 (로컬 처리)
+- 관광지/지역 인식 → 지자체 광고 팝업 (생성형 AI 제작, OCI 저장)
+- 음식 인식 → 제철장터 채널 상품 연계 (채널 이동/시청예약)
 
 ---
 
@@ -189,19 +191,27 @@ GROUP BY ct_cl;
 | B | 콘텐츠 기반 추천 API (메타데이터, 신작, 조회수 기반) |
 | C | VOD 벡터 검색 API |
 | D | 행렬분해 추천 API |
-| E | 사물인식 + 홈쇼핑 연동 API |
+| E | 사물인식 + 지자체 광고/제철장터 API |
 
 ---
 
 ## 브랜치 전략
 
 ```
-main                ← 최종 통합 (PR로만 병합, 단독 push 금지)
-├── Database_Design ← 담당자 A
-├── RAG             ← 담당자 B
-├── Embedding       ← 담당자 C, D
-├── Recommendation  ← 담당자 D
-└── ObjectDetection ← 담당자 E
+main                    ← 최종 통합 (PR로만 병합, 단독 push 금지)
+├── Database_Design     ← 담당자 A (DB 스키마 + 마이그레이션)
+├── RAG                 ← 담당자 B (메타데이터 수집)
+├── VOD_Embedding       ← 담당자 C (CLIP 512 + 메타 384 임베딩)
+├── User_Embedding      ← 담당자 D (ALS 행렬분해 896D)
+├── Poster_Collection   ← 담당자 C (TMDB/Tving 포스터 수집)
+├── CF_Engine           ← 담당자 D (협업 필터링 추천)
+├── Vector_Search       ← 담당자 B (벡터 유사도 검색)
+├── Hybrid_Layer        ← 담당자 A (CF+Vector 리랭킹)
+├── gen_rec_sentence    ← 담당자 A (세그먼트별 추천 문구)
+├── Object_Detection    ← 담당자 E (YOLO/CLIP/STT 사물인식)
+├── Shopping_Ad         ← 담당자 E (지자체 광고 + 제철장터)
+├── API_Server          ← 전원 (FastAPI 백엔드)
+└── Frontend            ← 전원 (React/Next.js)
 ```
 
 ---

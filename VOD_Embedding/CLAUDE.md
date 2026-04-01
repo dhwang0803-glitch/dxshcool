@@ -4,43 +4,35 @@
 
 ## 모듈 역할
 
-이 브랜치는 임베딩을 **두 가지** 방식으로 생성한다.
+VOD 임베딩을 **두 가지** 방식으로 생성하여 pgvector 테이블에 적재한다.
 
-| 임베딩 종류 | 입력 | 모델 | 차원 | 주요 파일 |
-|------------|------|------|------|-----------|
-| 영상 임베딩 | YouTube 트레일러 프레임 | CLIP ViT-B/32 | 512 | `src/embedder.py` (예정) |
-| 메타데이터 임베딩 | 제목/장르/감독/출연/줄거리 | paraphrase-multilingual-MiniLM-L12-v2 | 384 | `src/meta_embedder.py` |
-
-메타데이터 임베딩은 DB 쓰기 권한 제한으로 Parquet 파일로 먼저 저장 후 `ingest_to_db.py`로 적재한다.
-영상 임베딩은 `vod_embedding` 테이블에 저장된다.
+| 임베딩 종류 | 입력 | 모델 | 차원 | 저장 테이블 |
+|------------|------|------|------|-------------|
+| 영상 임베딩 | YouTube 트레일러 프레임 | CLIP ViT-B/32 | 512 | `public.vod_embedding` |
+| 메타데이터 임베딩 | 제목/장르/감독/출연/줄거리 | paraphrase-multilingual-MiniLM-L12-v2 | 384 | `public.vod_meta_embedding` |
+| 시리즈 대표 임베딩 | 대표 에피소드의 메타 임베딩 | (위와 동일) | 384 | `public.vod_series_embedding` |
 
 ## 파일 위치 규칙 (MANDATORY)
 
 ```
 VOD_Embedding/
-├── src/       ← import 전용 라이브러리 (직접 실행 X)
-├── scripts/   ← 직접 실행 스크립트 (python scripts/xxx.py)
-├── tests/     ← pytest
-├── config/    ← 설정 파일
+├── src/                ← import 전용 라이브러리 (직접 실행 X)
+│   ├── config.py             # 임베딩 설정 (모델명, 차원, 경로)
+│   ├── db.py                 # DB 연결 헬퍼
+│   └── meta_embedder.py      # 메타데이터 임베딩 (paraphrase-multilingual-MiniLM-L12-v2)
+├── scripts/            ← 직접 실행 스크립트
+│   ├── crawl_trailers.py         # YouTube 트레일러 다운로드 (yt-dlp, --status 지원)
+│   ├── batch_embed.py            # CLIP 영상 임베딩 → parquet (--status 지원)
+│   ├── run_meta_embed_parquet.py # 메타 임베딩 → parquet (v2: 에피소드별 개별)
+│   ├── ingest_to_db.py           # parquet → vod_embedding DB 적재 (--propagate 시리즈 전파)
+│   ├── run_parallel_pipeline.py  # N분할 병렬 파이프라인 (crawl→embed→ingest→propagate)
+│   └── progress_report.py        # 크롤링/임베딩 진행 현황 보고서
+├── tests/              ← pytest (미구현)
+├── config/             ← 설정 파일
 └── docs/
-    ├── plans/    ← PLAN_01~03 설계 문서
-    └── reports/  ← 파일럿 결과 리포트
+    ├── plans/          ← PLAN_00~03 설계 문서
+    └── reports/        ← 세션·파일럿·진행 리포트
 ```
-
-| 파일 종류 | 저장 위치 | 상태 |
-|-----------|-----------|------|
-| 메타데이터 임베딩 파이프라인 | `src/meta_embedder.py` | ✅ 완료 |
-| DB 연결 헬퍼 | `src/db.py` | ✅ 완료 |
-| 임베딩 설정 | `src/config.py` | ✅ 완료 |
-| 메타 임베딩 → Parquet 실행 스크립트 | `scripts/run_meta_embed_parquet.py` | 🔄 재작업 중 (v2: 에피소드별 개별 임베딩, v1 산출물: data/vod_meta_embedding_20260311.parquet 166,159건) |
-| 영상 임베딩 모델 로드/추론 | `src/embedder.py` | 🔲 예정 |
-| 팀 분할 파일 생성 스크립트 | `scripts/split_tasks.py` | ✅ 완료 |
-| 트레일러 수집 스크립트 | `scripts/crawl_trailers.py` | ✅ 완료 (tasks_A.json, 9,392/9,570건 성공, 실패 178건 스킵) |
-| 배치 영상 임베딩 스크립트 | `scripts/batch_embed.py` | ✅ 완료 (tasks_A.json, 8,386건, data/embeddings_아름.parquet, 7.8MB) |
-| 에피소드별 트레일러 재수집 (박아름) | `scripts/crawl_trailers_아름.py` | 🔄 재작업 중 (예능 에피소드별 개별 쿼리, data/trailers_아름/) |
-| 에피소드별 CLIP 임베딩 (박아름) | `scripts/batch_embed_아름.py` | 🔄 재작업 예정 (crawl_trailers_아름.py 완료 후) |
-| DB 적재 스크립트 | `scripts/ingest_to_db.py` | 🔲 예정 (vod_meta_embedding 테이블 생성 후) |
-| pytest | `tests/` | 🔲 예정 |
 
 **`VOD_Embedding/` 루트 또는 프로젝트 루트에 `.py` 파일 직접 생성 금지.**
 
@@ -51,7 +43,7 @@ VOD_Embedding/
 from sentence_transformers import SentenceTransformer  # paraphrase-multilingual-MiniLM-L12-v2
 import psycopg2
 
-# 영상 임베딩 (예정)
+# 영상 임베딩
 import yt_dlp             # 트레일러 수집
 import clip               # OpenAI CLIP ViT-B/32
 import torch
@@ -59,50 +51,33 @@ import cv2                # 프레임 추출
 from pgvector.psycopg2 import register_vector
 ```
 
-## 임베딩 스펙
+## 파이프라인 실행
 
-| 종류 | 모델 | 차원 | 저장 테이블 |
-|------|------|------|-------------|
-| 메타데이터 | paraphrase-multilingual-MiniLM-L12-v2 | 384 | `public.vod_meta_embedding` |
-| 영상 (예정) | CLIP ViT-B/32 | 512 | `public.vod_embedding` (embedding_type=`'CLIP'`) |
-
-- 저장 방식: pgvector `<=>` 코사인 거리 인덱스
-- 멱등성: `ON CONFLICT (vod_id_fk) DO UPDATE` (각 테이블의 UNIQUE 컬럼 기준)
-
-## ⚠️ 알려진 이슈 / 현황
-
-- `vod` 테이블에 `is_active` 컬럼 없음 → `run_meta_embed_parquet.py`는 WHERE 조건 제거로 우회
-- `vod_meta_embedding` 테이블 미생성 (조장 담당) → 생성 후 `ingest_to_db.py`로 Parquet 적재 필요
-- 메타데이터 임베딩 v1 산출물: `data/vod_meta_embedding_20260311.parquet` (166,159건, 102.3MB) — 시리즈 그룹핑 방식, v2로 대체 예정
-- **[재작업]** 메타 임베딩 v2 (`run_meta_embed_parquet.py`) 실행 중 — 에피소드별 개별 임베딩
-- **[재작업]** 영상 임베딩 — 에피소드별 트레일러 재수집(`crawl_trailers_아름.py`) 실행 중, 완료 후 `batch_embed_아름.py` 예정
-- 재작업 배경: `docs/reports/rework_아름_2026-03-12.md` 참조
-
-## 팀 분할 실행 명령
-
-### 오너 (1회)
-```bash
-# 4명 분할 파일 생성
-python scripts/split_tasks.py
-# → data/tasks_A.json  (~9,570건,  TV 연예/오락 앞 절반)
-# → data/tasks_B.json  (~9,571건,  TV 연예/오락 뒤 절반)
-# → data/tasks_C.json  (~11,508건, 영화 + TV드라마 + 키즈)
-# → data/tasks_D.json  (~11,102건, TV애니메이션 + TV 시사/교양 + 기타 등)
-```
-
-### 팀원 (각자 담당 X = A/B/C/D)
 ```bash
 # 1. 트레일러 다운로드
-python scripts/crawl_trailers.py --task-file data/tasks_X.json
+python VOD_Embedding/scripts/crawl_trailers.py --task-file data/tasks_X.json
+python VOD_Embedding/scripts/crawl_trailers.py --status
 
 # 2. CLIP 임베딩 → parquet
-python scripts/batch_embed.py --output parquet \
-    --out-file data/embeddings_이름.parquet \
-    --delete-after-embed
+python VOD_Embedding/scripts/batch_embed.py --output parquet \
+    --out-file data/embeddings_이름.parquet --delete-after-embed
+python VOD_Embedding/scripts/batch_embed.py --status
 
-# 진행 상황 확인
-python scripts/crawl_trailers.py --status
-python scripts/batch_embed.py --status
+# 3. 메타 임베딩 → parquet
+python VOD_Embedding/scripts/run_meta_embed_parquet.py
+
+# 4. DB 적재 (parquet → vod_embedding)
+python VOD_Embedding/scripts/ingest_to_db.py                        # 전체 parquet
+python VOD_Embedding/scripts/ingest_to_db.py --file data/xxx.parquet # 특정 파일
+python VOD_Embedding/scripts/ingest_to_db.py --propagate             # 시리즈 전파
+python VOD_Embedding/scripts/ingest_to_db.py --verify                # 검증
+
+# 5. 병렬 파이프라인 (crawl→embed→ingest→propagate 일괄)
+python VOD_Embedding/scripts/run_parallel_pipeline.py --task-file data/tasks_X.json
+python VOD_Embedding/scripts/run_parallel_pipeline.py --task-file data/tasks_X.json --start-from embed
+
+# 6. 진행 현황 보고서
+python VOD_Embedding/scripts/progress_report.py
 ```
 
 ## 인터페이스
@@ -130,5 +105,23 @@ python scripts/batch_embed.py --status
 | `public.vod_meta_embedding` | `embedding` | VECTOR(384) | paraphrase-multilingual-MiniLM-L12-v2 |
 | `public.vod_meta_embedding` | `input_text` | TEXT | 결합 텍스트 (선택) |
 | `public.vod_meta_embedding` | `source_fields` | TEXT[] | 기본: `['asset_nm','genre','director','cast_lead','smry']` |
+| `public.vod_series_embedding` | `series_nm` | VARCHAR(255) | UNIQUE, COALESCE(series_nm, asset_nm) |
+| `public.vod_series_embedding` | `representative_vod_id` | VARCHAR(64) | FK → vod.full_asset_id |
+| `public.vod_series_embedding` | `embedding` | VECTOR(384) | 대표 에피소드의 메타 임베딩 |
+| `public.vod_series_embedding` | `ct_cl`, `poster_url` | VARCHAR(64)/TEXT | 서빙 편의 (JOIN 불필요) |
+| `public.vod_series_embedding` | `episode_count` | INTEGER | 시리즈 에피소드 수 |
 
-**산출물 전달**: `data/vod_meta_embedding_20260311.parquet` → 조장에게 전달 후 `ingest_to_db.py`로 DB 적재
+## 시리즈 전파 전략
+
+```
+시리즈 단위 ct_cl (TV드라마/TV애니메이션/키즈/TV시사교양/영화):
+    대표 에피소드 1개 적재 후 --propagate로 같은 series_nm 전체에 복사
+
+에피소드 단위 ct_cl (TV 연예/오락):
+    각 에피소드 개별 적재, 전파 없음
+```
+
+---
+
+**마지막 수정**: 2026-04-01
+**프로젝트 상태**: 파이프라인 구현 완료, DB 적재 운영 중

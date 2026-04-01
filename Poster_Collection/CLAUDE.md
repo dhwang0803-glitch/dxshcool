@@ -4,140 +4,102 @@
 
 ## 모듈 역할
 
-**Naver에서 시리즈별 포스터 이미지를 수집하여 DB의 `poster_url` 컬럼을 채운다.**
+**TMDB/Tving에서 시리즈별 포스터·백드롭 이미지를 수집하여 DB의 `poster_url`/`backdrop_url` 컬럼을 채운다.**
 
 전체 워크플로우는 개발자(크롤링·로컬 저장)와 DB 관리자(OCI 업로드·DB 적재)로 역할이 나뉜다.
 
 **이미지 서빙 아키텍처**: API 서버는 `poster_url`(문자열)만 반환. 이미지 자체는 브라우저가 OCI Object Storage에서 직접 다운로드.
-이로써 VPC 컴퓨트 인스턴스에 이미지 트래픽이 전혀 없음 (페이지당 200포스터 × 80KB = 16MB를 Object Storage가 담당).
+VPC 컴퓨트 인스턴스에 이미지 트래픽이 전혀 없음 (페이지당 200포스터 x 80KB = 16MB를 Object Storage가 담당).
 
 ```
 [개발자]
-  1. Naver 검색 → 시리즈별 포스터 URL 수집
-  2. 이미지 다운로드 → 로컬 저장
-  3. 매니페스트 CSV 생성 (series_id, series_nm, local_path, naver_url, downloaded_at)
-  4. Google Drive로 관리자에게 전달
+  1. TMDB search → 시리즈별 포스터 URL 수집 (ct_cl 기반 movie/tv 분기)
+  2. Tving 사이트맵 인덱스 → TMDB 미매칭 시 폴백
+  3. 이미지 다운로드 → 로컬 저장
+  4. 매니페스트 CSV 생성 (series_id, series_nm, season, local_path, poster_url)
 
 [DB 관리자]
-  5. Google Drive → 로컬에 manifest.csv 수신
-  6. upload_to_oci.py 실행 → OCI Object Storage 업로드 + oci_map.csv 생성
-     (--update-db 옵션으로 7번 자동 수행 가능)
-  7. (선택) update_poster_url.py 실행 → vod.poster_url DB 업데이트
+  5. upload_to_oci.py 실행 → OCI Object Storage 업로드
+     (--update-db 옵션으로 DB 자동 반영 가능)
 
 [프론트엔드]
-  8. API 서버 → { poster_url: "https://objectstorage.{region}.oraclecloud.com/..." } JSON 반환
-  9. 브라우저 → OCI Object Storage에서 이미지 직접 다운로드 (VPC 컴퓨트 무관)
+  6. API 서버 → poster_url JSON 반환
+  7. 브라우저 → OCI에서 이미지 직접 다운로드
 ```
 
 ## 파일 위치 규칙 (MANDATORY)
 
 ```
 Poster_Collection/
-├── src/       ← import 전용 라이브러리 (직접 실행 X)
-├── scripts/   ← 직접 실행 스크립트 (python scripts/xxx.py)
-├── tests/     ← pytest
-├── config/    ← 설정 yaml
-├── plans/     ← PLAN_0X 설계 문서
-└── reports/   ← 파일럿 결과 리포트
+├── src/                ← import 전용 라이브러리 (직접 실행 X)
+│   ├── tmdb_poster.py        # TMDB search/movie·search/tv → 포스터 URL (시즌 포스터 지원)
+│   ├── tving_poster.py       # Tving 사이트맵 인덱스 → og:image 매칭 (TMDB 폴백)
+│   ├── image_downloader.py   # URL → 로컬 파일 다운로드
+│   ├── db_updater.py         # DB poster_url UPDATE (관리자용)
+│   └── oci_uploader.py       # OCI Object Storage 업로드
+├── scripts/            ← 직접 실행 스크립트
+│   ├── crawl_posters.py           # 포스터 크롤링 메인 (TMDB+Tving, 시리즈×시즌 단위)
+│   ├── crawl_backdrops.py         # TMDB 백드롭(가로) 크롤링 → OCI → backdrop_url UPDATE
+│   ├── run_full_pipeline.py       # 4분할 병렬 크롤링 → manifest 통합 → OCI → DB 일괄
+│   ├── build_tving_index.py       # Tving 사이트맵 인덱스 1회 빌드
+│   ├── export_manifest.py         # 매니페스트 CSV 생성
+│   ├── upload_to_oci.py           # OCI 업로드 + DB 반영 (--update-db)
+│   ├── verify_tmdb_matches.py     # TMDB 매칭 정확도 검증
+│   ├── fix_series_nm_collision.py # series_nm 충돌 수정
+│   └── fix_serving_posters.py     # 서빙 테이블 포스터 일괄 교체
+├── tests/              ← pytest
+│   └── test_image_downloader.py
+├── config/             ← 설정
+│   └── tving_index.json    # Tving 사이트맵 캐시 (build_tving_index.py 생성)
+├── plans/              ← 설계 문서
+│   └── PLAN_01_poster_collection.md
+├── reports/            ← 파일럿 결과
+└── docs/               ← (비어있음)
 ```
-
-| 파일 종류 | 저장 위치 |
-|-----------|-----------|
-| Naver 포스터 URL 수집 라이브러리 | `src/naver_poster.py` |
-| 이미지 다운로드·로컬 저장 라이브러리 | `src/image_downloader.py` |
-| DB poster_url 업데이트 라이브러리 | `src/db_updater.py` |
-| OCI Object Storage 업로드 라이브러리 | `src/oci_uploader.py` |
-| 포스터 크롤링 실행 스크립트 | `scripts/crawl_posters.py` |
-| Google Drive 전달용 매니페스트 생성 | `scripts/export_manifest.py` |
-| OCI 업로드 + oci_map.csv 생성 (관리자용) | `scripts/upload_to_oci.py` |
-| DB poster_url 업데이트 (관리자용) | `scripts/update_poster_url.py` |
-| pytest | `tests/` |
-| 크롤링 설정 | `config/poster_config.yaml` |
 
 **`Poster_Collection/` 루트 또는 프로젝트 루트에 `.py` 파일 직접 생성 금지.**
 
 ## 기술 스택
 
 ```python
-import requests                  # Naver 검색 API / HTTP 요청
-from bs4 import BeautifulSoup    # HTML 파싱 (API 미제공 시 폴백)
+import requests                  # TMDB API / 이미지 다운로드
+from difflib import SequenceMatcher  # 제목 유사도 매칭
 import psycopg2                  # DB poster_url 업데이트
 from dotenv import load_dotenv
-import csv                       # 매니페스트 생성
 ```
 
-Naver 검색 API:
-- 이미지 검색 API: `https://openapi.naver.com/v1/search/image`
-- 헤더: `X-Naver-Client-Id`, `X-Naver-Client-Secret` (환경변수 로드)
+포스터 소스:
+- **TMDB** (1순위): `search/movie` · `search/tv` → `poster_path` (ct_cl 기반 분기)
+  - TV 시리즈: `/tv/{id}` → `seasons[].poster_path` 시즌 포스터 획득
+- **Tving** (폴백): 사이트맵 크롤링 → `title→og:image` 인덱스 매칭
 
-## 수집 파이프라인 상세
-
-### crawl_posters.py 흐름
-
-```
-vod 테이블에서 poster_url IS NULL인 series 목록 조회
-    → series_nm 기반 Naver 이미지 API 검색
-    → 결과 중 가장 적합한 이미지 URL 선택 (유사도 필터링)
-    → 이미지 다운로드 → {LOCAL_POSTER_DIR}/{series_id}.jpg 저장
-    → 매니페스트 CSV 누적 기록
-```
-
-### export_manifest.py 출력 형식
-
-```csv
-series_id,series_nm,local_path,naver_url,downloaded_at
-10001,이상한변호사우영우,/posters/10001.jpg,https://...,2026-03-11
-...
-```
-
-### update_poster_url.py 흐름 (관리자 전용)
-
-```
-manifest CSV + VPC 업로드 완료 경로 매핑 파일 수신
-    → series_id 기준 vod 테이블 poster_url UPDATE
-    → 업데이트 건수 로그 출력
-```
-
-## 환경변수
+## 파이프라인 실행
 
 ```bash
-# .env 필수 항목
-NAVER_CLIENT_ID=...
-NAVER_CLIENT_SECRET=...
-LOCAL_POSTER_DIR=/path/to/local/posters   # 팀원 로컬 경로
-DB_HOST=...
-DB_PORT=5432
-DB_NAME=...
-DB_USER=...
-DB_PASSWORD=...
+# 1. (최초 1회) Tving 사이트맵 인덱스 빌드
+python Poster_Collection/scripts/build_tving_index.py
 
-# OCI Object Storage (관리자 전용 — upload_to_oci.py 실행 시 필요)
-OCI_NAMESPACE=...      # OCI 콘솔 → Object Storage → Namespace
-OCI_BUCKET_NAME=vod-posters
-OCI_REGION=...         # 예: ap-chuncheon-1
-OCI_CONFIG_PROFILE=DEFAULT  # ~/.oci/config 프로파일명
-```
+# 2. 포스터 크롤링 (단일)
+python Poster_Collection/scripts/crawl_posters.py              # 전체
+python Poster_Collection/scripts/crawl_posters.py --limit 100  # 테스트
+python Poster_Collection/scripts/crawl_posters.py --resume     # 재개
 
-## 주의사항 (MANDATORY)
+# 3. 전체 파이프라인 (4분할 병렬 크롤링 → 통합 → OCI → DB)
+python Poster_Collection/scripts/run_full_pipeline.py
+python Poster_Collection/scripts/run_full_pipeline.py --skip-crawl  # 통합부터
+python Poster_Collection/scripts/run_full_pipeline.py --dry-run     # 확인만
 
-1. **포스터 파일을 git에 커밋하지 않는다** — `.gitignore` 필수 항목:
-   ```
-   */posters/
-   *.jpg
-   *.jpeg
-   *.png
-   ```
-2. `LOCAL_POSTER_DIR`는 반드시 `os.getenv("LOCAL_POSTER_DIR")` 로 읽는다 (하드코딩 금지)
-3. Naver API 키는 `.env`에서만 로드한다
-4. `update_poster_url.py`는 DB 관리자만 실행한다 (팀원은 crawl + export까지만)
+# 4. 백드롭(가로 이미지) 크롤링
+python Poster_Collection/scripts/crawl_backdrops.py
+python Poster_Collection/scripts/crawl_backdrops.py --dry-run
 
-## DB 스키마 변경 (Database_Design 브랜치 필요)
+# 5. OCI 업로드 (관리자)
+python Poster_Collection/scripts/upload_to_oci.py --update-db
 
-이 모듈 작업 전에 Database_Design 브랜치에서 아래 마이그레이션이 선행되어야 한다:
-
-```sql
--- Database_Design/migrations/ 에 추가
-ALTER TABLE vod ADD COLUMN poster_url TEXT;
+# 6. 검증/수정
+python Poster_Collection/scripts/verify_tmdb_matches.py
+python Poster_Collection/scripts/fix_series_nm_collision.py
+python Poster_Collection/scripts/fix_serving_posters.py
 ```
 
 ## 인터페이스
@@ -149,18 +111,47 @@ ALTER TABLE vod ADD COLUMN poster_url TEXT;
 
 | 테이블 | 컬럼 | 타입 | 용도 |
 |--------|------|------|------|
-| `public.vod` | `full_asset_id`, `series_nm` | VARCHAR(64), VARCHAR | `poster_url IS NULL` 조건으로 수집 대상 조회 |
+| `public.vod` | `full_asset_id` | VARCHAR(64) | VOD 식별 |
+| `public.vod` | `series_nm` | VARCHAR | 시리즈 단위 크롤링 기준 |
+| `public.vod` | `asset_nm` | VARCHAR | 시즌 번호 파싱 (`parse_season_from_asset_nm`) |
+| `public.vod` | `ct_cl` | VARCHAR(64) | TMDB media_type 분기 (영화/TV) |
+| `public.vod` | `poster_url` | TEXT | `IS NULL` 조건 — 수집 대상 필터 |
 
 ### 다운스트림 (쓰기)
 
 | 테이블 | 컬럼 | 타입 | 비고 |
 |--------|------|------|------|
-| `public.vod` | `poster_url` | TEXT | VPC 경로 또는 URL |
+| `public.vod` | `poster_url` | TEXT | OCI Object Storage URL |
+| `public.vod` | `backdrop_url` | TEXT | TMDB 백드롭 → OCI URL (crawl_backdrops.py) |
 
-## 협업 규칙
+## 환경변수
 
-- `main` 브랜치에 직접 Push 금지 — 반드시 Pull Request
-- PR description에 포함 필수:
-  1. **변경사항 요약**: 어떤 파일을 추가/수정했는지
-  2. **사후영향 평가**: IMPACT_ASSESSOR 에이전트 실행 결과
-  3. **보안 점검 보고서**: SECURITY_AUDITOR 에이전트 실행 결과
+```bash
+# .env 필수 항목
+TMDB_API_KEY=              # TMDB v3 API
+TMDB_READ_ACCESS_TOKEN=    # TMDB Bearer token
+LOCAL_POSTER_DIR=          # 로컬 포스터 저장 경로
+DB_HOST=
+DB_PORT=5432
+DB_NAME=
+DB_USER=
+DB_PASSWORD=
+
+# OCI Object Storage (관리자 전용)
+OCI_NAMESPACE=
+OCI_BUCKET_NAME=vod-posters
+OCI_REGION=
+OCI_CONFIG_PROFILE=DEFAULT
+```
+
+## 주의사항 (MANDATORY)
+
+1. **포스터 파일을 git에 커밋하지 않는다** — `.gitignore` 필수
+2. `LOCAL_POSTER_DIR`는 반드시 `os.getenv()` 로 읽는다 (하드코딩 금지)
+3. TMDB API 키는 `.env`에서만 로드한다
+4. DB UPDATE는 관리자만 실행 (팀원은 crawl + export까지만)
+
+---
+
+**마지막 수정**: 2026-04-01
+**프로젝트 상태**: 파이프라인 구현 완료, TMDB+Tving 소스 운영 중

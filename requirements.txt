@@ -46,7 +46,16 @@ PyYAML                 # YAML 설정 로드 (Object_Detection, Shopping_Ad)
 # --- API 서버 (Phase 4) ---
 fastapi
 uvicorn[standard]
+asyncpg                # 비동기 PostgreSQL 커넥션 풀 (API_Server)
 python-jose[cryptography]  # JWT 인증
+httpx                  # 비동기 HTTP 클라이언트 (테스트 + API 호출)
+
+# --- 추천 문구 생성 (gen_rec_sentence) ---
+aiohttp                # 비동기 HTTP (Ollama API 호출)
+
+# --- 테스트 ---
+pytest
+pytest-asyncio         # 비동기 테스트 (API_Server)
 
 # --- 유틸 ---
 tqdm                   # 진행 표시
