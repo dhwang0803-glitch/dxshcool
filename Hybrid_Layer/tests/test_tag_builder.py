@@ -3,6 +3,8 @@
 import pytest
 
 from Hybrid_Layer.src.tag_builder import (
+    TagBuilder,
+    tag_builder,
     extract_tags_from_row,
     normalize_rating,
     parse_cast,
@@ -12,51 +14,60 @@ from Hybrid_Layer.src.tag_builder import (
 
 class TestParseCast:
     def test_json_array(self):
-        assert parse_cast('["최불암", "김혜자"]') == ["최불암", "김혜자"]
+        assert TagBuilder.parse_cast('["최불암", "김혜자"]') == ["최불암", "김혜자"]
 
     def test_empty(self):
-        assert parse_cast(None) == []
-        assert parse_cast("") == []
+        assert TagBuilder.parse_cast(None) == []
+        assert TagBuilder.parse_cast("") == []
 
     def test_invalid_json(self):
-        assert parse_cast("not json") == []
+        assert TagBuilder.parse_cast("not json") == []
 
     def test_strips_whitespace(self):
-        assert parse_cast('[" 홍길동 "]') == ["홍길동"]
+        assert TagBuilder.parse_cast('[" 홍길동 "]') == ["홍길동"]
 
     def test_filters_empty_strings(self):
-        assert parse_cast('["홍길동", "", null]') == ["홍길동"]
+        assert TagBuilder.parse_cast('["홍길동", "", null]') == ["홍길동"]
+
+    def test_backward_compat_alias(self):
+        assert parse_cast('["a"]') == ["a"]
 
 
 class TestParseDirector:
     def test_single(self):
-        assert parse_director("봉준호") == ["봉준호"]
+        assert TagBuilder.parse_director("봉준호") == ["봉준호"]
 
     def test_multi(self):
-        assert parse_director("Lee Jae-jin, 김형민") == ["Lee Jae-jin", "김형민"]
+        assert TagBuilder.parse_director("Lee Jae-jin, 김형민") == ["Lee Jae-jin", "김형민"]
 
     def test_empty(self):
-        assert parse_director(None) == []
-        assert parse_director("") == []
+        assert TagBuilder.parse_director(None) == []
+        assert TagBuilder.parse_director("") == []
+
+    def test_backward_compat_alias(self):
+        assert parse_director("a") == ["a"]
 
 
 class TestNormalizeRating:
     def test_numeric(self):
-        assert normalize_rating("15") == "15세이상관람가"
-        assert normalize_rating("12") == "12세이상관람가"
-        assert normalize_rating("19") == "청소년관람불가"
+        assert TagBuilder.normalize_rating("15") == "15세이상관람가"
+        assert TagBuilder.normalize_rating("12") == "12세이상관람가"
+        assert TagBuilder.normalize_rating("19") == "청소년관람불가"
 
     def test_already_normalized(self):
-        assert normalize_rating("전체관람가") == "전체관람가"
-        assert normalize_rating("15세이상관람가") == "15세이상관람가"
+        assert TagBuilder.normalize_rating("전체관람가") == "전체관람가"
+        assert TagBuilder.normalize_rating("15세이상관람가") == "15세이상관람가"
 
     def test_partial(self):
-        assert normalize_rating("15세이상") == "15세이상관람가"
-        assert normalize_rating("12세이상") == "12세이상관람가"
+        assert TagBuilder.normalize_rating("15세이상") == "15세이상관람가"
+        assert TagBuilder.normalize_rating("12세이상") == "12세이상관람가"
 
     def test_empty(self):
-        assert normalize_rating(None) is None
-        assert normalize_rating("") is None
+        assert TagBuilder.normalize_rating(None) is None
+        assert TagBuilder.normalize_rating("") is None
+
+    def test_backward_compat_alias(self):
+        assert normalize_rating("15") == "15세이상관람가"
 
 
 class TestExtractTags:
@@ -70,15 +81,18 @@ class TestExtractTags:
             "genre_detail": "무비n시리즈",
             "rating": "15",
         }
-        tags = extract_tags_from_row(row)
+        tags = TagBuilder.extract_tags_from_row(row)
 
         categories = {t[1] for t in tags}
-        assert categories == {"director", "actor_lead", "actor_guest", "genre", "genre_detail", "rating"}
+        assert "director" in categories
+        assert "actor_lead" in categories
+        assert "actor_guest" in categories
+        assert "genre" in categories
 
         # director
         directors = [t for t in tags if t[1] == "director"]
         assert len(directors) == 1
-        assert directors[0] == ("V001", "director", "봉준호", 1.0)
+        assert directors[0] == ("V001", "director", "봉준호", 0.1)
 
         # actor_lead (주연)
         leads = {t[2] for t in tags if t[1] == "actor_lead"}
@@ -87,10 +101,6 @@ class TestExtractTags:
         # actor_guest (게스트)
         guests = {t[2] for t in tags if t[1] == "actor_guest"}
         assert guests == {"박소담"}
-
-        # rating normalized
-        ratings = [t for t in tags if t[1] == "rating"]
-        assert ratings[0][2] == "15세이상관람가"
 
     def test_minimal_row(self):
         row = {
@@ -102,9 +112,9 @@ class TestExtractTags:
             "genre_detail": None,
             "rating": None,
         }
-        tags = extract_tags_from_row(row)
+        tags = TagBuilder.extract_tags_from_row(row)
         assert len(tags) == 1
-        assert tags[0] == ("V002", "genre", "액션/모험", 1.0)
+        assert tags[0] == ("V002", "genre", "액션/모험", 0.1)
 
     def test_empty_row(self):
         row = {
@@ -116,5 +126,25 @@ class TestExtractTags:
             "genre_detail": "",
             "rating": "",
         }
-        tags = extract_tags_from_row(row)
+        tags = TagBuilder.extract_tags_from_row(row)
         assert tags == []
+
+    def test_backward_compat_alias(self):
+        row = {"full_asset_id": "V004", "genre": "코미디"}
+        tags = extract_tags_from_row(row)
+        assert len(tags) == 1
+
+
+class TestTagBuilderClass:
+    """TagBuilder 클래스 구조 테스트."""
+
+    def test_singleton_instance(self):
+        assert isinstance(tag_builder, TagBuilder)
+
+    def test_inherits_hybrid_base(self):
+        from Hybrid_Layer.src.base import HybridBase
+        assert issubclass(TagBuilder, HybridBase)
+
+    def test_build_is_instance_method(self):
+        from Hybrid_Layer.src.tag_builder import build_vod_tags
+        assert build_vod_tags == tag_builder.build

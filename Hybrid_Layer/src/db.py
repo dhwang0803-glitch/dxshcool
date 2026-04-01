@@ -1,19 +1,5 @@
-"""DB 연결 공통 모듈."""
+"""DB 연결 공통 모듈 — HybridBase.get_conn() 하위 호환 별칭."""
 
-import os
+from Hybrid_Layer.src.base import HybridBase
 
-import psycopg2
-from dotenv import load_dotenv
-
-load_dotenv()
-
-
-def get_conn():
-    """PostgreSQL 커넥션 반환."""
-    return psycopg2.connect(
-        host=os.getenv("DB_HOST"),
-        port=int(os.getenv("DB_PORT", "5432")),
-        dbname=os.getenv("DB_NAME"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD"),
-    )
+get_conn = HybridBase.get_conn
