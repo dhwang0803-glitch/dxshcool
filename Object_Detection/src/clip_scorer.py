@@ -81,6 +81,7 @@ class ClipScorer:
         """
         score_frames 결과 → parquet 행 리스트.
         threshold 미만 제거. negative 카테고리 제거.
+        negative 쿼리 최고 점수가 positive 최고 점수 이상이면 프레임 전체 억제.
 
         Args:
             query_category_map: {"쿼리": "카테고리"} — ad_category 컬럼 부여용.
@@ -91,6 +92,21 @@ class ClipScorer:
         """
         records = []
         for ts, scores in zip(timestamps, results):
+            # negative 최고 점수 계산
+            neg_scores = [s for q, s in scores.items()
+                          if query_category_map and query_category_map.get(q) == "negative"]
+            max_neg = max(neg_scores) if neg_scores else 0.0
+
+            # positive 최고 점수 계산
+            pos_scores = [s for q, s in scores.items()
+                          if query_category_map and query_category_map.get(q) != "negative"
+                          and s >= threshold]
+            max_pos = max(pos_scores) if pos_scores else 0.0
+
+            # negative가 positive 이상이면 프레임 전체 억제
+            if max_neg >= max_pos and max_neg > 0:
+                continue
+
             for concept, score in scores.items():
                 if score < threshold:
                     continue

@@ -1,3 +1,6 @@
+> ✅ **완료**. best.pt 기본값 확정 (mAP@0.5=0.990, COCO대비 45배 탐지 향상).
+> 최신 → `docs/MATCHING_FLOW.md`
+
 # PLAN_05 — YOLOv11 파인튜닝 (한식 탐지 고도화)
 
 - **브랜치**: Object_Detection
@@ -5,7 +8,6 @@
 - **작성일**: 2026-03-16
 - **작성자**: 박아름
 - **선행 조건**: Phase 4 완료 (51/51 PASS), PR #31 MERGED ✅, Shopping_Ad 연동 완료
-- **참조**: 조장(황대원) 제안 (YoLov11_파인튜닝.txt), `docs/reports/phase5_yolo_finetune_plan.md`
 - **업데이트**: 2026-03-16 — 조장 Ollama 제안 반영, 4가지 접근 방식 비교 및 구현 우선순위 재정의
 
 ---
@@ -103,6 +105,13 @@ frames, timestamps = extract_frames(
 # {class_id} {x_center} {y_center} {width} {height}  (0~1 정규화)
 0 0.5 0.5 0.2 0.3
 ```
+
+### Colab 노트북
+
+| 파일 | 용도 |
+|------|------|
+| `notebooks/phase5_finetune_colab.ipynb` | 전체 학습 파이프라인 (Step 1~7) |
+| `notebooks/phase5_ts_drive_preprocess.ipynb` | TS 분할 Drive 전처리 전용 (로컬+Colab 병렬 처리) |
 
 ### 데이터셋 폴더 구조
 
@@ -299,10 +308,18 @@ Step C. 전처리 스크립트 실행 (중복 자동 스킵)
          cd Object_Detection
          python scripts/prepare_local_dataset.py
          → 640×640 리사이즈 + YOLO 변환 → finetune_dataset\ 누적
+Step C-2. [최초 1회만] train/val 80:20 분리
+         python scripts/split_val.py
+         → train 80% / val 20% 자동 분리
 Step D. finetune_dataset\ → Drive 동기화
          Drive > LGHellovision > Project 02 > Object Detection > finetune_dataset
 Step E. 로컬 TS\ 폴더 삭제 (디스크 확보)
 Step F. 다음 분할로 A~E 반복
+
+⚠️ Colab에서 TS.z02 이상 처리 시:
+  - Colab 로컬 디스크 ~80GB 고정 → TS.z02(107GB) 직접 해제 불가
+  - 해결: `phase5_ts_drive_preprocess.ipynb` 사용 (Drive 직접 압축 해제 방식)
+  - Step 4.5에서 80:20 비율 자동 유지
 
 [학습]
 충분한 이미지 확보 후 → Colab Step 3~4 실행
@@ -319,7 +336,8 @@ best.pt → Object_Detection/models/korean_food_v1_best.pt
 | 항목 | 경로 |
 |------|------|
 | AI Hub 다운로드 폴더 | `C:\Users\user\Documents\AI HUB\` |
-| TL.zip / VL.zip | `C:\Users\user\Documents\AI HUB\TL.zip` / `VL.zip` |
+| TL.zip | `C:\Users\user\Downloads\aihub\296.비전영역, 음식이미지 및 정보소개 텍스트 데이터\01-1.정식개방데이터\Training\02.라벨링데이터\TL.zip` |
+| VL.zip | `C:\Users\user\Downloads\aihub\296.비전영역, 음식이미지 및 정보소개 텍스트 데이터\01-1.정식개방데이터\Validation\02.라벨링데이터\VL.zip` |
 | TS 압축 해제 (임시) | `C:\Users\user\Documents\AI HUB\TS\` |
 | 전처리 출력 (Drive 업로드 대상) | `C:\Users\user\Documents\AI HUB\finetune_dataset\` |
 | Drive 업로드 경로 | `LGHellovision/Project 02/Object Detection/finetune_dataset` |
@@ -330,8 +348,8 @@ best.pt → Object_Detection/models/korean_food_v1_best.pt
 
 | 파일 | 크기 | 키 | 상태 |
 |------|------|----|------|
-| TS.z01 | 100GB | 502331 | 🔲 다운로드 중 |
-| TS.z02 | 100GB | 502332 | 🔲 |
+| TS.z01 | 100GB | 502331 | ✅ 완료 (train 20,872 / val 5,218, 2026-03-17) |
+| TS.z02 | 100GB | 502332 | 🔲 (Colab Drive 직접 압축 해제 방식 사용) |
 | TS.z03 | 100GB | 502333 | 🔲 |
 | TS.z04 | 100GB | 502334 | 🔲 |
 | TS.z05 | 100GB | 502335 | 🔲 |
@@ -339,19 +357,26 @@ best.pt → Object_Detection/models/korean_food_v1_best.pt
 | TS.z07 | 100GB | 502337 | 🔲 |
 | TS.zip |  40GB | 502338 | 🔲 |
 
-> TS.z01 1개(약 29,000장)만으로도 파인튜닝 시작 가능.
+> **학습 전략**: TS.z03까지(~62,000장, 클래스당 ~108장) 먼저 학습 후 mAP@0.5 ≥ 0.6 확인.
+> 달성 시 완료, 미달 시 TS.z04~ 추가 후 재학습.
+> TS.z01 1개(약 26,000장)만으로도 파이프라인 검증 가능.
 
 ---
 
-## 완료 기준
+## 완료 현황
 
 ### 데이터 준비
-- [ ] TS.z01 압축 해제 + 전처리 스크립트 실행
-- [ ] finetune_dataset/ Drive 업로드
-- [ ] data.yaml 확인 (nc=800종)
+- [x] TS.z01 전처리 완료 (train 20,872 / val 5,218, 2026-03-17)
+- [x] finetune_dataset/ Drive 업로드
+- [x] data.yaml 확인 (nc=71종, TS.z01 기준)
+
+### 학습 + 배치
+- [x] best.pt 학습 완료 (mAP@0.5=0.990, COCO 대비 45배 탐지 향상)
+- [x] 19건 배치 완료 (739 TRIGGER, parquet 4종 생성)
 
 ### 문서
-- [ ] `docs/reports/phase5_ab_report.md` 작성 (A/B 비교 수치 포함)
+- [x] `docs/reports/phase5_pilot_result_20260318.md` — A/B 비교 수치 포함
+- [x] `docs/reports/batch_19_report_20260322.md` — 19건 배치 결과
 
 ---
 

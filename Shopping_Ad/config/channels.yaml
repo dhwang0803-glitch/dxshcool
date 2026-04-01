@@ -1,0 +1,15 @@
+# 제철장터 채널 크롤링 설정
+# 홈쇼핑 크롤러 폐기 (2026-03-19) → LG헬로비전 제철장터만 유지
+
+channels:
+  LG헬로비전:
+    url: "https://www.lghellovision.net/main/mainScheduleListAjax.do"
+    module: lg_hellovision
+    channel_number: 25
+    enabled: true
+
+# 공통 설정
+defaults:
+  timeout_ms: 30000
+  retry_count: 2
+  headless: true

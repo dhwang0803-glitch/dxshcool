@@ -20,8 +20,8 @@
      ▼              ▼              ▼
 ┌─────────┐  ┌────────────┐  ┌──────────────┐
 │CF_Engine│  │Vector_     │  │Shopping_Ad   │
-│행렬분해  │  │Search      │  │홈쇼핑 팝업   │
-│추천엔진  │  │유사도검색  │  │광고 시스템   │
+│행렬분해  │  │Search      │  │지자체 광고   │
+│추천엔진  │  │유사도검색  │  │+제철장터    │
 └────┬────┘  └─────┬──────┘  └──────┬───────┘
      │              │                │
      └──────────────┼────────────────┘
@@ -194,7 +194,7 @@ Poster_Collection/
 ### `CF_Engine` — 협업 필터링 (행렬 분해)
 - 시청 이력 기반 User-Item 행렬 구성
 - ALS (Alternating Least Squares) 또는 SVD++ 적용
-- 실시간 추천 결과 캐싱 (Redis 예정)
+- 추천 결과는 `serving.vod_recommendation` 테이블에 사전 적재 → API 서버에서 PK 조회 (인프라 제약으로 Redis 미도입)
 
 **예정 폴더 구조:**
 ```
@@ -223,6 +223,52 @@ Vector_Search/
 ├── tests/
 └── config/
 ```
+
+---
+
+### `Hybrid_Layer` — 설명 가능한 추천 (Explainable Recommendation) `구현 완료`
+- CF_Engine + Vector_Search의 추천 후보(각 top 20)를 입력으로 수신
+- `vod_tag`(감독/배우/장르) × `user_preference`(유저 선호 프로필) 매칭
+- 중복 제거 + 태그 기반 리랭킹 → 최종 top 10 + `explanation_tags` 생성
+- `serving.hybrid_recommendation`에 적재 → 홈 배너 3단 구조의 3단 영역
+- `serving.tag_recommendation`에 적재 → `/recommend` 패턴 그룹핑 서빙
+
+**홈 배너 3단 구조:**
+```
+1단: Normal_Recommendation → personalized_banner (유저별 top 5)
+2단: Normal_Recommendation → popular_recommendation (비개인화 top 5)
+3단: Hybrid_Layer → hybrid_recommendation (top 10)
+```
+
+**설명 가능한 추천 예시:**
+```
+"봉준호 감독 작품을 즐겨 보셨어요" (director affinity 0.92)
+"송강호 배우 출연작을 자주 시청하셨네요" (actor affinity 0.85)
+```
+
+**폴더 구조:**
+```
+Hybrid_Layer/
+├── src/
+│   ├── tag_builder.py        ← Phase 1: vod → vod_tag 태그 추출
+│   ├── preference_builder.py ← Phase 2: watch_history × vod_tag → user_preference
+│   ├── reranker.py           ← Phase 3: 후보 리랭킹 + explanation 생성
+│   └── shelf_builder.py      ← Phase 4: 선호 태그별 VOD 선반 생성
+├── scripts/
+│   ├── build_vod_tags.py         ← Phase 1 실행
+│   ├── build_user_preferences.py ← Phase 2 실행
+│   ├── run_hybrid.py             ← Phase 3 리랭킹 + 적재
+│   └── build_tag_shelves.py      ← Phase 4 선반 생성
+├── tests/
+│   ├── test_tag_builder.py       ← 15 tests
+│   └── test_reranker.py          ← 3 tests
+└── config/
+    └── hybrid_config.yaml        ← β=0.6, top_n=10 등
+```
+
+> **데이터 현황 (2026-03-22)**: COLLABORATIVE 4,854,040건 + CONTENT_BASED 2,394,600건 적재 완료.
+> Phase 1(vod_tag 1,331,164건) 완료. Phase 2(user_preference) 실행 중 → Phase 3~4 대기.
+> 상세 현황: `docs/DATA_PIPELINE_STATUS.md`
 
 ---
 
@@ -266,40 +312,71 @@ Object_Detection/
 
 ---
 
-### `Shopping_Ad` — 홈쇼핑 광고 매칭 시스템
-- Object_Detection parquet 소비 → YOLO 클래스를 상품 카테고리로 해석 (비즈니스 로직)
-- TV 실시간 시간표 수집 (EPG 파싱) → 홈쇼핑 채널 방영 상품 매칭
-- 매칭 결과를 `serving.shopping_ad` 테이블에 적재 (VPC — API_Server가 직접 조회)
+### `Shopping_Ad` — 지자체 광고 팝업 + 제철장터 채널 연계
+
+> **2026-03-19 방향 전환**: 홈쇼핑 연동 폐기 → 지자체 광고 + 제철장터 연계로 전환.
+
+**핵심 아이디어**: Object_Detection의 장면 인식 결과를 기반으로,
+관광지/지역 인식 시 지자체 광고 팝업을, 음식 인식 시 제철장터 채널 연계를 트리거한다.
+
+| 인식 대상 | 광고 액션 | 예시 |
+|----------|---------|------|
+| 관광지/지역 (진주, 여수 등) | 지자체 광고 팝업 (생성형 AI 제작, OCI 저장) | 진주 동물축제 광고 |
+| 음식 (삼겹살, 한우 등) | 제철장터 채널 상품 연계 (채널 이동/시청예약) | 한우 축제, 김치 축제 |
+
+**처리 흐름 (3단계):**
+
+```
+━━━ ① 배치 처리 (사전 계산) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Object_Detection 3종 parquet 소비:
+  vod_detected_object.parquet  ← YOLO bbox
+  vod_clip_concept.parquet     ← CLIP 개념 태깅
+  vod_stt_concept.parquet      ← Whisper STT 키워드
+
+인식 대상별 트리거 조건 적용:
+  관광지/지역 → STT 지역명 + CLIP 지역 개념 → 지자체 광고 팝업
+  음식        → YOLO 음식 bbox + CLIP 음식 개념 → 제철장터 채널 연계
+
+→ trigger_points.parquet (vod_id, time_sec, ad_category, ad_action_type)
+
+━━━ ② 광고 소재 생성 (MVP: 수동/반자동) ━━━━━━━━━━━━━━━━━━━
+
+축제 리스트 수집 (예: 3~4월 지역 축제)
+→ 생성형 AI로 팝업 광고 이미지 제작
+→ OCI Object Storage 업로드
+→ serving 테이블에 광고 이미지 URL 적재
+
+━━━ ③ 실시간 팝업 발화 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+시청자 VOD 재생 시작
+→ API_Server: serving.shopping_ad WHERE vod_id=$1 조회
+→ 재생 중 time_sec 도달
+→ 관광지/지역: 지자체 광고 팝업 표시
+→ 음식: 제철장터 채널 이동/시청예약 안내
+```
 
 **테이블 소유:**
 
 | 테이블 | 위치 | 설명 |
 |--------|------|------|
-| `tv_schedule` | 로컬 DB/parquet | EPG 기반 TV 시간표 (채널, 시간, 프로그램) |
-| `homeshopping_product` | 로컬 DB/parquet | 홈쇼핑 상품 카탈로그 (상품명, 카테고리, 가격) |
-| `product_object_mapping` | 로컬 DB/parquet | YOLO 클래스 → 상품 카테고리 매핑 (비즈니스 로직) |
-| `serving.shopping_ad` | **VPC** | 최종 광고 팝업 데이터 (API_Server 직접 조회) |
+| `product_object_mapping` | 로컬 yaml/CSV | 인식 결과 → 광고 카테고리 매핑 (비즈니스 로직) |
+| `serving.shopping_ad` | **VPC** | 트리거 포인트 + 광고 액션 (API_Server 직접 조회) |
 
-> `product_object_mapping`이 Shopping_Ad 소유인 이유: YOLO 클래스(`chair`, `couch`)를 상품 카테고리(`소파`)로 해석하는 것은 탐지가 아닌 **비즈니스 로직**
-
-**데이터 플로우:**
-```
-vod_detected_object.parquet (Object_Detection 산출물)
-    → product_object_mapping (YOLO label → 상품 카테고리)
-    → homeshopping_product (카테고리 매칭 → 후보 상품)
-    → tv_schedule (현재 홈쇼핑 채널 방영 확인)
-    → serving.shopping_ad (VPC 적재 — 팝업 데이터)
-    → API_Server /ad/popup → Frontend 팝업 오버레이
-```
+**의존 관계:**
+- `Object_Detection` — 3종 parquet 생성 완료 후 트리거 추출 가능
+- `Database_Design` — `serving.shopping_ad` 스키마 재설계 필요 (지자체 광고 + 제철장터 반영)
+- `API_Server` — `/ad/popup` trigger_ts 기반 발화 엔드포인트 구현 (PLAN_06)
 
 **예정 폴더 구조:**
 ```
 Shopping_Ad/
-├── src/           ← epg_parser.py, product_mapper.py, popup_builder.py, serving_writer.py
-├── scripts/       ← run_epg_sync.py, run_ad_pipeline.py, export_to_serving.py
+├── src/           ← trigger_extractor.py, product_mapper.py, epg_parser.py
+│                     popup_builder.py, serving_writer.py
+├── scripts/       ← run_shopping_ad.py, run_epg_sync.py, ingest_to_db.py
 ├── tests/
-├── config/        ← ad_config.yaml (EPG 소스, 매핑 규칙)
-└── docs/
+├── config/        ← ad_config.yaml
+└── docs/          ← plans/, reports/
 ```
 
 ---
@@ -307,21 +384,26 @@ Shopping_Ad/
 ## Phase 4 — 서비스 레이어
 
 ### `API_Server` — FastAPI 백엔드
-- 추천 엔드포인트: `/recommend/{user_id}`
-- 유사 콘텐츠: `/similar/{asset_id}`
-- 광고 트리거: `/ad/popup` (WebSocket 또는 SSE)
-- 인증: JWT
+- 추천 엔드포인트: `/recommend/{user_id}`, `/similar/{asset_id}`
+- 광고 트리거: `/ad/popup` (WebSocket)
+- 인증: JWT (셋톱박스 자동 로그인, 만료 없음)
+- **실시간 처리 (방안 A — Redis 미도입)**: 인프라 제약(1GB RAM)으로 Redis 대신 PG 내장 기능 + 인메모리 버퍼 채택
+  - 시청 진행률: 인메모리 버퍼 → 60초 batch UPSERT
+  - 마이페이지 실시간 갱신: PG LISTEN/NOTIFY → WebSocket push
+  - 포인트 잔액: DB 트리거 자동 갱신 (point_history INSERT → user.point_balance UPDATE)
+  - 시청예약 알림: 30초 주기 background task → WebSocket push
 
-**예정 폴더 구조:**
+**폴더 구조:**
 ```
 API_Server/
 ├── app/
-│   ├── routers/       ← recommend.py, search.py, ad.py, auth.py
-│   ├── services/      ← 비즈니스 로직 (CF_Engine, Vector_Search 호출)
+│   ├── routers/       ← auth, home, vod, series, user, purchase, wishlist, recommend, similar, ad, reservation
+│   ├── services/      ← 비즈니스 로직, progress_buffer, pg_listener, reservation_checker, exceptions
 │   ├── models/        ← Pydantic 요청/응답 스키마
 │   └── main.py
 ├── tests/
-└── config/
+├── config/
+└── docs/              ← realtime_architecture.md, error_message_policy.md
 ```
 
 ---
@@ -329,7 +411,7 @@ API_Server/
 ### `Frontend` — React/Next.js 클라이언트
 - VOD 목록 + 추천 결과 표시
 - 실시간 광고 팝업 오버레이 (TV 화면 위)
-- 홈쇼핑 채널 이동 / 시청예약 UX
+- 지자체 광고 팝업 오버레이 + 제철장터 채널 이동/시청예약 UX
 
 **예정 폴더 구조:**
 ```

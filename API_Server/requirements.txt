@@ -1,0 +1,6 @@
+# API_Server — Cloud Run 배포용 (Python 3.12)
+fastapi
+uvicorn[standard]
+asyncpg
+python-jose[cryptography]
+pyyaml

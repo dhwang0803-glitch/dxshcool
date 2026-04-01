@@ -28,11 +28,12 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from frame_extractor import extract_frames, list_video_files
 from clip_scorer import ClipScorer
+from vod_filter import filter_videos_by_ct_cl
 from location_tagger import LocationTagger
 from context_filter import ContextFilter
 
 DATA_DIR    = PROJECT_ROOT / "data"
-CONFIG_PATH = PROJECT_ROOT / "config" / "clip_queries.yaml"
+CONFIG_PATH = PROJECT_ROOT / "config" / "clip_queries_ko.yaml"
 STATUS_FILE = DATA_DIR / "clip_status.json"
 LOG_FILE    = DATA_DIR / "clip_score.log"
 
@@ -147,7 +148,7 @@ def main():
     parser = argparse.ArgumentParser(description="VOD CLIP Zero-shot 배치 스코어링")
     parser.add_argument("--input-dir", type=str, default=str(PROJECT_ROOT / "data" / "trailers_아름"))
     parser.add_argument("--output",    type=str, default=str(DATA_DIR / "vod_clip_concept.parquet"))
-    parser.add_argument("--config",    type=str, default=str(CONFIG_PATH), help="쿼리 yaml 경로 (기본값: clip_queries.yaml)")
+    parser.add_argument("--config",    type=str, default=str(CONFIG_PATH), help="쿼리 yaml 경로 (기본값: clip_queries_ko.yaml)")
     parser.add_argument("--model",     type=str, default=None, help="CLIP 모델명 (미지정시 config 값 사용)")
     parser.add_argument("--fps",       type=float, default=1.0)
     parser.add_argument("--threshold", type=float, default=None, help="clip_score 임계값 (미지정시 config 값 사용)")
@@ -161,6 +162,8 @@ def main():
     parser.add_argument("--yolo-parquet", type=str,
                         default=str(DATA_DIR / "vod_detected_object.parquet"),
                         help="YOLO 탐지 결과 parquet 경로 (context_filter 식기류 체크용)")
+    parser.add_argument("--ct-cl", type=str, default="TV 연예/오락",
+                        help="처리 대상 콘텐츠 분류 (기본값: 'TV 연예/오락', 전체는 '')")
     args = parser.parse_args()
 
     status = load_status()
@@ -180,6 +183,13 @@ def main():
     if not video_files:
         log.error(f"영상 파일 없음: {args.input_dir}")
         return
+
+    # ct_cl 필터
+    if args.ct_cl:
+        video_files = filter_videos_by_ct_cl(video_files, args.ct_cl)
+        if not video_files:
+            log.error(f"ct_cl='{args.ct_cl}' 조건에 맞는 영상 없음")
+            return
 
     if args.random and args.limit > 0:
         video_files = random.sample(video_files, min(args.limit, len(video_files)))
@@ -229,6 +239,9 @@ def main():
                     yolo_labels=yolo_labels,
                     clip_scores=ts_to_scores.get(frame_ts_key, {}),
                     ad_category=r.get("ad_category", ""),
+                    query_category_map=query_category_map,
+                    threshold=threshold,
+                    travel_groups=config.get("travel_groups", {}),
                 )
                 r["context_valid"]  = ctx["context_valid"]
                 r["context_reason"] = ctx["context_reason"]

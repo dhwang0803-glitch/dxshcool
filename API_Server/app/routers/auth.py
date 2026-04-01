@@ -1,18 +1,17 @@
 import os
-from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 
 from app.models.auth import TokenRequest, TokenResponse
 from app.services.db import get_pool
+from app.services.exceptions import INVALID_TOKEN, TOKEN_DECODE_FAILED, USER_NOT_FOUND
 
 router = APIRouter()
 security = HTTPBearer()
 
 ALGORITHM = "HS256"
-EXPIRE_MINUTES = 60
 
 
 def _secret() -> str:
@@ -23,10 +22,8 @@ def _secret() -> str:
 
 
 def create_access_token(user_id: str) -> str:
-    payload = {
-        "sub": user_id,
-        "exp": datetime.utcnow() + timedelta(minutes=EXPIRE_MINUTES),
-    }
+    """셋톱박스 자동 로그인 — 만료 없는 토큰 발급."""
+    payload = {"sub": user_id}
     return jwt.encode(payload, _secret(), algorithm=ALGORITHM)
 
 
@@ -37,10 +34,26 @@ def get_current_user(
         payload = jwt.decode(credentials.credentials, _secret(), algorithms=[ALGORITHM])
         user_id: str = payload.get("sub")
         if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid token")
+            raise INVALID_TOKEN()
         return user_id
     except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+        raise TOKEN_DECODE_FAILED()
+
+
+_optional_security = HTTPBearer(auto_error=False)
+
+
+def get_optional_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_optional_security),
+) -> str | None:
+    """토큰이 있으면 user_id 반환, 없으면 None (비로그인 허용)."""
+    if credentials is None:
+        return None
+    try:
+        payload = jwt.decode(credentials.credentials, _secret(), algorithms=[ALGORITHM])
+        return payload.get("sub")
+    except JWTError:
+        return None
 
 
 @router.post("/token", response_model=TokenResponse)
@@ -52,5 +65,5 @@ async def issue_token(request: TokenRequest):
             request.user_id,
         )
     if row is None:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise USER_NOT_FOUND()
     return TokenResponse(access_token=create_access_token(request.user_id))
