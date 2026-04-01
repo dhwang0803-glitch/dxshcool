@@ -57,18 +57,25 @@ async def get_recommendations(user_id: str) -> dict:
                   {youtube_filter}
                   AND (r.expires_at IS NULL OR r.expires_at > NOW())
                 ORDER BY r.score DESC
-                LIMIT 10
+                LIMIT 30
                 """,
                 user_id,
             )
+            seen_series = set()
             for row in rows:
+                sid = row["series_nm"] or row["asset_nm"]
+                if sid in seen_series:
+                    continue
+                seen_series.add(sid)
                 top_vods.append({
                     "vod_id": row["vod_id_fk"],
-                    "series_id": row["series_nm"] or row["asset_nm"],
+                    "series_id": sid,
                     "asset_nm": row["asset_nm"],
                     "poster_url": row["poster_url"],
                     "backdrop_url": row["backdrop_url"],
                 })
+                if len(top_vods) >= 10:
+                    break
 
             # cold start 보충: hybrid 부족분을 연령대 기반 cold_genre_detail VOD로 채움
             if len(top_vods) < 10:
@@ -85,14 +92,15 @@ async def get_recommendations(user_id: str) -> dict:
                       {youtube_filter}
                       AND (tr.expires_at IS NULL OR tr.expires_at > NOW())
                     ORDER BY tr.vod_score DESC
-                    LIMIT $2
+                    LIMIT 30
                     """,
                     user_id,
-                    10 - len(top_vods),
                 )
+                need = 10 - len(top_vods)
                 for row in cold_rows:
                     sid = row["series_nm"] or row["asset_nm"]
                     if sid not in seen_ids:
+                        seen_ids.add(sid)
                         top_vods.append({
                             "vod_id": row["vod_id_fk"],
                             "series_id": sid,
@@ -100,6 +108,9 @@ async def get_recommendations(user_id: str) -> dict:
                             "poster_url": row["poster_url"],
                             "backdrop_url": row["backdrop_url"],
                         })
+                        need -= 1
+                        if need <= 0:
+                            break
     except Exception:
         pass
 
