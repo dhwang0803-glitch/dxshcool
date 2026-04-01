@@ -16,95 +16,110 @@ import os
 import urllib.parse
 from pathlib import Path
 
+from Poster_Collection.src.base import PosterBase
+
 logger = logging.getLogger(__name__)
 
 
-def _get_client():
-    import oci
+class OCIUploader(PosterBase):
+    """OCI Object Storage 업로드 클래스."""
 
-    profile = os.getenv("OCI_CONFIG_PROFILE", "DEFAULT")
-    config = oci.config.from_file(profile_name=profile)
-    return oci.object_storage.ObjectStorageClient(config)
+    @staticmethod
+    def _get_client():
+        import oci
+        profile = os.getenv("OCI_CONFIG_PROFILE", "DEFAULT")
+        config = oci.config.from_file(profile_name=profile)
+        return oci.object_storage.ObjectStorageClient(config)
 
-
-def build_public_url(region: str, namespace: str, bucket: str, object_name: str) -> str:
-    """퍼블릭 버킷 기준 직접 접근 URL 생성. object_name은 URL 인코딩 적용."""
-    encoded = urllib.parse.quote(object_name, safe="")
-    return (
-        f"https://objectstorage.{region}.oraclecloud.com"
-        f"/n/{namespace}/b/{bucket}/o/{encoded}"
-    )
-
-
-def upload_file(local_path: str, object_name: str) -> str:
-    """
-    단일 파일을 OCI Object Storage에 업로드하고 퍼블릭 URL을 반환.
-
-    Args:
-        local_path:   로컬 이미지 파일 경로
-        object_name:  버킷 내 저장될 이름 (예: '10001.jpg')
-
-    Returns:
-        퍼블릭 URL 문자열
-
-    Raises:
-        FileNotFoundError: 로컬 파일이 없을 때
-        oci.exceptions.ServiceError: OCI API 오류
-    """
-    path = Path(local_path)
-    if not path.exists():
-        raise FileNotFoundError(f"파일 없음: {local_path}")
-
-    namespace = os.getenv("OCI_NAMESPACE")
-    bucket = os.getenv("OCI_BUCKET_NAME")
-    region = os.getenv("OCI_REGION")
-
-    if not all([namespace, bucket, region]):
-        raise EnvironmentError(
-            "OCI_NAMESPACE, OCI_BUCKET_NAME, OCI_REGION 환경변수가 필요합니다."
+    @staticmethod
+    def build_public_url(region: str, namespace: str, bucket: str, object_name: str) -> str:
+        """퍼블릭 버킷 기준 직접 접근 URL 생성. object_name은 URL 인코딩 적용."""
+        encoded = urllib.parse.quote(object_name, safe="")
+        return (
+            f"https://objectstorage.{region}.oraclecloud.com"
+            f"/n/{namespace}/b/{bucket}/o/{encoded}"
         )
 
-    client = _get_client()
+    @classmethod
+    def upload_file(cls, local_path: str, object_name: str) -> str:
+        """
+        단일 파일을 OCI Object Storage에 업로드하고 퍼블릭 URL을 반환.
 
-    with open(path, "rb") as f:
-        client.put_object(
-            namespace_name=namespace,
-            bucket_name=bucket,
-            object_name=object_name,
-            put_object_body=f,
-            content_type=_content_type(path.suffix),
-        )
+        Args:
+            local_path:   로컬 이미지 파일 경로
+            object_name:  버킷 내 저장될 이름 (예: '10001.jpg')
 
-    url = build_public_url(region, namespace, bucket, object_name)
-    logger.debug("업로드 완료: %s → %s", object_name, url)
-    return url
+        Returns:
+            퍼블릭 URL 문자열
+
+        Raises:
+            FileNotFoundError: 로컬 파일이 없을 때
+            oci.exceptions.ServiceError: OCI API 오류
+        """
+        path = Path(local_path)
+        if not path.exists():
+            raise FileNotFoundError(f"파일 없음: {local_path}")
+
+        namespace = os.getenv("OCI_NAMESPACE")
+        bucket = os.getenv("OCI_BUCKET_NAME")
+        region = os.getenv("OCI_REGION")
+
+        if not all([namespace, bucket, region]):
+            raise EnvironmentError(
+                "OCI_NAMESPACE, OCI_BUCKET_NAME, OCI_REGION 환경변수가 필요합니다."
+            )
+
+        client = cls._get_client()
+
+        with open(path, "rb") as f:
+            client.put_object(
+                namespace_name=namespace,
+                bucket_name=bucket,
+                object_name=object_name,
+                put_object_body=f,
+                content_type=cls._content_type(path.suffix),
+            )
+
+        url = cls.build_public_url(region, namespace, bucket, object_name)
+        logger.debug("업로드 완료: %s → %s", object_name, url)
+        return url
+
+    @classmethod
+    def object_exists(cls, object_name: str) -> bool:
+        """버킷에 해당 오브젝트가 이미 존재하는지 확인."""
+        import oci
+
+        namespace = os.getenv("OCI_NAMESPACE")
+        bucket = os.getenv("OCI_BUCKET_NAME")
+
+        try:
+            client = cls._get_client()
+            client.head_object(
+                namespace_name=namespace,
+                bucket_name=bucket,
+                object_name=object_name,
+            )
+            return True
+        except oci.exceptions.ServiceError as e:
+            if e.status == 404:
+                return False
+            raise
+
+    @staticmethod
+    def _content_type(suffix: str) -> str:
+        return {
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".webp": "image/webp",
+        }.get(suffix.lower(), "application/octet-stream")
 
 
-def object_exists(object_name: str) -> bool:
-    """버킷에 해당 오브젝트가 이미 존재하는지 확인."""
-    import oci
+# ── 싱글턴 + 하위호환 별칭 ──
+_uploader = OCIUploader()
 
-    namespace = os.getenv("OCI_NAMESPACE")
-    bucket = os.getenv("OCI_BUCKET_NAME")
-
-    try:
-        client = _get_client()
-        client.head_object(
-            namespace_name=namespace,
-            bucket_name=bucket,
-            object_name=object_name,
-        )
-        return True
-    except oci.exceptions.ServiceError as e:
-        if e.status == 404:
-            return False
-        raise
-
-
-def _content_type(suffix: str) -> str:
-    return {
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".png": "image/png",
-        ".webp": "image/webp",
-    }.get(suffix.lower(), "application/octet-stream")
+_get_client = OCIUploader._get_client
+build_public_url = OCIUploader.build_public_url
+upload_file = OCIUploader.upload_file
+object_exists = OCIUploader.object_exists
+_content_type = OCIUploader._content_type

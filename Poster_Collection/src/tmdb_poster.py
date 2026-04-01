@@ -18,13 +18,14 @@ import logging
 import os
 import re
 import time
-from difflib import SequenceMatcher
 from typing import Optional
 
 import requests
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+from Poster_Collection.src.base import PosterBase
 
 _ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(_ROOT / ".env")
@@ -39,70 +40,6 @@ _TMDB_URL = "https://api.themoviedb.org/3"
 _IMG_BASE = "https://image.tmdb.org/t/p/w500"
 _HEADERS = {"User-Agent": "vod-poster-pipeline/1.0"}
 REQUEST_TIMEOUT = 8
-
-
-def _tmdb_headers() -> dict:
-    """TMDB 인증 헤더. Read Access Token(v4 Bearer) 우선."""
-    h = dict(_HEADERS)
-    if TMDB_READ_ACCESS_TOKEN:
-        h["Authorization"] = f"Bearer {TMDB_READ_ACCESS_TOKEN}"
-    return h
-
-
-def _tmdb_params(extra: dict | None = None) -> dict:
-    """TMDB 공통 파라미터. Bearer 없을 때만 api_key 추가."""
-    p = extra or {}
-    if not TMDB_READ_ACCESS_TOKEN and TMDB_API_KEY:
-        p["api_key"] = TMDB_API_KEY
-    return p
-
-
-def _tmdb_available() -> bool:
-    return bool(TMDB_READ_ACCESS_TOKEN or TMDB_API_KEY)
-
-
-def _title_similarity(a: str, b: str) -> float:
-    """두 제목의 유사도 (0.0~1.0)."""
-    a, b = a.lower().strip(), b.lower().strip()
-    if not a or not b:
-        return 0.0
-    if a == b:
-        return 1.0
-    len_ratio = min(len(a), len(b)) / max(len(a), len(b))
-    shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
-    if shorter in longer:
-        return len_ratio
-    return SequenceMatcher(None, a, b).ratio()
-
-
-def _item_sim(query: str, item: dict) -> float:
-    """query와 TMDB 결과의 제목 유사도.
-
-    한국 콘텐츠(original_language=ko): 모든 제목 후보로 비교.
-    비한국 콘텐츠: original_title/original_name으로만 비교하여
-    한국어 번역 제목과의 오매칭 방지.
-    """
-    is_ko = item.get("original_language") == "ko"
-    if is_ko:
-        names = _item_names(item)
-    else:
-        names = [item.get("original_title") or "", item.get("original_name") or ""]
-        names = [n for n in names if n]
-    if not names:
-        return 0.0
-    return max((_title_similarity(query, n) for n in names), default=0.0)
-
-
-def _item_names(item: dict) -> list[str]:
-    """media_type에 관계없이 제목 후보 반환."""
-    candidates = [
-        item.get("name") or "",
-        item.get("original_name") or "",
-        item.get("title") or "",
-        item.get("original_title") or "",
-    ]
-    return [n for n in candidates if n]
-
 
 # ct_cl → TMDB media_type 매핑
 _CT_CL_MEDIA = {
@@ -120,138 +57,230 @@ _CT_CL_MEDIA = {
 _SIM_THRESHOLD = 0.5
 
 
-def _search_by_type(series_nm: str, ct_cl: str = None) -> Optional[dict]:
-    """ct_cl 기반으로 search/movie 또는 search/tv 엔드포인트 직접 호출.
+class TMDBPoster(PosterBase):
+    """TMDB API를 통한 포스터 검색 클래스."""
 
-    ct_cl이 없으면 search/multi fallback.
-    유사도 0.5 이상인 결과 중 최고 유사도 항목 반환.
-    """
-    if not _tmdb_available():
+    @staticmethod
+    def _tmdb_headers() -> dict:
+        """TMDB 인증 헤더. Read Access Token(v4 Bearer) 우선."""
+        h = dict(_HEADERS)
+        if TMDB_READ_ACCESS_TOKEN:
+            h["Authorization"] = f"Bearer {TMDB_READ_ACCESS_TOKEN}"
+        return h
+
+    @staticmethod
+    def _tmdb_params(extra: dict | None = None) -> dict:
+        """TMDB 공통 파라미터. Bearer 없을 때만 api_key 추가."""
+        p = extra or {}
+        if not TMDB_READ_ACCESS_TOKEN and TMDB_API_KEY:
+            p["api_key"] = TMDB_API_KEY
+        return p
+
+    @staticmethod
+    def _tmdb_available() -> bool:
+        return bool(TMDB_READ_ACCESS_TOKEN or TMDB_API_KEY)
+
+    @staticmethod
+    def _item_names(item: dict) -> list[str]:
+        """media_type에 관계없이 제목 후보 반환."""
+        candidates = [
+            item.get("name") or "",
+            item.get("original_name") or "",
+            item.get("title") or "",
+            item.get("original_title") or "",
+        ]
+        return [n for n in candidates if n]
+
+    @staticmethod
+    def _title_similarity(a: str, b: str) -> float:
+        """두 제목의 유사도 (0.0~1.0). 부분 문자열 포함 시 길이 비율 반환."""
+        a, b = a.lower().strip(), b.lower().strip()
+        if not a or not b:
+            return 0.0
+        if a == b:
+            return 1.0
+        len_ratio = min(len(a), len(b)) / max(len(a), len(b))
+        shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
+        if shorter in longer:
+            return len_ratio
+        from difflib import SequenceMatcher
+        return SequenceMatcher(None, a, b).ratio()
+
+    @classmethod
+    def _item_sim(cls, query: str, item: dict) -> float:
+        """query와 TMDB 결과의 제목 유사도.
+
+        한국 콘텐츠(original_language=ko): 모든 제목 후보로 비교.
+        비한국 콘텐츠: original_title/original_name으로만 비교하여
+        한국어 번역 제목과의 오매칭 방지.
+        """
+        is_ko = item.get("original_language") == "ko"
+        if is_ko:
+            names = cls._item_names(item)
+        else:
+            names = [item.get("original_title") or "", item.get("original_name") or ""]
+            names = [n for n in names if n]
+        if not names:
+            return 0.0
+        return max((cls._title_similarity(query, n) for n in names), default=0.0)
+
+    @classmethod
+    def _search_by_type(cls, series_nm: str, ct_cl: str = None) -> Optional[dict]:
+        """ct_cl 기반으로 search/movie 또는 search/tv 엔드포인트 직접 호출.
+
+        ct_cl이 없으면 search/multi fallback.
+        유사도 0.5 이상인 결과 중 최고 유사도 항목 반환.
+        """
+        if not cls._tmdb_available():
+            return None
+
+        clean = series_nm.strip()
+        spaced = re.sub(r'([가-힣A-Za-z])(\d)', r'\1 \2', clean)
+        queries = list(dict.fromkeys([clean, spaced]))
+
+        media_hint = _CT_CL_MEDIA.get(ct_cl) if ct_cl else None
+        if media_hint:
+            endpoint = f"{_TMDB_URL}/search/{'movie' if media_hint == 'movie' else 'tv'}"
+        else:
+            endpoint = f"{_TMDB_URL}/search/multi"
+
+        for lang in ("ko-KR", "en-US"):
+            for query in queries:
+                try:
+                    r = requests.get(
+                        endpoint,
+                        params=cls._tmdb_params({"query": query, "language": lang, "page": 1}),
+                        headers=cls._tmdb_headers(),
+                        timeout=REQUEST_TIMEOUT,
+                    )
+                    if r.status_code != 200:
+                        continue
+                    results = r.json().get("results", [])
+                    if not media_hint:
+                        results = [x for x in results if x.get("media_type") in ("movie", "tv")]
+                    if not results:
+                        continue
+
+                    scored = [(item, cls._item_sim(query, item)) for item in results]
+                    scored = [(item, sim) for item, sim in scored if sim >= _SIM_THRESHOLD]
+                    if not scored:
+                        continue
+
+                    # 한국 콘텐츠 우선 선택
+                    ko = [(item, sim) for item, sim in scored
+                          if item.get("original_language") == "ko"]
+                    if ko:
+                        ko.sort(key=lambda x: x[1], reverse=True)
+                        best, _ = ko[0]
+                    else:
+                        scored.sort(key=lambda x: x[1], reverse=True)
+                        best, _ = scored[0]
+
+                    if media_hint and "media_type" not in best:
+                        best["media_type"] = media_hint
+                    return best
+                except Exception as e:
+                    logger.debug("TMDB search 오류 (%s): %s", endpoint, e)
+
         return None
 
-    clean = series_nm.strip()
-    spaced = re.sub(r'([가-힣A-Za-z])(\d)', r'\1 \2', clean)
-    queries = list(dict.fromkeys([clean, spaced]))
+    @classmethod
+    def _get_tv_detail(cls, tmdb_id: int) -> Optional[dict]:
+        """TMDB /tv/{id} 호출 → 시리즈 상세 (seasons 배열 포함)."""
+        try:
+            r = requests.get(
+                f"{_TMDB_URL}/tv/{tmdb_id}",
+                params=cls._tmdb_params({"language": "ko-KR"}),
+                headers=cls._tmdb_headers(),
+                timeout=REQUEST_TIMEOUT,
+            )
+            if r.status_code != 200:
+                return None
+            return r.json()
+        except Exception as e:
+            logger.debug("TMDB tv detail 오류: %s", e)
+            return None
 
-    media_hint = _CT_CL_MEDIA.get(ct_cl) if ct_cl else None
-    if media_hint:
-        endpoint = f"{_TMDB_URL}/search/{'movie' if media_hint == 'movie' else 'tv'}"
-    else:
-        endpoint = f"{_TMDB_URL}/search/multi"
+    @classmethod
+    def search(
+        cls,
+        series_nm: str,
+        season: int = 1,
+        ct_cl: str = None,
+        release_year: int = None,
+        sleep: float = 0.25,
+    ) -> Optional[dict]:
+        """
+        ct_cl 기반 TMDB 검색으로 포스터 URL 조회 (movie/tv 엔드포인트 분리).
 
-    for lang in ("ko-KR", "en-US"):
-        for query in queries:
-            try:
-                r = requests.get(
-                    endpoint,
-                    params=_tmdb_params({"query": query, "language": lang, "page": 1}),
-                    headers=_tmdb_headers(),
-                    timeout=REQUEST_TIMEOUT,
-                )
-                if r.status_code != 200:
-                    continue
-                results = r.json().get("results", [])
-                if not media_hint:
-                    results = [x for x in results if x.get("media_type") in ("movie", "tv")]
-                if not results:
-                    continue
+        Returns:
+            {"image_url": str, "width": 500, "height": 750,
+             "tmdb_id": int, "matched_name": str,
+             "media_type": "movie"|"tv", "season_matched": bool}
+            or None
+        """
+        if not cls._tmdb_available():
+            logger.warning("TMDB API 키 없음 — TMDB_API_KEY 또는 TMDB_READ_ACCESS_TOKEN 설정 필요")
+            return None
 
-                scored = [(item, _item_sim(query, item)) for item in results]
-                scored = [(item, sim) for item, sim in scored if sim >= _SIM_THRESHOLD]
-                if not scored:
-                    continue
+        result = cls._search_by_type(series_nm, ct_cl=ct_cl)
+        if not result:
+            return None
 
-                # 한국 콘텐츠 우선 선택
-                ko = [(item, sim) for item, sim in scored
-                      if item.get("original_language") == "ko"]
-                if ko:
-                    ko.sort(key=lambda x: x[1], reverse=True)
-                    best, _ = ko[0]
-                else:
-                    scored.sort(key=lambda x: x[1], reverse=True)
-                    best, _ = scored[0]
-
-                if media_hint and "media_type" not in best:
-                    best["media_type"] = media_hint
-                return best
-            except Exception as e:
-                logger.debug("TMDB search 오류 (%s): %s", endpoint, e)
-
-    return None
-
-
-def _get_tv_detail(tmdb_id: int) -> Optional[dict]:
-    """TMDB /tv/{id} 호출 → 시리즈 상세 (seasons 배열 포함)."""
-    try:
-        r = requests.get(
-            f"{_TMDB_URL}/tv/{tmdb_id}",
-            params=_tmdb_params({"language": "ko-KR"}),
-            headers=_tmdb_headers(),
-            timeout=REQUEST_TIMEOUT,
+        media_type = result["media_type"]
+        tmdb_id = result["id"]
+        matched_name = (
+            result.get("title") or result.get("name")
+            or result.get("original_title") or result.get("original_name") or ""
         )
-        if r.status_code != 200:
-            return None
-        return r.json()
-    except Exception as e:
-        logger.debug("TMDB tv detail 오류: %s", e)
-        return None
 
+        # ── movie: 바로 poster_path 사용 ──
+        if media_type == "movie":
+            poster_path = result.get("poster_path")
+            if not poster_path:
+                return None
+            return {
+                "image_url": f"{_IMG_BASE}{poster_path}",
+                "width": 500,
+                "height": 750,
+                "tmdb_id": tmdb_id,
+                "matched_name": matched_name,
+                "media_type": "movie",
+                "season_matched": False,
+            }
 
-def search(
-    series_nm: str,
-    season: int = 1,
-    ct_cl: str = None,
-    release_year: int = None,
-    sleep: float = 0.25,
-) -> Optional[dict]:
-    """
-    ct_cl 기반 TMDB 검색으로 포스터 URL 조회 (movie/tv 엔드포인트 분리).
+        # ── tv: 시즌 포스터 시도 → fallback 메인 포스터 ──
+        if sleep > 0:
+            time.sleep(sleep)
 
-    Returns:
-        {"image_url": str, "width": 500, "height": 750,
-         "tmdb_id": int, "matched_name": str,
-         "media_type": "movie"|"tv", "season_matched": bool}
-        or None
-    """
-    if not _tmdb_available():
-        logger.warning("TMDB API 키 없음 — TMDB_API_KEY 또는 TMDB_READ_ACCESS_TOKEN 설정 필요")
-        return None
+        detail = cls._get_tv_detail(tmdb_id)
+        if not detail:
+            poster_path = result.get("poster_path")
+            if not poster_path:
+                return None
+            return {
+                "image_url": f"{_IMG_BASE}{poster_path}",
+                "width": 500,
+                "height": 750,
+                "tmdb_id": tmdb_id,
+                "matched_name": matched_name,
+                "media_type": "tv",
+                "season_matched": False,
+            }
 
-    result = _search_by_type(series_nm, ct_cl=ct_cl)
-    if not result:
-        return None
+        seasons = detail.get("seasons", [])
+        season_poster = None
+        for s in seasons:
+            if s.get("season_number") == season and s.get("poster_path"):
+                season_poster = s["poster_path"]
+                break
 
-    media_type = result["media_type"]
-    tmdb_id = result["id"]
-    matched_name = (
-        result.get("title") or result.get("name")
-        or result.get("original_title") or result.get("original_name") or ""
-    )
+        main_poster = detail.get("poster_path")
+        poster_path = season_poster or main_poster
 
-    # ── movie: 바로 poster_path 사용 ──
-    if media_type == "movie":
-        poster_path = result.get("poster_path")
         if not poster_path:
             return None
-        return {
-            "image_url": f"{_IMG_BASE}{poster_path}",
-            "width": 500,
-            "height": 750,
-            "tmdb_id": tmdb_id,
-            "matched_name": matched_name,
-            "media_type": "movie",
-            "season_matched": False,
-        }
 
-    # ── tv: 시즌 포스터 시도 → fallback 메인 포스터 ──
-    if sleep > 0:
-        time.sleep(sleep)
-
-    detail = _get_tv_detail(tmdb_id)
-    if not detail:
-        poster_path = result.get("poster_path")
-        if not poster_path:
-            return None
         return {
             "image_url": f"{_IMG_BASE}{poster_path}",
             "width": 500,
@@ -259,28 +288,19 @@ def search(
             "tmdb_id": tmdb_id,
             "matched_name": matched_name,
             "media_type": "tv",
-            "season_matched": False,
+            "season_matched": season_poster is not None,
         }
 
-    seasons = detail.get("seasons", [])
-    season_poster = None
-    for s in seasons:
-        if s.get("season_number") == season and s.get("poster_path"):
-            season_poster = s["poster_path"]
-            break
 
-    main_poster = detail.get("poster_path")
-    poster_path = season_poster or main_poster
+# ── 싱글턴 + 하위호환 별칭 ──
+_tmdb = TMDBPoster()
 
-    if not poster_path:
-        return None
-
-    return {
-        "image_url": f"{_IMG_BASE}{poster_path}",
-        "width": 500,
-        "height": 750,
-        "tmdb_id": tmdb_id,
-        "matched_name": matched_name,
-        "media_type": "tv",
-        "season_matched": season_poster is not None,
-    }
+search = TMDBPoster.search
+_tmdb_headers = TMDBPoster._tmdb_headers
+_tmdb_params = TMDBPoster._tmdb_params
+_tmdb_available = TMDBPoster._tmdb_available
+_title_similarity = TMDBPoster._title_similarity
+_item_sim = TMDBPoster._item_sim
+_item_names = TMDBPoster._item_names
+_search_by_type = TMDBPoster._search_by_type
+_get_tv_detail = TMDBPoster._get_tv_detail
