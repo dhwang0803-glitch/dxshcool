@@ -18,6 +18,9 @@ from Vector_Search.src.ensemble import EnsembleScorer, ensemble_scores, load_con
 from Vector_Search.src.base import VectorSearchBase
 from Vector_Search.src.clip_based import ClipSearcher, clip_searcher
 from Vector_Search.src.content_based import ContentSearcher, content_searcher
+from Vector_Search.src.visual_similarity import (
+    VisualSimilarity, visual_similarity, get_visual_recommendations,
+)
 
 
 # ──────────────────────────────────────────────
@@ -216,3 +219,56 @@ class TestClassStructure:
     def test_db_get_connection_exists(self):
         from Vector_Search.src.db import get_connection
         assert callable(get_connection)
+
+
+# ──────────────────────────────────────────────
+# VisualSimilarity 클래스 테스트
+# ──────────────────────────────────────────────
+
+class TestVisualSimilarity:
+    def test_inherits_base(self):
+        """VectorSearchBase 상속 확인"""
+        assert issubclass(VisualSimilarity, VectorSearchBase)
+
+    def test_singleton_instance(self):
+        """모듈 레벨 싱글턴 확인"""
+        assert isinstance(visual_similarity, VisualSimilarity)
+
+    def test_alias(self):
+        """get_visual_recommendations 별칭 동작 확인"""
+        assert get_visual_recommendations == visual_similarity.search
+
+    def test_extract_clip_vector_shape(self):
+        """896D → 512D CLIP 벡터 추출"""
+        import numpy as np
+        vec_896 = np.random.randn(896).astype(np.float32)
+        clip_vec = VisualSimilarity.extract_clip_vector(vec_896)
+        assert len(clip_vec) == 512
+        assert np.array_equal(clip_vec, vec_896[:512])
+
+    def test_extract_clip_vector_independence(self):
+        """CLIP 부분과 META 부분이 독립적으로 추출되는지 확인"""
+        import numpy as np
+        vec = np.zeros(896, dtype=np.float32)
+        vec[:512] = 1.0   # CLIP part
+        vec[512:] = 2.0   # META part
+        clip = VisualSimilarity.extract_clip_vector(vec)
+        assert all(v == 1.0 for v in clip)
+        assert len(clip) == 512
+
+
+class TestVisualSimilarityConfig:
+    def test_config_section_exists(self):
+        """visual_similarity 설정 키 존재"""
+        config = VectorSearchBase.load_config()
+        assert "visual_similarity" in config
+
+    def test_top_n_value(self):
+        """top_n=20 기본값 확인"""
+        config = VectorSearchBase.load_config()
+        assert config["visual_similarity"]["top_n"] == 20
+
+    def test_clip_dim_value(self):
+        """clip_dim=512 확인"""
+        config = VectorSearchBase.load_config()
+        assert config["visual_similarity"]["clip_dim"] == 512
