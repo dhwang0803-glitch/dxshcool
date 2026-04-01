@@ -1,7 +1,6 @@
-from app.services.db import get_pool
+from app.services.base_service import BaseService
 from app.services.rec_sentence_service import get_segment_id
 
-# genre_detail 채널/패키지명 필터 (Hybrid_Layer/src/tag_builder.py와 동기화)
 _GENRE_BLACKLIST = frozenset({
     "무비n시리즈", "만화동산", "제이박스", "게임애니팩토리",
     "캐치온디맨드", "캐치온라이트", "핑크퐁TV", "EBS키즈",
@@ -15,9 +14,13 @@ _GENRE_BLACKLIST = frozenset({
     "동요-동화", "영어-놀이학습", "뮤직비디오",
 })
 
+_TAG_LABEL = {
+    "genre": "추천 인기 {value}",
+    "cold_genre_detail": "{user}님이 좋아할만한 {value} 시리즈",
+}
+
 
 def _clean_genre_detail(raw: str | None) -> str | None:
-    """genre_detail에서 채널/패키지명 제거. None 반환 시 ct_cl fallback."""
     if not raw or not raw.strip():
         return None
     val = raw.strip()
@@ -25,30 +28,14 @@ def _clean_genre_detail(raw: str | None) -> str | None:
         return None
     if val in _GENRE_BLACKLIST:
         return None
-    # TMDB 복합 장르 → 첫 번째 장르만 사용 (그룹핑 키)
     parts = [p.strip() for p in val.replace(", ", ",").split(",") if p.strip()]
     return parts[0] if parts else None
 
 
-async def _is_test_user(pool, user_id: str) -> bool:
-    try:
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                'SELECT is_test FROM public."user" WHERE sha2_hash = $1',
-                user_id,
-            )
-        return bool(row and row["is_test"])
-    except Exception:
-        return False
-
-
-async def get_banner() -> list[dict]:
-    """히어로 배너: popular_recommendation score 내림차순 top 5.
-    backdrop_url 없는 VOD는 건너뛰고 다음 순위로 대체.
-    """
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
+class HomeService(BaseService):
+    async def get_banner(self) -> list[dict]:
+        """히어로 배너: popular score top 5 (시리즈 중복 제거)."""
+        rows = await self.query(
             """
             SELECT pr.vod_id_fk, pr.score,
                    v.series_nm, v.asset_nm, v.poster_url, v.backdrop_url, v.ct_cl
@@ -63,43 +50,22 @@ async def get_banner() -> list[dict]:
             """,
         )
 
-    seen: set[str] = set()
-    raw_items: list[dict] = []
-    for r in rows:
-        nm = r["series_nm"] or r["asset_nm"]
-        if nm in seen:
-            continue
-        seen.add(nm)
-        raw_items.append({
-            "vod_id": r["vod_id_fk"],
-            "series_nm": nm,
-            "title": nm,
-            "poster_url": r["poster_url"],
-            "backdrop_url": r["backdrop_url"],
-            "category": r["ct_cl"],
-            "score": r["score"],
-        })
-        if len(raw_items) >= 5:
-            break
+        deduped = self.deduplicate_series(rows, limit=5)
+        return [
+            {
+                "series_nm": r["series_nm"] or r["asset_nm"],
+                "title": r["series_nm"] or r["asset_nm"],
+                "poster_url": r["poster_url"],
+                "backdrop_url": r["backdrop_url"],
+                "category": r["ct_cl"],
+                "score": r["score"],
+            }
+            for r in deduped
+        ]
 
-    return [
-        {
-            "series_nm": item["series_nm"],
-            "title": item["title"],
-            "poster_url": item["poster_url"],
-            "backdrop_url": item["backdrop_url"],
-            "category": item["category"],
-            "score": item["score"],
-        }
-        for item in raw_items
-    ]
-
-
-async def get_sections() -> list[dict]:
-    """CT_CL 4종 × Top 20 인기 추천."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
+    async def get_sections(self) -> list[dict]:
+        """CT_CL 4종 × Top 20 인기 추천."""
+        rows = await self.query(
             """
             SELECT pr.ct_cl, pr.rank, pr.score, pr.vod_id_fk,
                    v.series_nm, v.asset_nm, v.poster_url
@@ -107,194 +73,174 @@ async def get_sections() -> list[dict]:
             JOIN public.vod v ON pr.vod_id_fk = v.full_asset_id
             WHERE v.poster_url IS NOT NULL
             ORDER BY pr.ct_cl, pr.rank
-            """
+            """,
         )
 
-    sections: dict[str, list] = {}
-    for r in rows:
-        ct = r["ct_cl"]
-        if ct not in sections:
-            sections[ct] = []
-        sections[ct].append(
-            {
+        sections: dict[str, list] = {}
+        for r in rows:
+            ct = r["ct_cl"]
+            if ct not in sections:
+                sections[ct] = []
+            sections[ct].append({
                 "series_nm": r["series_nm"] or r["asset_nm"],
                 "title": r["series_nm"] or r["asset_nm"],
                 "poster_url": r["poster_url"],
                 "score": r["score"],
                 "rank": r["rank"],
-            }
-        )
-
-    return [{"ct_cl": ct, "vod_list": vods} for ct, vods in sections.items()]
-
-
-_TAG_LABEL = {
-    "genre": "추천 인기 {value}",
-    "cold_genre_detail": "{user}님이 좋아할만한 {value} 시리즈",
-}
-
-
-async def get_personalized_sections(user_id: str) -> list[dict]:
-    """홈 개인화 섹션: 태그 배너 + vector 배너 + TOP10. 비로그인 시 None."""
-    pool = await get_pool()
-    is_test = await _is_test_user(pool, user_id)
-    tag_table = "serving.tag_recommendation_test" if is_test else "serving.tag_recommendation"
-    sections: list[dict] = []
-
-    async with pool.acquire() as conn:
-        # ── 1) 태그 배너: genre + cold_genre_detail (cold start fallback) ──
-        rows = await conn.fetch(
-            f"""
-            SELECT tr.tag_category, tr.tag_value, tr.tag_rank,
-                   tr.vod_id_fk, tr.vod_rank, tr.vod_score,
-                   v.series_nm, v.asset_nm, v.poster_url
-            FROM {tag_table} tr
-            JOIN public.vod v ON tr.vod_id_fk = v.full_asset_id
-            WHERE tr.user_id_fk = $1
-              AND (tr.tag_category = 'genre'
-                   OR (tr.tag_category = 'cold_genre_detail' AND tr.tag_rank <= 3))
-              AND (tr.expires_at IS NULL OR tr.expires_at > NOW())
-              AND v.poster_url IS NOT NULL
-            ORDER BY
-                CASE WHEN tr.tag_category = 'genre' THEN 0 ELSE 1 END,
-                tr.tag_rank, tr.vod_rank
-            """,
-            user_id,
-        )
-
-        user_label = user_id[:5]
-        grouped: dict[int, dict] = {}
-        seen_vods: set[str] = set()
-        seq = 0  # 순차 rank 부여
-        for r in rows:
-            cat = r["tag_category"]
-            raw_rank = r["tag_rank"]
-            # cold 태그는 genre 뒤에 오도록 offset
-            rank_key = raw_rank if cat == "genre" else 100 + raw_rank
-            nm = r["series_nm"] or r["asset_nm"]
-            if nm in seen_vods:
-                continue
-            seen_vods.add(nm)
-            if rank_key not in grouped:
-                seq += 1
-                tpl = _TAG_LABEL.get(cat, "{value}")
-                label = tpl.format(value=r["tag_value"], user=user_label)
-                grouped[rank_key] = {
-                    "genre": label,
-                    "view_ratio": max(100 - (seq - 1) * 15, 40),
-                    "vod_list": [],
-                }
-            grouped[rank_key]["vod_list"].append({
-                "series_nm": nm,
-                "asset_nm": r["asset_nm"],
-                "poster_url": r["poster_url"],
             })
-        sections.extend(grouped[k] for k in sorted(grouped.keys()))
 
-        # ── 2) vector 배너: 취향 유사도 top → 장르별 2그룹 ──
-        try:
-            await conn.execute("SET ivfflat.probes = 5")
-            ue_row = await conn.fetchrow(
-                "SELECT (embedding::real[])[513:896]::vector(384) AS meta_vec "
-                "FROM public.user_embedding WHERE user_id_fk = $1",
-                user_id,
-            )
-            if ue_row:
-                # vod_series_embedding 사용: 시리즈당 1건이므로 에피소드 중복 없음
-                vector_rows = await conn.fetch(
-                    """
-                    SELECT se.series_nm,
-                           1 - (se.embedding <=> $1) AS similarity,
-                           se.poster_url, se.ct_cl,
-                           v.asset_nm, v.genre_detail
-                    FROM public.vod_series_embedding se
-                    JOIN public.vod v ON v.full_asset_id = se.representative_vod_id
-                    WHERE se.poster_url IS NOT NULL
-                    ORDER BY se.embedding <=> $1
-                    LIMIT 60
-                    """,
-                    ue_row["meta_vec"],
-                )
-                # 장르별 그룹핑 (genre_detail 정제 → ct_cl fallback)
-                genre_groups: dict[str, list] = {}
-                for r in vector_rows:
-                    nm = r["series_nm"]
-                    if nm in seen_vods:
-                        continue
-                    genre = _clean_genre_detail(r["genre_detail"]) or r["ct_cl"] or "콘텐츠"
-                    if genre not in genre_groups:
-                        genre_groups[genre] = []
-                    if len(genre_groups[genre]) < 10:
-                        seen_vods.add(nm)
-                        genre_groups[genre].append({
-                            "series_nm": nm,
-                            "asset_nm": r["asset_nm"],
-                            "poster_url": r["poster_url"],
-                            "score": round(float(r["similarity"]), 4),
-                        })
-                # 상위 2개 장르 그룹 (VOD 10개 이상만, VOD 수 많은 순)
-                top_genres = sorted(
-                    ((g, v) for g, v in genre_groups.items() if len(v) >= 10),
-                    key=lambda x: -len(x[1]),
-                )[:2]
-                for genre, vods in top_genres:
-                    if vods:
-                        sections.append({
-                            "genre": f"나의 취향과 비슷한 {genre}",
-                            "vod_list": vods,
-                        })
-        except Exception:
-            pass
+        return [{"ct_cl": ct, "vod_list": vods} for ct, vods in sections.items()]
 
-        # ── 3) TOP10: 전체 태그 score 상위 10 + 추천 문구 ──
-        try:
-            segment_id = await get_segment_id(conn, user_id)
-            top10_rows = await conn.fetch(
+    async def get_personalized_sections(self, user_id: str) -> list[dict] | None:
+        """홈 개인화 섹션: 태그 배너 + vector 배너 + TOP10."""
+        is_test = await self.is_test_user(user_id)
+        tag_table = "serving.tag_recommendation_test" if is_test else "serving.tag_recommendation"
+        sections: list[dict] = []
+
+        async with await self.acquire() as conn:
+            # 1) 태그 배너
+            rows = await conn.fetch(
                 f"""
-                SELECT tr.vod_id_fk, tr.vod_score,
-                       v.series_nm, v.asset_nm, v.poster_url,
-                       rs.rec_sentence
+                SELECT tr.tag_category, tr.tag_value, tr.tag_rank,
+                       tr.vod_id_fk, tr.vod_rank, tr.vod_score,
+                       v.series_nm, v.asset_nm, v.poster_url
                 FROM {tag_table} tr
                 JOIN public.vod v ON tr.vod_id_fk = v.full_asset_id
-                LEFT JOIN LATERAL (
-                    SELECT rs2.rec_sentence
-                    FROM serving.rec_sentence rs2
-                    JOIN public.vod v2 ON rs2.vod_id_fk = v2.full_asset_id
-                    WHERE v2.series_nm = v.series_nm
-                      AND rs2.segment_id = $2
-                    LIMIT 1
-                ) rs ON true
                 WHERE tr.user_id_fk = $1
+                  AND (tr.tag_category = 'genre'
+                       OR (tr.tag_category = 'cold_genre_detail' AND tr.tag_rank <= 3))
                   AND (tr.expires_at IS NULL OR tr.expires_at > NOW())
                   AND v.poster_url IS NOT NULL
-                ORDER BY tr.vod_score DESC
-                LIMIT 50
+                ORDER BY
+                    CASE WHEN tr.tag_category = 'genre' THEN 0 ELSE 1 END,
+                    tr.tag_rank, tr.vod_rank
                 """,
-                user_id, segment_id,
+                user_id,
             )
-            seen_top10: set[str] = set()
-            top10_vods: list[dict] = []
-            for r in top10_rows:
+
+            user_label = user_id[:5]
+            grouped: dict[int, dict] = {}
+            seen_vods: set[str] = set()
+            seq = 0
+            for r in rows:
+                cat = r["tag_category"]
+                raw_rank = r["tag_rank"]
+                rank_key = raw_rank if cat == "genre" else 100 + raw_rank
                 nm = r["series_nm"] or r["asset_nm"]
-                if nm in seen_top10:
+                if nm in seen_vods:
                     continue
-                seen_top10.add(nm)
-                top10_vods.append({
+                seen_vods.add(nm)
+                if rank_key not in grouped:
+                    seq += 1
+                    tpl = _TAG_LABEL.get(cat, "{value}")
+                    label = tpl.format(value=r["tag_value"], user=user_label)
+                    grouped[rank_key] = {
+                        "genre": label,
+                        "view_ratio": max(100 - (seq - 1) * 15, 40),
+                        "vod_list": [],
+                    }
+                grouped[rank_key]["vod_list"].append({
                     "series_nm": nm,
                     "asset_nm": r["asset_nm"],
                     "poster_url": r["poster_url"],
-                    "rank": len(top10_vods) + 1,
-                    "rec_sentence": r["rec_sentence"],
                 })
-                if len(top10_vods) >= 10:
-                    break
-            if top10_vods:
-                user_label = user_id[:5]
-                sections.append({
-                    "genre": f"{user_label}님만을 위한 추천 시리즈 TOP10",
-                    "vod_list": top10_vods,
-                })
-        except Exception:
-            pass
+            sections.extend(grouped[k] for k in sorted(grouped.keys()))
 
-    return sections if sections else None
+            # 2) vector 배너
+            try:
+                await conn.execute("SET ivfflat.probes = 5")
+                ue_row = await conn.fetchrow(
+                    "SELECT (embedding::real[])[513:896]::vector(384) AS meta_vec "
+                    "FROM public.user_embedding WHERE user_id_fk = $1",
+                    user_id,
+                )
+                if ue_row:
+                    vector_rows = await conn.fetch(
+                        """
+                        SELECT se.series_nm,
+                               1 - (se.embedding <=> $1) AS similarity,
+                               se.poster_url, se.ct_cl,
+                               v.asset_nm, v.genre_detail
+                        FROM public.vod_series_embedding se
+                        JOIN public.vod v ON v.full_asset_id = se.representative_vod_id
+                        WHERE se.poster_url IS NOT NULL
+                        ORDER BY se.embedding <=> $1
+                        LIMIT 60
+                        """,
+                        ue_row["meta_vec"],
+                    )
+                    genre_groups: dict[str, list] = {}
+                    for r in vector_rows:
+                        nm = r["series_nm"]
+                        if nm in seen_vods:
+                            continue
+                        genre = _clean_genre_detail(r["genre_detail"]) or r["ct_cl"] or "콘텐츠"
+                        if genre not in genre_groups:
+                            genre_groups[genre] = []
+                        if len(genre_groups[genre]) < 10:
+                            seen_vods.add(nm)
+                            genre_groups[genre].append({
+                                "series_nm": nm,
+                                "asset_nm": r["asset_nm"],
+                                "poster_url": r["poster_url"],
+                                "score": round(float(r["similarity"]), 4),
+                            })
+                    top_genres = sorted(
+                        ((g, v) for g, v in genre_groups.items() if len(v) >= 10),
+                        key=lambda x: -len(x[1]),
+                    )[:2]
+                    for genre, vods in top_genres:
+                        if vods:
+                            sections.append({
+                                "genre": f"나의 취향과 비슷한 {genre}",
+                                "vod_list": vods,
+                            })
+            except Exception:
+                pass
+
+            # 3) TOP10
+            try:
+                segment_id = await get_segment_id(conn, user_id)
+                top10_rows = await conn.fetch(
+                    f"""
+                    SELECT tr.vod_id_fk, tr.vod_score,
+                           v.series_nm, v.asset_nm, v.poster_url,
+                           rs.rec_sentence
+                    FROM {tag_table} tr
+                    JOIN public.vod v ON tr.vod_id_fk = v.full_asset_id
+                    LEFT JOIN LATERAL (
+                        SELECT rs2.rec_sentence
+                        FROM serving.rec_sentence rs2
+                        JOIN public.vod v2 ON rs2.vod_id_fk = v2.full_asset_id
+                        WHERE v2.series_nm = v.series_nm
+                          AND rs2.segment_id = $2
+                        LIMIT 1
+                    ) rs ON true
+                    WHERE tr.user_id_fk = $1
+                      AND (tr.expires_at IS NULL OR tr.expires_at > NOW())
+                      AND v.poster_url IS NOT NULL
+                    ORDER BY tr.vod_score DESC
+                    LIMIT 50
+                    """,
+                    user_id, segment_id,
+                )
+                top10_vods = self.deduplicate_series(top10_rows, limit=10)
+                for i, v in enumerate(top10_vods, 1):
+                    v["rank"] = i
+                if top10_vods:
+                    sections.append({
+                        "genre": f"{user_label}님만을 위한 추천 시리즈 TOP10",
+                        "vod_list": top10_vods,
+                    })
+            except Exception:
+                pass
+
+        return sections if sections else None
+
+
+home_service = HomeService()
+
+# 하위 호환
+get_banner = home_service.get_banner
+get_sections = home_service.get_sections
+get_personalized_sections = home_service.get_personalized_sections
