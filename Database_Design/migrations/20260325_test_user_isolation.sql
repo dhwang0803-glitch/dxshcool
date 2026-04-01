@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS serving.tag_recommendation_test (
     tag_rec_id    BIGSERIAL PRIMARY KEY,
     user_id_fk    VARCHAR(64) NOT NULL,
     tag_category  VARCHAR(32),
-    tag_value     VARCHAR(128),
+    tag_value     VARCHAR(100),
     tag_rank      SMALLINT,
     tag_affinity  REAL,
     vod_id_fk     VARCHAR(64),

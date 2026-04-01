@@ -45,7 +45,7 @@ import uvicorn
 
 | 메서드 | 경로 | 설명 | 소스 |
 |--------|------|------|------|
-| GET | `/recommend/{user_id}` | 스마트 추천: 태그 배너(genre_detail 3 + director 2 + actor 4) + 벡터 유사도 + top_vod | hybrid_recommendation + tag_recommendation + user_embedding + vod_meta_embedding |
+| GET | `/recommend/{user_id}` | 스마트 추천: top_vod 10건(backdrop 히어로) + 태그 패턴(genre_detail/director/actor_lead/actor_guest/cold_genre_detail) + 벡터 유사도 + rec_sentence | hybrid_recommendation + tag_recommendation + user_embedding + vod_series_embedding + rec_sentence |
 | GET | `/similar/{asset_id}` | 유사 콘텐츠 | Vector_Search (`source_vod_id` + `recommendation_type = 'CONTENT_BASED'`) |
 | WS | `/ad/popup` | 실시간 광고 팝업 (WebSocket) | Shopping_Ad |
 | GET | `/vod/{asset_id}` | VOD 상세 메타데이터 (+is_free, release_year) | DB |
@@ -69,7 +69,7 @@ import uvicorn
 | POST | `/reservations` | 시청예약 등록 | watch_reservation |
 | GET | `/reservations` | 시청예약 목록 (미알림) | watch_reservation |
 | DELETE | `/reservations/{id}` | 시청예약 취소 | watch_reservation |
-| GET | `/home/sections/{user_id}` | 홈 개인화: genre 태그 3 + 벡터 유사도 2그룹 + TOP10(rec_sentence) = 6개 배너 | tag_recommendation + user_embedding + vod_meta_embedding + rec_sentence |
+| GET | `/home/sections/{user_id}` | 홈 개인화: genre 태그 + cold_genre_detail + 벡터 유사도 2그룹 + TOP10(rec_sentence) 최대 ~10개 배너 | tag_recommendation + user_embedding + vod_series_embedding + rec_sentence |
 | GET | `/user/me/notifications` | 알림 목록 (최신순) | notifications |
 | PATCH | `/user/me/notifications/{id}/read` | 알림 읽음 처리 | notifications |
 | POST | `/user/me/notifications/read-all` | 전체 읽음 처리 | notifications |
@@ -94,7 +94,11 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 | `public.vod` | `director`, `cast_lead`, `cast_guest` | VARCHAR/TEXT | VOD 상세 응답 |
 | `public.vod` | `smry`, `rating`, `release_date`, `poster_url`, `asset_prod` | TEXT/VARCHAR/DATE/TEXT/VARCHAR | VOD 상세 응답. `release_date` → `release_year`(연도 int) 변환. `asset_prod='FOD'` → `is_free=true` |
 | `public."user"` | `sha2_hash` | VARCHAR | 사용자 존재 여부 확인 (PK) |
+| `public."user"` | `age_grp10` | VARCHAR | 콜드스타트 fallback 세그먼트 결정용 |
 | `public."user"` | `point_balance` | INT | 포인트 잔액 O(1) 조회 (DB 트리거가 point_history INSERT 시 자동 갱신) |
+| `public.user_segment` | `user_id_fk`, `segment_id` | VARCHAR/SMALLINT | K-Means 클러스터 결과 (gen_rec_sentence 브랜치 생성) |
+| `serving.rec_sentence` | `vod_id_fk`, `segment_id`, `rec_sentence` | VARCHAR/SMALLINT/TEXT | VOD × 세그먼트별 맞춤 문구 (gen_rec_sentence 브랜치 생성) |
+| `serving.popular_by_age` | `age_grp10`, `rank`, `vod_id_fk` | VARCHAR/SMALLINT/VARCHAR | 연령대별 인기 VOD (콜드스타트 추천 풀) |
 | `public.episode_progress` | `user_id_fk`, `vod_id_fk`, `series_nm`, `completion_rate`, `watched_at` | VARCHAR/VARCHAR/VARCHAR/SMALLINT/TIMESTAMPTZ | 시청 진행률 조회 (시청중/시청내역) |
 | `public.purchase_history` | `user_id_fk`, `series_nm`, `purchased_at`, `expires_at` | VARCHAR/VARCHAR/TIMESTAMPTZ/TIMESTAMPTZ | 구매 내역·만료 확인 |
 | `public.point_history` | `user_id_fk`, `amount`, `reason`, `created_at` | VARCHAR/INT/VARCHAR/TIMESTAMPTZ | 포인트 내역 조회 |
@@ -103,7 +107,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 | `serving.vod_recommendation` | `source_vod_id`, `vod_id_fk`, `rank`, `score`, `recommendation_type`, `expires_at` | VARCHAR/REAL/INT/VARCHAR/TIMESTAMPTZ | `/similar` (source_vod_id 기준). TTL 필터 적용 |
 | `serving.hybrid_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `explanation_tags`, `source_engines`, `expires_at` | VARCHAR/REAL/SMALLINT/JSONB/VARCHAR[]/TIMESTAMPTZ | `/recommend` top_vod + `/home/banner` 2단(rank 1~10 하단 개인화). TTL 필터 적용 |
 | `serving.tag_recommendation` | `user_id_fk`, `tag_category`, `tag_value`, `tag_rank`, `tag_affinity`, `vod_id_fk`, `vod_rank`, `vod_score`, `expires_at` | 각종 | 홈: genre/genre_detail 배너, 추천: director/actor 배너. TTL 필터 적용 |
-| `serving.rec_sentence` | `user_id_fk`, `vod_id_fk`, `rec_reason`, `rec_sentence`, `expires_at` | VARCHAR/TEXT/TIMESTAMPTZ | 홈 TOP10 배너 추천 문구. LEFT JOIN on tag_recommendation |
+| `serving.rec_sentence` | `vod_id_fk`, `segment_id`, `rec_sentence` | VARCHAR/SMALLINT/TEXT | VOD × 세그먼트별 맞춤 문구. user_segment JOIN으로 segment_id 결정 |
 | `public.user_embedding` | `user_id_fk`, `embedding` | VARCHAR/VECTOR(896) | 벡터 유사도 배너: meta part [513:896] 384D 추출 |
 | `public.vod_series_embedding` | `series_nm`, `representative_vod_id`, `embedding`, `ct_cl`, `poster_url` | 각종 | 벡터 유사도 배너/추천: user meta_vec <=> series embedding cosine (시리즈 대표, 에피소드 중복 해소) |
 | `serving.mv_vod_watch_stats` | `vod_id_fk`, `total_watch_count` | VARCHAR/INT | /recommend fallback (인기순) |

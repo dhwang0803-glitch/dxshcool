@@ -4,6 +4,7 @@ ensemble:
 
 search:
   meta_ivfflat_probes: 20   # vod_meta_embedding 검색 정확도 (lists=400)
+  series_ivfflat_probes: 10 # vod_series_embedding 검색 정확도 (lists=100)
   clip_ivfflat_probes: 10   # vod_embedding 검색 정확도 (lists=100)
   sbert_model: "paraphrase-multilingual-MiniLM-L12-v2"
   clip_model: "clip-ViT-B-32"
