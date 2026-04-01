@@ -268,3 +268,6 @@ VOD_Embedding/scripts/fix_phantom_success_아름.py
 # Database_Design 로컬 분석 데이터
 Database_Design/docs/sampling.ipynb
 Database_Design/docs/vod_mart_data.csv
+
+# 발표용 아키텍처 다이어그램 (로컬 전용)
+API_Server/docs/architecture_diagram.*

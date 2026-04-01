@@ -29,10 +29,13 @@ Vector_Search/
 | 메타데이터 기반 유사도 | `src/content_based.py` |
 | CLIP 임베딩 기반 유사도 | `src/clip_based.py` |
 | 앙상블 로직 | `src/ensemble.py` |
-| ~~SBERT 인덱스 빌드~~ | 불필요 — DB `vod_meta_embedding` 직접 검색 |
+| DB 연결 헬퍼 | `src/db.py` |
 | 유사 콘텐츠 검색 스크립트 | `scripts/search.py` |
+| 전체 파이프라인 실행 (검색 + 적재) | `scripts/run_pipeline.py` |
 | 결과 DB 적재 | `scripts/export_to_db.py` |
-| pytest | `tests/` |
+| 임베딩 덤프 (디버그/분석용) | `scripts/dump_embeddings.py` |
+| 정밀도 평가 | `scripts/evaluate_precision.py` |
+| pytest | `tests/test_vector_search.py` |
 | 앙상블 가중치 설정 | `config/search_config.yaml` |
 
 **`Vector_Search/` 루트 또는 프로젝트 루트에 `.py` 파일 직접 생성 금지.**
@@ -64,7 +67,8 @@ final_score = α * clip_score + (1 - α) * content_score
 | 테이블 | 컬럼 | 타입 | 용도 |
 |--------|------|------|------|
 | `public.vod_embedding` | `vod_id_fk`, `embedding` | VARCHAR(64), VECTOR(512) | CLIP 유사도 검색 |
-| `public.vod_meta_embedding` | `vod_id_fk`, `embedding` | VARCHAR(64), VECTOR(384) | 메타 유사도 검색 |
+| `public.vod_series_embedding` | `series_nm`, `representative_vod_id`, `embedding` | VARCHAR(255)/VARCHAR(64)/VECTOR(384) | 시리즈 대표 메타 유사도 검색 (에피소드 중복 해소) |
+| `public.vod_meta_embedding` | `vod_id_fk`, `embedding` | VARCHAR(64), VECTOR(384) | 메타 유사도 검색 (폴백, vod_series_embedding 우선) |
 | `public.user_embedding` | `user_id_fk`, `embedding` | VARCHAR(64), VECTOR(896) | 개인화 검색 (추후) |
 
 ### 다운스트림 (쓰기)
