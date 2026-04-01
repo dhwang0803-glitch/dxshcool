@@ -207,19 +207,24 @@ CF_Engine/
 
 ---
 
-### `Vector_Search` — 벡터 유사도 검색 (2종)
-- **메타데이터 기반**: `vod_meta_embedding`(384차원) 코사인 유사도 (pgvector `<=>`)
+### `Vector_Search` — 벡터 유사도 검색 (3종) `구현 완료`
+- **메타데이터 기반**: `vod_series_embedding`(384차원) 코사인 유사도 (pgvector `<=>`)
 - **영상 기반**: `vod_embedding`(512차원) 코사인 유사도 (pgvector `<=>`)
-- 두 스코어 앙상블 → 최종 유사도 순위
-- User 임베딩(`user_embedding` 896차원) 활용 시 개인화 검색 가능
+- 위 두 스코어 앙상블 → `CONTENT_BASED` item-to-item 유사 콘텐츠 순위 (source_vod_id → similar VODs)
+- **유저 시각 유사도**: `user_embedding` CLIP 부분([:512]) × VOD CLIP 벡터 → `VISUAL_SIMILARITY` user-to-item 추천 (멀티프로세스 병렬 + COPY 벌크 적재)
 
-**예정 폴더 구조:**
+**폴더 구조:**
 ```
 Vector_Search/
 ├── src/
-│   ├── content_based.py   ← 메타데이터 기반 유사도
-│   └── clip_based.py      ← 영상 임베딩 기반 유사도
+│   ├── base.py                ← VectorSearchBase 공통 베이스
+│   ├── content_based.py       ← 메타데이터 기반 유사도
+│   ├── clip_based.py          ← 영상 임베딩 기반 유사도
+│   ├── ensemble.py            ← 앙상블 로직
+│   └── visual_similarity.py   ← 유저 CLIP 기반 시각 유사도
 ├── scripts/
+│   ├── run_pipeline.py            ← CONTENT_BASED 배치 파이프라인
+│   └── run_visual_similarity.py   ← VISUAL_SIMILARITY 배치 파이프라인
 ├── tests/
 └── config/
 ```
