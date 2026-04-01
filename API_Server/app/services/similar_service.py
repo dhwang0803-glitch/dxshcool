@@ -16,8 +16,8 @@ async def get_similar_vods(asset_id: str, limit: int = 10) -> dict:
                 JOIN public.vod v ON r.vod_id_fk = v.full_asset_id
                 WHERE r.source_vod_id = (
                     SELECT se.representative_vod_id
-                    FROM vod_series_embedding se
-                    JOIN vod src ON COALESCE(src.series_nm, src.asset_nm) = se.series_nm
+                    FROM public.vod_series_embedding se
+                    JOIN public.vod src ON COALESCE(src.series_nm, src.asset_nm) = se.series_nm
                     WHERE src.full_asset_id = $1
                     LIMIT 1
                 )

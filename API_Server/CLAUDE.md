@@ -107,7 +107,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 | `serving.vod_recommendation` | `source_vod_id`, `vod_id_fk`, `rank`, `score`, `recommendation_type`, `expires_at` | VARCHAR/REAL/INT/VARCHAR/TIMESTAMPTZ | `/similar` (source_vod_id 기준). TTL 필터 적용 |
 | `serving.hybrid_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `explanation_tags`, `source_engines`, `expires_at` | VARCHAR/REAL/SMALLINT/JSONB/VARCHAR[]/TIMESTAMPTZ | `/recommend` top_vod + `/home/banner` 2단(rank 1~10 하단 개인화). TTL 필터 적용 |
 | `serving.tag_recommendation` | `user_id_fk`, `tag_category`, `tag_value`, `tag_rank`, `tag_affinity`, `vod_id_fk`, `vod_rank`, `vod_score`, `expires_at` | 각종 | 홈: genre/genre_detail 배너, 추천: director/actor 배너. TTL 필터 적용 |
-| `serving.rec_sentence` | `user_id_fk`, `vod_id_fk`, `rec_reason`, `rec_sentence`, `expires_at` | VARCHAR/TEXT/TIMESTAMPTZ | 홈 TOP10 배너 추천 문구. LEFT JOIN on tag_recommendation |
+| `serving.rec_sentence` | `vod_id_fk`, `segment_id`, `rec_sentence` | VARCHAR/SMALLINT/TEXT | VOD × 세그먼트별 맞춤 문구. user_segment JOIN으로 segment_id 결정 |
 | `public.user_embedding` | `user_id_fk`, `embedding` | VARCHAR/VECTOR(896) | 벡터 유사도 배너: meta part [513:896] 384D 추출 |
 | `public.vod_series_embedding` | `series_nm`, `representative_vod_id`, `embedding`, `ct_cl`, `poster_url` | 각종 | 벡터 유사도 배너/추천: user meta_vec <=> series embedding cosine (시리즈 대표, 에피소드 중복 해소) |
 | `serving.mv_vod_watch_stats` | `vod_id_fk`, `total_watch_count` | VARCHAR/INT | /recommend fallback (인기순) |
