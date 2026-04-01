@@ -98,10 +98,14 @@ Hybrid_Layer/
 | VOD 태그 추출 로직 | `src/tag_builder.py` |
 | 유저 선호 집계 로직 | `src/preference_builder.py` |
 | 리랭킹 + 설명 생성 | `src/reranker.py` |
+| 태그 선반 생성 (Phase 4) | `src/shelf_builder.py` |
+| DB 연결 헬퍼 | `src/db.py` |
 | VOD 태그 적재 스크립트 | `scripts/build_vod_tags.py` |
 | 유저 선호 집계 스크립트 | `scripts/build_user_preferences.py` |
 | 리랭킹 + serving 적재 | `scripts/run_hybrid.py` |
-| pytest | `tests/` |
+| 태그 선반 적재 | `scripts/build_tag_shelves.py` |
+| 전체 파이프라인 (Phase 1→4 순차) | `scripts/run_pipeline.py` |
+| pytest | `tests/test_reranker.py`, `tests/test_tag_builder.py` |
 | 리랭킹 설정 (β, top_n 등) | `config/hybrid_config.yaml` |
 
 **`Hybrid_Layer/` 루트 또는 프로젝트 루트에 `.py` 파일 직접 생성 금지.**
