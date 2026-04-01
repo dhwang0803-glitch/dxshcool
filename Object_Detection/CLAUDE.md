@@ -66,8 +66,20 @@ Object_Detection/
 │   ├── batch_clip_score.py       ← CLIP 배치
 │   ├── batch_stt_score.py        ← STT 배치
 │   ├── batch_ocr_score.py        ← OCR 배치
-│   └── download_batch_target.py  ← 영상 다운로드
+│   ├── download_batch_target.py  ← 영상 다운로드
+│   ├── find_target_trailers.py   ← 배치 대상 트레일러 검색
+│   ├── search_batch_series.py    ← 시리즈별 배치 대상 검색
+│   ├── fix_parquet_columns.py    ← parquet 컬럼 보정
+│   ├── check_db_full.py          ← DB 적재 현황 검증
+│   ├── check_parquet_deep.py     ← parquet 심층 검증
+│   ├── check_parquet_quality.py  ← parquet 품질 검증
+│   ├── check_parquet_vs_db.py    ← parquet↔DB 정합성 검증
+│   └── check_rag_source.py       ← RAG 소스 확인
 ├── tests/            ← pytest
+│   ├── test_phase1_setup.py
+│   ├── test_phase2_clip.py
+│   ├── test_phase3_ad_targeting.py
+│   └── test_phase4_stt.py
 ├── config/
 │   ├── clip_queries_ko.yaml      ← CLIP 115개 쿼리
 │   ├── stt_keywords.yaml         ← STT/OCR 639개 키워드
