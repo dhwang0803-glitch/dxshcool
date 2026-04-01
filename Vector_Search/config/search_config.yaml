@@ -8,3 +8,8 @@ search:
   clip_ivfflat_probes: 10   # vod_embedding 검색 정확도 (lists=100)
   sbert_model: "paraphrase-multilingual-MiniLM-L12-v2"
   clip_model: "clip-ViT-B-32"
+
+visual_similarity:
+  top_n: 20              # 유저당 추천 건수
+  clip_dim: 512          # user_embedding CLIP 부분 차원
+  min_vod_count: 3       # user_embedding 최소 VOD 수 (신뢰도 필터)
