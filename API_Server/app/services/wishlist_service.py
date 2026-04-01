@@ -1,11 +1,10 @@
-from app.services.db import get_pool
+from app.services.base_service import BaseService
 
 
-async def add_wishlist(user_id: str, series_nm: str) -> dict:
-    """찜 추가 — ON CONFLICT 무시 (이미 찜한 경우)."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        await conn.execute(
+class WishlistService(BaseService):
+    async def add(self, user_id: str, series_nm: str) -> dict:
+        """찜 추가 — ON CONFLICT 무시 (이미 찜한 경우)."""
+        await self.execute(
             """
             INSERT INTO public.wishlist (user_id_fk, series_nm)
             VALUES ($1, $2)
@@ -14,14 +13,11 @@ async def add_wishlist(user_id: str, series_nm: str) -> dict:
             user_id,
             series_nm,
         )
-    return {"series_nm": series_nm, "message": "찜 추가 완료"}
+        return {"series_nm": series_nm, "message": "찜 추가 완료"}
 
-
-async def remove_wishlist(user_id: str, series_nm: str) -> dict | None:
-    """찜 해제 — 없으면 None 반환."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        result = await conn.execute(
+    async def remove(self, user_id: str, series_nm: str) -> dict | None:
+        """찜 해제 — 없으면 None 반환."""
+        result = await self.execute(
             """
             DELETE FROM public.wishlist
             WHERE user_id_fk = $1 AND series_nm = $2
@@ -29,6 +25,13 @@ async def remove_wishlist(user_id: str, series_nm: str) -> dict | None:
             user_id,
             series_nm,
         )
-    if result == "DELETE 0":
-        return None
-    return {"series_nm": series_nm, "message": "찜 해제 완료"}
+        if result == "DELETE 0":
+            return None
+        return {"series_nm": series_nm, "message": "찜 해제 완료"}
+
+
+wishlist_service = WishlistService()
+
+# 하위 호환
+add_wishlist = wishlist_service.add
+remove_wishlist = wishlist_service.remove

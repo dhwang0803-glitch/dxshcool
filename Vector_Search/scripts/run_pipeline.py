@@ -25,33 +25,29 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.ensemble import load_config
 from src.db import get_connection
 
-# 에피소드 단위 유지 대상 ct_cl (시리즈 중복 제거 제외)
-_EPISODE_LEVEL_CT_CL = frozenset(["TV 연예/오락"])
-
 DATA_DIR = Path(__file__).parent.parent / "data"
-META_PARQUET = DATA_DIR / "meta_embeddings.parquet"
-CLIP_PARQUET = DATA_DIR / "clip_embeddings.parquet"
+META_PARQUET = DATA_DIR / "series_meta_embeddings.parquet"
+CLIP_PARQUET = DATA_DIR / "series_clip_embeddings.parquet"
 
 
 def dump_embeddings_if_needed():
-    """로컬 parquet 없으면 DB에서 자동 dump."""
+    """로컬 parquet 없으면 DB에서 자동 dump (시리즈 대표 임베딩)."""
     if META_PARQUET.exists() and CLIP_PARQUET.exists():
         return
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    print("[dump] 임베딩 parquet 없음 → DB에서 다운로드")
+    print("[dump] 임베딩 parquet 없음 → DB에서 다운로드 (시리즈 대표)")
     conn = get_connection()
     try:
         cur = conn.cursor()
 
-        print("[dump 1/2] vod_meta_embedding ...", end=" ", flush=True)
+        # vod_series_embedding: 시리즈당 대표 메타 임베딩 (14.8K)
+        print("[dump 1/2] vod_series_embedding (meta) ...", end=" ", flush=True)
         cur.execute("""
-            SELECT vme.vod_id_fk, vme.embedding
-            FROM vod_meta_embedding vme
-            JOIN vod v ON vme.vod_id_fk = v.full_asset_id
-            JOIN vod_embedding ve ON vme.vod_id_fk = ve.vod_id_fk AND ve.model_name = 'clip-ViT-B-32'
-            WHERE v.poster_url IS NOT NULL AND v.poster_url != ''
-            ORDER BY vme.vod_id_fk
+            SELECT se.representative_vod_id AS vod_id_fk, se.embedding
+            FROM vod_series_embedding se
+            WHERE se.poster_url IS NOT NULL AND se.poster_url != ''
+            ORDER BY se.representative_vod_id
         """)
         rows = cur.fetchall()
         df = pd.DataFrame(rows, columns=["vod_id_fk", "embedding"])
@@ -59,13 +55,14 @@ def dump_embeddings_if_needed():
         df.to_parquet(META_PARQUET, index=False)
         print(f"{len(df):,}건")
 
-        print("[dump 2/2] vod_embedding (CLIP) ...", end=" ", flush=True)
+        # CLIP 임베딩: 시리즈 대표 VOD의 CLIP 벡터만 추출
+        print("[dump 2/2] vod_embedding (CLIP, 시리즈 대표) ...", end=" ", flush=True)
         cur.execute("""
             SELECT ve.vod_id_fk, ve.embedding
             FROM vod_embedding ve
-            JOIN vod v ON ve.vod_id_fk = v.full_asset_id
+            JOIN vod_series_embedding se ON ve.vod_id_fk = se.representative_vod_id
             WHERE ve.model_name = 'clip-ViT-B-32'
-              AND v.poster_url IS NOT NULL AND v.poster_url != ''
+              AND se.poster_url IS NOT NULL AND se.poster_url != ''
             ORDER BY ve.vod_id_fk
         """)
         rows = cur.fetchall()
@@ -107,11 +104,11 @@ def process_batch(
     clip_id2meta_idx,
     alpha, top_n,
     valid_clip_idx, valid_meta_idx,
-    vod_series_map=None,
 ):
     """
-    배치 단위 행렬 연산:
+    배치 단위 행렬 연산 (시리즈 대표 임베딩):
     batch_vecs (B, D) @ meta_vecs.T (D, N) → (B, N) 유사도 행렬 한 번에 계산
+    데이터가 이미 시리즈 단위이므로 중복제거 불필요.
     """
     B = len(batch_indices)
 
@@ -120,7 +117,6 @@ def process_batch(
     content_sim = batch_meta_vecs @ meta_vecs.T         # (B, N)
 
     # PLAN_02: clip_score 배치 행렬 곱 (B, M)
-    # 배치 VOD 중 clip 임베딩 있는 것만 추출
     batch_vod_ids = meta_ids[batch_indices]
     clip_sim = np.zeros((B, len(clip_ids)), dtype=np.float32)
     for b_i, vod_id in enumerate(batch_vod_ids):
@@ -132,12 +128,11 @@ def process_batch(
     for b_i, vod_id in enumerate(batch_vod_ids):
         src_meta_idx = batch_indices[b_i]
 
-        # clip_score를 meta 인덱스 기준으로 정렬 (numpy 인덱싱으로 한 번에 처리)
+        # clip_score를 meta 인덱스 기준으로 정렬
         clip_score_by_meta = np.zeros(len(meta_ids), dtype=np.float32)
         clip_score_by_meta[valid_meta_idx] = clip_sim[b_i, valid_clip_idx]
 
         # PLAN_03: 앙상블
-        # clip 없거나 clip_score=1.0(동일 트레일러 = 시리즈물)이면 alpha=0 → content_score만 반영
         has_clip = clip_score_by_meta > 0.0
         eff_alpha = np.where(has_clip & (clip_score_by_meta < 1.0), alpha, 0.0)
         final_scores = eff_alpha * clip_score_by_meta + (1 - eff_alpha) * content_sim[b_i]
@@ -145,30 +140,14 @@ def process_batch(
         # 자기 자신 제외
         final_scores[src_meta_idx] = -1.0
 
-        # TOP-N 추출 (시리즈 중복 제거 적용)
-        # 중복 제거 후 top_n 확보를 위해 넉넉하게 후보 추출
-        raw_top_n = min(top_n * 3, len(final_scores))
-        top_idx = np.argpartition(final_scores, -raw_top_n)[-raw_top_n:]
+        # TOP-N 추출 (시리즈 단위 데이터이므로 중복제거 불필요)
+        top_idx = np.argpartition(final_scores, -top_n)[-top_n:]
         top_idx = top_idx[np.argsort(final_scores[top_idx])[::-1]]
 
-        seen_series: set[str] = set()
-        rank = 0
-        for idx in top_idx:
-            candidate_id = meta_ids[idx]
-            # 시리즈 중복 제거 (vod_series_map 있을 때만)
-            if vod_series_map is not None:
-                series_nm, ct_cl = vod_series_map.get(candidate_id, (candidate_id, ""))
-                if ct_cl not in _EPISODE_LEVEL_CT_CL:
-                    if series_nm in seen_series:
-                        continue
-                    seen_series.add(series_nm)
-
-            rank += 1
-            if rank > top_n:
-                break
+        for rank, idx in enumerate(top_idx, 1):
             all_rows.append({
                 "source_vod_id": vod_id,
-                "vod_id_fk": candidate_id,
+                "vod_id_fk": meta_ids[idx],
                 "rank": rank,
                 "score": round(min(float(final_scores[idx]), 1.0), 6),
                 "clip_score": round(min(float(clip_score_by_meta[idx]), 1.0), 6),
@@ -227,22 +206,9 @@ def main():
     top_n = config["ensemble"]["top_n"]
 
     print("=" * 60)
-    print("Vector Search 파이프라인 시작 (배치 행렬 연산)")
+    print("Vector Search 파이프라인 시작 (시리즈 대표 임베딩, 배치 행렬 연산)")
     print(f"  alpha={alpha}, top_n={top_n}, batch_size={args.batch_size}")
     print("=" * 60)
-
-    # VOD 시리즈 매핑 로드 (시리즈 중복 제거용)
-    print("[로드] VOD 시리즈 매핑 ...", end=" ", flush=True)
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT full_asset_id, series_nm, ct_cl FROM public.vod")
-    vod_series_map = {
-        row[0]: (row[1] or row[0], row[2] or "")
-        for row in cur.fetchall()
-    }
-    cur.close()
-    conn.close()
-    print(f"{len(vod_series_map):,}건")
 
     # 벡터 로드 (로컬 parquet 없으면 자동 dump)
     meta_df, meta_vecs, clip_df, clip_vecs, clip_ids = load_embeddings()
@@ -277,7 +243,6 @@ def main():
             clip_ids, clip_vecs, clip_id2meta_idx,
             alpha, top_n,
             valid_clip_idx, valid_meta_idx,
-            vod_series_map=vod_series_map,
         )
         all_rows.extend(rows)
         done = min(start + args.batch_size, total)
