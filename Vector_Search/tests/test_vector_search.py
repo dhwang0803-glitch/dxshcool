@@ -11,9 +11,13 @@ import pandas as pd
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, ".")
 
 from scripts.evaluate_precision import genre_match, calc_precision_at_k
-from src.ensemble import ensemble_scores, load_config
+from Vector_Search.src.ensemble import EnsembleScorer, ensemble_scores, load_config
+from Vector_Search.src.base import VectorSearchBase
+from Vector_Search.src.clip_based import ClipSearcher, clip_searcher
+from Vector_Search.src.content_based import ContentSearcher, content_searcher
 
 
 # ──────────────────────────────────────────────
@@ -55,7 +59,7 @@ class TestGenreMatch:
 
 
 # ──────────────────────────────────────────────
-# ensemble_scores 테스트
+# EnsembleScorer 테스트
 # ──────────────────────────────────────────────
 
 class TestEnsembleScores:
@@ -63,7 +67,7 @@ class TestEnsembleScores:
         """기본 앙상블 — clip + content 정상 합산"""
         clip = [{"vod_id": "A", "clip_score": 0.8}]
         content = [{"vod_id": "A", "content_score": 0.6}]
-        result = ensemble_scores(clip, content, alpha=0.4, top_n=5)
+        result = EnsembleScorer.score(clip, content, alpha=0.4, top_n=5)
         assert len(result) == 1
         expected = round(0.4 * 0.8 + 0.6 * 0.6, 6)
         assert result[0]["final_score"] == expected
@@ -71,7 +75,7 @@ class TestEnsembleScores:
     def test_no_clip_score(self):
         """clip_score 없는 VOD → alpha=0, content_score 100% 반영"""
         content = [{"vod_id": "B", "content_score": 0.7}]
-        result = ensemble_scores([], content, alpha=0.4, top_n=5)
+        result = EnsembleScorer.score([], content, alpha=0.4, top_n=5)
         assert result[0]["final_score"] == 0.7
 
     def test_sorted_by_score(self):
@@ -84,27 +88,31 @@ class TestEnsembleScores:
             {"vod_id": "A", "content_score": 0.5},
             {"vod_id": "B", "content_score": 0.9},
         ]
-        result = ensemble_scores(clip, content, alpha=0.4, top_n=5)
+        result = EnsembleScorer.score(clip, content, alpha=0.4, top_n=5)
         assert result[0]["vod_id"] == "B"
         assert result[1]["vod_id"] == "A"
 
     def test_top_n_limit(self):
         """top_n 개수 제한 적용"""
         content = [{"vod_id": str(i), "content_score": i / 10} for i in range(10)]
-        result = ensemble_scores([], content, alpha=0.4, top_n=3)
+        result = EnsembleScorer.score([], content, alpha=0.4, top_n=3)
         assert len(result) == 3
 
     def test_clip_score_1_treated_as_no_clip(self):
-        """clip_score=1.0 (시즌물 동일 트레일러) — ensemble.py에서는 alpha 적용됨
-        run_pipeline.py에서 처리하므로 여기선 정상 계산 확인"""
+        """clip_score=1.0 (시즌물 동일 트레일러) — ensemble에서는 alpha 적용됨"""
         clip = [{"vod_id": "C", "clip_score": 1.0}]
         content = [{"vod_id": "C", "content_score": 0.8}]
-        result = ensemble_scores(clip, content, alpha=0.4, top_n=5)
+        result = EnsembleScorer.score(clip, content, alpha=0.4, top_n=5)
         expected = round(0.4 * 1.0 + 0.6 * 0.8, 6)
         assert result[0]["final_score"] == expected
 
     def test_empty_inputs(self):
         """입력 비어있으면 빈 리스트 반환"""
+        result = EnsembleScorer.score([], [], alpha=0.4, top_n=5)
+        assert result == []
+
+    def test_backward_compat_alias(self):
+        """ensemble_scores 별칭 동작 확인"""
         result = ensemble_scores([], [], alpha=0.4, top_n=5)
         assert result == []
 
@@ -116,19 +124,23 @@ class TestEnsembleScores:
 class TestLoadConfig:
     def test_config_keys_exist(self):
         """필수 키 존재 확인"""
-        config = load_config()
+        config = VectorSearchBase.load_config()
         assert "ensemble" in config
         assert "search" in config
 
     def test_alpha_value(self):
         """alpha=0.4 설정값 확인"""
-        config = load_config()
+        config = VectorSearchBase.load_config()
         assert config["ensemble"]["alpha"] == 0.4
 
     def test_top_n_value(self):
         """top_n=20 설정값 확인"""
-        config = load_config()
+        config = VectorSearchBase.load_config()
         assert config["ensemble"]["top_n"] == 20
+
+    def test_load_config_alias(self):
+        """각 모듈의 load_config 별칭이 동일한 함수를 참조"""
+        assert load_config is VectorSearchBase.load_config
 
 
 # ──────────────────────────────────────────────
@@ -175,3 +187,32 @@ class TestCalcPrecisionAtK:
         })
         result = calc_precision_at_k(rec_df, meta_df, "genre", k=2, sample=None)
         assert result == 0.5
+
+
+# ──────────────────────────────────────────────
+# 클래스 구조 테스트
+# ──────────────────────────────────────────────
+
+class TestClassStructure:
+    def test_all_inherit_base(self):
+        for cls in [ClipSearcher, ContentSearcher, EnsembleScorer]:
+            assert issubclass(cls, VectorSearchBase), f"{cls.__name__} must inherit VectorSearchBase"
+
+    def test_singleton_instances(self):
+        assert isinstance(clip_searcher, ClipSearcher)
+        assert isinstance(content_searcher, ContentSearcher)
+
+    def test_clip_alias(self):
+        from Vector_Search.src.clip_based import get_similar_by_clip
+        assert get_similar_by_clip == clip_searcher.search
+
+    def test_content_alias(self):
+        from Vector_Search.src.content_based import get_similar_by_meta
+        assert get_similar_by_meta == content_searcher.search
+
+    def test_ensemble_alias(self):
+        assert ensemble_scores is EnsembleScorer.score
+
+    def test_db_get_connection_exists(self):
+        from Vector_Search.src.db import get_connection
+        assert callable(get_connection)
