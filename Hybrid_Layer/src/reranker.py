@@ -127,6 +127,57 @@ class Reranker(HybridBase):
             result.setdefault(user_id, {})[(cat, val)] = aff
         return result
 
+    # ── VS 시리즈 확장 ────────────────────────────────────────────
+
+    @staticmethod
+    def _load_series_map(cur) -> dict[str, list[str]]:
+        """시리즈 대표 VOD → 에피소드 목록 매핑 로드.
+
+        Returns: {representative_vod_id: [ep_vod_id, ...]}
+        """
+        cur.execute("""
+            SELECT se.representative_vod_id, v.full_asset_id
+            FROM public.vod_series_embedding se
+            JOIN public.vod v ON v.series_nm = se.series_nm
+            WHERE v.full_asset_id != se.representative_vod_id
+        """)
+        mapping: dict[str, list[str]] = {}
+        for rep_id, ep_id in cur.fetchall():
+            mapping.setdefault(rep_id, []).append(ep_id)
+        return mapping
+
+    @staticmethod
+    def _expand_vs_candidates(
+        all_candidates: dict[str, list[dict]],
+        series_map: dict[str, list[str]],
+    ) -> int:
+        """VS 후보의 시리즈 대표 VOD를 에피소드로 확장 (in-place).
+
+        대표 VOD 1건 → 같은 시리즈 에피소드 N건으로 확장.
+        이미 다른 후보로 존재하는 에피소드는 스킵 (중복 방지).
+
+        Returns: 총 확장된 에피소드 수
+        """
+        expanded_total = 0
+        for user_id, cands in all_candidates.items():
+            seen_vods = {c["vod_id_fk"] for c in cands}
+            new_cands = []
+            for c in cands:
+                if c["recommendation_type"] != "VISUAL_SIMILARITY":
+                    continue
+                episodes = series_map.get(c["vod_id_fk"], [])
+                for ep_id in episodes:
+                    if ep_id not in seen_vods:
+                        seen_vods.add(ep_id)
+                        new_cands.append({
+                            "vod_id_fk": ep_id,
+                            "score": c["score"],
+                            "recommendation_type": "VISUAL_SIMILARITY",
+                        })
+                        expanded_total += 1
+            cands.extend(new_cands)
+        return expanded_total
+
     # ── 순수 스코어링 (DB 호출 없음) ────────────────────────────────
 
     @staticmethod
@@ -137,10 +188,16 @@ class Reranker(HybridBase):
         beta: float,
         top_n: int,
         top_k_tags: int,
+        cf_slots: int = 0,
     ) -> list[dict]:
         """사전 조회된 데이터로 단일 유저 hybrid_score 계산 → 상위 top_n 반환.
 
         DB 호출 없음 — run의 bulk 구조 내부에서 사용.
+
+        Args:
+            cf_slots: CF 우선 슬롯 수. 0이면 전체 hybrid_score 경쟁.
+                      > 0이면 CF 상위 cf_slots개를 먼저 확보,
+                      나머지 (top_n - cf_slots)은 전체 후보에서 채움.
         """
         if not candidates:
             return []
@@ -184,6 +241,29 @@ class Reranker(HybridBase):
 
         scored.sort(key=lambda x: x["hybrid_score"], reverse=True)
 
+        # ── CF 우선 슬롯 블렌딩 ──────────────────────────────
+        if cf_slots > 0 and cf_slots < top_n:
+            cf_items = [s for s in scored if "COLLABORATIVE" in s["source_engines"]]
+            selected_vods = set()
+            final = []
+
+            # 1) CF 상위 cf_slots개 확보
+            for s in cf_items[:cf_slots]:
+                final.append(s)
+                selected_vods.add(s["vod_id_fk"])
+
+            # 2) 나머지 슬롯은 전체 후보에서 점수순 (이미 선택된 건 제외)
+            remaining = top_n - len(final)
+            for s in scored:
+                if remaining <= 0:
+                    break
+                if s["vod_id_fk"] not in selected_vods:
+                    final.append(s)
+                    selected_vods.add(s["vod_id_fk"])
+                    remaining -= 1
+
+            scored = final
+
         return [
             {
                 "vod_id_fk": s["vod_id_fk"],
@@ -216,6 +296,44 @@ class Reranker(HybridBase):
 
     # ── 전체 파이프라인 ─────────────────────────────────────────────
 
+    @staticmethod
+    def _normalize_scores_by_type(all_candidates: dict[str, list[dict]]) -> None:
+        """recommendation_type별 min-max 정규화 (in-place).
+
+        CF(COLLABORATIVE)와 VISUAL_SIMILARITY의 score 스케일이 다를 때
+        동일 [0, 1] 범위로 정규화하여 리랭킹 시 한쪽이 과대 표현되는 것을 방지.
+        """
+        # 타입별 min/max 수집
+        type_stats: dict[str, dict] = {}
+        for cands in all_candidates.values():
+            for c in cands:
+                rt = c["recommendation_type"]
+                s = c["score"]
+                if rt not in type_stats:
+                    type_stats[rt] = {"min": s, "max": s}
+                else:
+                    if s < type_stats[rt]["min"]:
+                        type_stats[rt]["min"] = s
+                    if s > type_stats[rt]["max"]:
+                        type_stats[rt]["max"] = s
+
+        # 타입이 1개뿐이면 정규화 불필요
+        if len(type_stats) <= 1:
+            return
+
+        log.info("스코어 정규화: %s",
+                 {rt: f"[{st['min']:.4f}, {st['max']:.4f}]" for rt, st in type_stats.items()})
+
+        # in-place 정규화
+        for cands in all_candidates.values():
+            for c in cands:
+                st = type_stats[c["recommendation_type"]]
+                span = st["max"] - st["min"]
+                if span > 0:
+                    c["score"] = (c["score"] - st["min"]) / span
+                else:
+                    c["score"] = 0.5
+
     def run(
         self,
         conn,
@@ -224,6 +342,9 @@ class Reranker(HybridBase):
         top_k_tags: int = 3,
         user_chunk_size: int = 1000,
         test_mode: bool = False,
+        normalize_scores: bool = False,
+        expand_vs: bool = False,
+        cf_slots: int = 0,
     ) -> int:
         """전체 유저 리랭킹 → hybrid_recommendation 적재.
 
@@ -231,6 +352,10 @@ class Reranker(HybridBase):
             user_chunk_size: INSERT 배치 크기 (유저 수 기준). rows = user_chunk_size × top_n.
             test_mode: True이면 vod_recommendation_test에서 후보 조회,
                        hybrid_recommendation_test에 결과 적재 (테스터 격리용).
+            normalize_scores: True이면 recommendation_type별 min-max 정규화 적용.
+            expand_vs: True이면 VS 시리즈 대표 VOD를 에피소드로 확장.
+            cf_slots: CF 우선 슬롯 수. 0이면 비활성 (전체 hybrid_score 경쟁).
+                      예: cf_slots=7이면 top_n=10 중 CF 상위 7 + 나머지 3은 전체 경쟁.
 
         Returns:
             총 적재 레코드 수
@@ -240,28 +365,40 @@ class Reranker(HybridBase):
         mode_label = "TEST 유저" if test_mode else "실 유저"
         log.info("Phase 3: Hybrid reranking (%s, beta=%.2f, top_n=%d)", mode_label, beta, top_n)
 
-        # ── Step 1: 전체 데이터 3번 쿼리로 한 번에 로드 ──────────
+        # ── Step 1: 전체 데이터 로드 ─────────────────────────────
         with conn.cursor() as cur:
-            log.info("[1/3] CF 후보 전체 dump...")
+            log.info("[1/4] 후보 전체 dump...")
             all_candidates = self._dump_all_candidates(cur, src_table)
             user_ids = list(all_candidates.keys())
-            log.info("  → %d users, CF 후보 로드 완료", len(user_ids))
+            log.info("  -> %d users, 후보 로드 완료", len(user_ids))
 
             if not user_ids:
                 return 0
 
-            log.info("[2/3] user_preference 전체 dump...")
+            # ── Step 1.5: VS 시리즈 확장 (옵션) ──────────────────
+            if expand_vs:
+                log.info("[1.5] VS 시리즈 확장: 시리즈 맵 로드...")
+                series_map = self._load_series_map(cur)
+                log.info("  -> %d 시리즈 대표 VOD 맵 로드", len(series_map))
+                n_expanded = self._expand_vs_candidates(all_candidates, series_map)
+                log.info("  -> %d 에피소드 확장 완료", n_expanded)
+
+            log.info("[2/4] user_preference 전체 dump...")
             all_prefs = self._dump_all_preferences(cur)
-            log.info("  → %d users 선호 태그 로드 완료", len(all_prefs))
+            log.info("  -> %d users 선호 태그 로드 완료", len(all_prefs))
 
             unique_vod_ids = list({
                 c["vod_id_fk"]
                 for cands in all_candidates.values()
                 for c in cands
             })
-            log.info("[3/3] vod_tag dump (%d개 고유 VOD)...", len(unique_vod_ids))
+            log.info("[3/4] vod_tag dump (%d개 고유 VOD)...", len(unique_vod_ids))
             all_vod_tags = self._fetch_vod_tags(cur, unique_vod_ids)
-            log.info("  → %d VOD 태그 로드 완료", len(all_vod_tags))
+            log.info("  -> %d VOD 태그 로드 완료", len(all_vod_tags))
+
+        # ── Step 1.6: 스코어 정규화 (옵션) ────────────────────
+        if normalize_scores:
+            self._normalize_scores_by_type(all_candidates)
 
         # ── Step 2: 기존 데이터 삭제 ─────────────────────────────
         with conn.cursor() as cur:
@@ -275,7 +412,7 @@ class Reranker(HybridBase):
         for uid in user_ids:
             candidates = all_candidates[uid]
             user_prefs = all_prefs.get(uid, {})
-            recs = self.score_user(candidates, user_prefs, all_vod_tags, beta, top_n, top_k_tags)
+            recs = self.score_user(candidates, user_prefs, all_vod_tags, beta, top_n, top_k_tags, cf_slots)
             for r in recs:
                 all_rows.append((
                     uid,

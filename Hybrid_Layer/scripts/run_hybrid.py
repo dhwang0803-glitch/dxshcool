@@ -37,6 +37,18 @@ def main():
         "--test-mode", action="store_true",
         help="테스터 격리 모드: vod_recommendation_test → hybrid_recommendation_test",
     )
+    parser.add_argument(
+        "--normalize", action="store_true",
+        help="recommendation_type별 min-max 스코어 정규화 적용",
+    )
+    parser.add_argument(
+        "--expand-vs", action="store_true",
+        help="VS 시리즈 대표 VOD를 에피소드로 확장",
+    )
+    parser.add_argument(
+        "--cf-slots", type=int, default=0,
+        help="CF 우선 슬롯 수 (0=비활성, 예: 7이면 top10 중 CF 7 + 나머지 3 경쟁)",
+    )
     args = parser.parse_args()
 
     conn = get_conn()
@@ -48,6 +60,9 @@ def main():
             top_k_tags=args.top_k_tags,
             user_chunk_size=args.chunk_size,
             test_mode=args.test_mode,
+            normalize_scores=args.normalize,
+            expand_vs=args.expand_vs,
+            cf_slots=args.cf_slots,
         )
         log.info("Phase 3 완료: %d rows inserted", total)
     finally:
