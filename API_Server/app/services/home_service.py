@@ -204,9 +204,12 @@ class HomeService(BaseService):
                         for _, vods in top_genres
                         for v in vods
                     ]
-                    source_map = await self.find_source_vods(
-                        conn, user_id, all_vector_nms,
-                    )
+                    try:
+                        source_map = await self.find_source_vods(
+                            conn, user_id, all_vector_nms,
+                        )
+                    except Exception:
+                        source_map = {}
                     for genre, vods in top_genres:
                         if vods:
                             for v in vods:
