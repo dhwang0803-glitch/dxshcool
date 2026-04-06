@@ -30,11 +30,14 @@ class Reranker(HybridBase):
 
     @staticmethod
     def _fetch_user_candidates(cur, user_id: str, test_mode: bool = False) -> list[dict]:
-        """유저의 vod_recommendation 후보 조회."""
+        """유저의 vod_recommendation 후보 조회.
+
+        VS 후보는 source_vod_id 기반 중복제거 (source당 최고 점수 1건).
+        """
         table = "serving.vod_recommendation_test" if test_mode else "serving.vod_recommendation"
         cur.execute(
             f"""
-            SELECT vod_id_fk, score, recommendation_type
+            SELECT vod_id_fk, score, recommendation_type, source_vod_id
             FROM {table}
             WHERE user_id_fk = %s
               AND (expires_at IS NULL OR expires_at > NOW())
@@ -43,8 +46,12 @@ class Reranker(HybridBase):
             (user_id,),
         )
         candidates = []
-        for row in cur.fetchall():
-            vid, score, rec_type = row
+        seen_vs_source: set[str] = set()
+        for vid, score, rec_type, source_vod_id in cur.fetchall():
+            if rec_type == "VISUAL_SIMILARITY" and source_vod_id:
+                if source_vod_id in seen_vs_source:
+                    continue
+                seen_vs_source.add(source_vod_id)
             candidates.append({
                 "vod_id_fk": vid,
                 "score": score,
@@ -88,10 +95,16 @@ class Reranker(HybridBase):
 
     @staticmethod
     def _dump_all_candidates(cur, src_table: str) -> dict[str, list[dict]]:
-        """CF 후보 전체를 한 번에 로드 → {user_id: [candidate, ...]}."""
+        """CF+VS 후보 전체를 한 번에 로드 → {user_id: [candidate, ...]}.
+
+        VS(VISUAL_SIMILARITY) 후보는 source_vod_id 기반 중복제거를 적용한다.
+        동일 source VOD에서 파생된 추천이 여러 개면 최고 점수 1건만 유지.
+        CF(COLLABORATIVE) 후보는 기존대로 vod_id 중복제거만 적용.
+        """
         cur.execute(
             f"""
-            SELECT user_id_fk, vod_id_fk, score, recommendation_type
+            SELECT user_id_fk, vod_id_fk, score, recommendation_type,
+                   source_vod_id
             FROM {src_table}
             WHERE user_id_fk IS NOT NULL
               AND (expires_at IS NULL OR expires_at > NOW())
@@ -99,18 +112,26 @@ class Reranker(HybridBase):
             """
         )
         result: dict[str, list] = {}
-        seen: dict[str, set] = {}
-        for user_id, vod_id, score, rec_type in cur.fetchall():
-            if user_id not in seen:
-                seen[user_id] = set()
+        seen_vods: dict[str, set] = {}        # vod_id 중복 (전 타입)
+        seen_vs_source: dict[str, set] = {}   # VS source_vod_id 중복
+        for user_id, vod_id, score, rec_type, source_vod_id in cur.fetchall():
+            if user_id not in seen_vods:
+                seen_vods[user_id] = set()
+                seen_vs_source[user_id] = set()
                 result[user_id] = []
-            if vod_id not in seen[user_id]:
-                seen[user_id].add(vod_id)
-                result[user_id].append({
-                    "vod_id_fk": vod_id,
-                    "score": score,
-                    "recommendation_type": rec_type,
-                })
+            if vod_id in seen_vods[user_id]:
+                continue
+            # VS 후보: source_vod_id당 1건만
+            if rec_type == "VISUAL_SIMILARITY" and source_vod_id:
+                if source_vod_id in seen_vs_source[user_id]:
+                    continue
+                seen_vs_source[user_id].add(source_vod_id)
+            seen_vods[user_id].add(vod_id)
+            result[user_id].append({
+                "vod_id_fk": vod_id,
+                "score": score,
+                "recommendation_type": rec_type,
+            })
         return result
 
     @staticmethod
