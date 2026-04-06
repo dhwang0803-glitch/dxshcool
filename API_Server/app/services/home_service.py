@@ -218,7 +218,7 @@ class HomeService(BaseService):
                     SELECT hr.vod_id_fk, hr.score AS vod_score,
                            v.series_nm, v.asset_nm, v.poster_url,
                            rs.rec_sentence,
-                           src.asset_nm AS source_title
+                           src.series_title AS source_title
                     FROM {hybrid_table} hr
                     JOIN public.vod v ON v.full_asset_id = hr.vod_id_fk
                     LEFT JOIN LATERAL (
@@ -230,7 +230,7 @@ class HomeService(BaseService):
                         LIMIT 1
                     ) rs ON true
                     LEFT JOIN LATERAL (
-                        SELECT s.asset_nm
+                        SELECT COALESCE(s.series_nm, s.asset_nm) AS series_title
                         FROM {rec_table} vr
                         JOIN public.vod s ON s.full_asset_id = vr.source_vod_id
                         WHERE vr.user_id_fk = $1
