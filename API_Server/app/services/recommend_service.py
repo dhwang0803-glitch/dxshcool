@@ -1,10 +1,6 @@
 """개인화 추천 서비스 — hybrid_recommendation + tag_recommendation 기반."""
 
-import logging
-
 from app.services.base_service import BaseService
-
-log = logging.getLogger(__name__)
 from app.services.rec_sentence_service import get_rec_sentences, get_segment_id
 
 _REASON_TEMPLATES = {
@@ -192,13 +188,7 @@ class RecommendService(BaseService):
                         source_map = await self.find_source_vods(
                             conn, user_id, rec_nms,
                         )
-                        log.warning(
-                            "find_source_vods user=%s rec_nms=%d source_map=%d keys=%s",
-                            user_id[:8], len(rec_nms), len(source_map),
-                            list(source_map.keys())[:3],
-                        )
                     except Exception:
-                        log.exception("find_source_vods failed for user=%s", user_id)
                         source_map = {}
                     vod_list = [
                         {

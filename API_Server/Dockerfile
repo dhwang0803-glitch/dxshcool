@@ -5,7 +5,6 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-RUN echo "cache-bust-20260406-v4"
 COPY . .
 
 EXPOSE 8080
