@@ -111,6 +111,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 | `public.user_embedding` | `user_id_fk`, `embedding` | VARCHAR/VECTOR(896) | 벡터 유사도 배너: meta part [513:896] 384D 추출 |
 | `public.vod_series_embedding` | `series_nm`, `representative_vod_id`, `embedding`, `ct_cl`, `poster_url` | 각종 | 벡터 유사도 배너/추천: user meta_vec <=> series embedding cosine (시리즈 대표, 에피소드 중복 해소) |
 | `serving.mv_vod_watch_stats` | `vod_id_fk`, `total_watch_count` | VARCHAR/INT | /recommend fallback (인기순) |
+| `public.seasonal_market` | `product_name`, `broadcast_date`, `start_time`, `end_time` | VARCHAR(200)/DATE/TIME/TIME | 제철장터 편성 실시간 조회 (ad_service: KST 기준 가장 가까운 미래 편성 1건) |
 
 ### 다운스트림 (쓰기)
 
