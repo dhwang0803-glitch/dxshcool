@@ -85,6 +85,55 @@ class BaseService:
         return int(row["balance"]) if row else 0
 
     @staticmethod
+    async def find_source_vods(
+        conn, user_id: str, rec_series_nms: list[str], limit_watched: int = 30,
+    ) -> dict[str, str]:
+        """추천 VOD별로 유저 최근 시청 VOD 중 가장 유사한 시리즈명을 반환.
+
+        episode_progress에서 최근 시청 시리즈 → vod_series_embedding과 JOIN →
+        추천 VOD 임베딩과 pgvector <=> 코사인 거리로 비교.
+
+        Returns:
+            {rec_series_nm: source_series_nm}  (매칭 실패 시 해당 키 없음)
+        """
+        if not rec_series_nms:
+            return {}
+
+        rows = await conn.fetch(
+            """
+            WITH watched_series AS (
+                SELECT series_nm, MAX(watched_at) AS last_watched
+                FROM public.episode_progress
+                WHERE user_id_fk = $1
+                GROUP BY series_nm
+                ORDER BY last_watched DESC
+                LIMIT $3
+            ),
+            recent_watched AS (
+                SELECT ws.series_nm, se.embedding
+                FROM watched_series ws
+                JOIN public.vod_series_embedding se ON ws.series_nm = se.series_nm
+            ),
+            rec_vods AS (
+                SELECT se.series_nm, se.embedding
+                FROM public.vod_series_embedding se
+                WHERE se.series_nm = ANY($2::text[])
+            )
+            SELECT rv.series_nm  AS rec_series_nm,
+                   rw.series_nm  AS source_series_nm
+            FROM rec_vods rv
+            CROSS JOIN LATERAL (
+                SELECT series_nm
+                FROM recent_watched
+                ORDER BY embedding <=> rv.embedding
+                LIMIT 1
+            ) rw
+            """,
+            user_id, rec_series_nms, limit_watched,
+        )
+        return {r["rec_series_nm"]: r["source_series_nm"] for r in rows}
+
+    @staticmethod
     def deduplicate_series(rows, key_fn=None, limit: int = 10) -> list[dict]:
         """시리즈 기준 중복 제거.
 

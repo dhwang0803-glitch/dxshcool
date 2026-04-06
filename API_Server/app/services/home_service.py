@@ -198,8 +198,19 @@ class HomeService(BaseService):
                         ((g, v) for g, v in genre_groups.items() if len(v) >= 10),
                         key=lambda x: -len(x[1]),
                     )[:2]
+                    # 벡터 배너 VOD에 근거 시청 VOD 매칭
+                    all_vector_nms = [
+                        v["series_nm"]
+                        for _, vods in top_genres
+                        for v in vods
+                    ]
+                    source_map = await self.find_source_vods(
+                        conn, user_id, all_vector_nms,
+                    )
                     for genre, vods in top_genres:
                         if vods:
+                            for v in vods:
+                                v["source_title"] = source_map.get(v["series_nm"])
                             sections.append({
                                 "genre": f"나의 취향과 비슷한 {genre}",
                                 "vod_list": vods,
