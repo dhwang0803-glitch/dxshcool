@@ -16,6 +16,7 @@ class PatternVodItem(BaseModel):
     asset_nm: str
     poster_url: str | None
     score: float | None
+    source_title: str | None = None
 
 
 class PatternItem(BaseModel):

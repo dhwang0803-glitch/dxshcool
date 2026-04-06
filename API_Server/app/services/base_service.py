@@ -107,7 +107,7 @@ class BaseService:
                 WHERE user_id_fk = $1
                 GROUP BY series_nm
                 ORDER BY last_watched DESC
-                LIMIT $3
+                LIMIT $2
             ),
             recent_watched AS (
                 SELECT ws.series_nm, se.embedding
@@ -117,7 +117,7 @@ class BaseService:
             rec_vods AS (
                 SELECT se.series_nm, se.embedding
                 FROM public.vod_series_embedding se
-                WHERE se.series_nm = ANY($2::text[])
+                WHERE se.series_nm = ANY($3)
             )
             SELECT rv.series_nm  AS rec_series_nm,
                    rw.series_nm  AS source_series_nm
@@ -129,7 +129,7 @@ class BaseService:
                 LIMIT 1
             ) rw
             """,
-            user_id, rec_series_nms, limit_watched,
+            user_id, limit_watched, rec_series_nms,
         )
         return {r["rec_series_nm"]: r["source_series_nm"] for r in rows}
 
