@@ -155,69 +155,54 @@ class HomeService(BaseService):
                 })
             sections.extend(grouped[k] for k in sorted(grouped.keys()))
 
-            # 2) vector 배너
+            # 2) vector 배너 — 파이프라인 VISUAL_SIMILARITY 결과 사용
+            rec_table = "serving.vod_recommendation_test" if is_test else "serving.vod_recommendation"
             try:
-                await conn.execute("SET ivfflat.probes = 5")
-                ue_row = await conn.fetchrow(
-                    "SELECT (embedding::real[])[513:896]::vector(384) AS meta_vec "
-                    "FROM public.user_embedding WHERE user_id_fk = $1",
+                vector_rows = await conn.fetch(
+                    f"""
+                    SELECT vr.vod_id_fk, vr.score, vr.source_vod_id,
+                           v.series_nm, v.asset_nm, v.poster_url, v.ct_cl,
+                           v.genre_detail,
+                           src.asset_nm AS source_title
+                    FROM {rec_table} vr
+                    JOIN public.vod v ON v.full_asset_id = vr.vod_id_fk
+                    LEFT JOIN public.vod src ON src.full_asset_id = vr.source_vod_id
+                    WHERE vr.user_id_fk = $1
+                      AND vr.recommendation_type = 'VISUAL_SIMILARITY'
+                      AND v.poster_url IS NOT NULL
+                      AND (vr.expires_at IS NULL OR vr.expires_at > NOW())
+                    ORDER BY vr.score DESC
+                    LIMIT 40
+                    """,
                     user_id,
                 )
-                if ue_row:
-                    vector_rows = await conn.fetch(
-                        """
-                        SELECT se.series_nm,
-                               1 - (se.embedding <=> $1) AS similarity,
-                               se.poster_url, se.ct_cl,
-                               v.asset_nm, v.genre_detail
-                        FROM public.vod_series_embedding se
-                        JOIN public.vod v ON v.full_asset_id = se.representative_vod_id
-                        WHERE se.poster_url IS NOT NULL
-                        ORDER BY se.embedding <=> $1
-                        LIMIT 60
-                        """,
-                        ue_row["meta_vec"],
-                    )
-                    genre_groups: dict[str, list] = {}
-                    for r in vector_rows:
-                        nm = r["series_nm"]
-                        if nm in seen_vods:
-                            continue
-                        genre = _clean_genre_detail(r["genre_detail"]) or r["ct_cl"] or "콘텐츠"
-                        if genre not in genre_groups:
-                            genre_groups[genre] = []
-                        if len(genre_groups[genre]) < 10:
-                            seen_vods.add(nm)
-                            genre_groups[genre].append({
-                                "series_nm": nm,
-                                "asset_nm": r["asset_nm"],
-                                "poster_url": r["poster_url"],
-                                "score": round(float(r["similarity"]), 4),
-                            })
-                    top_genres = sorted(
-                        ((g, v) for g, v in genre_groups.items() if len(v) >= 10),
-                        key=lambda x: -len(x[1]),
-                    )[:2]
-                    # 벡터 배너 VOD에 근거 시청 VOD 매칭
-                    all_vector_nms = [
-                        v["series_nm"]
-                        for _, vods in top_genres
-                        for v in vods
-                    ]
-                    try:
-                        source_map = await self.find_source_vods(
-                            conn, user_id, all_vector_nms,
-                        )
-                    except Exception:
-                        source_map = {}
-                    for genre, vods in top_genres:
-                        if vods:
-                            for v in vods:
-                                v["source_title"] = source_map.get(v["series_nm"])
-                            sections.append({
-                                "genre": f"나의 취향과 비슷한 {genre}",
-                                "vod_list": vods,
-                            })
+                genre_groups: dict[str, list] = {}
+                for r in vector_rows:
+                    nm = r["series_nm"] or r["asset_nm"]
+                    if nm in seen_vods:
+                        continue
+                    genre = _clean_genre_detail(r["genre_detail"]) or r["ct_cl"] or "콘텐츠"
+                    if genre not in genre_groups:
+                        genre_groups[genre] = []
+                    if len(genre_groups[genre]) < 10:
+                        seen_vods.add(nm)
+                        genre_groups[genre].append({
+                            "series_nm": nm,
+                            "asset_nm": r["asset_nm"],
+                            "poster_url": r["poster_url"],
+                            "score": round(float(r["score"]), 4),
+                            "source_title": r["source_title"],
+                        })
+                top_genres = sorted(
+                    ((g, v) for g, v in genre_groups.items() if len(v) >= 3),
+                    key=lambda x: -len(x[1]),
+                )[:2]
+                for genre, vods in top_genres:
+                    if vods:
+                        sections.append({
+                            "genre": f"나의 취향과 비슷한 {genre}",
+                            "vod_list": vods,
+                        })
             except Exception:
                 pass
 
