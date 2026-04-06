@@ -35,6 +35,7 @@ DATA_DIR = Path(__file__).parent.parent / "data"
 USER_CLIP_PARQUET = DATA_DIR / "user_clip_embeddings.parquet"
 CLIP_PARQUET = DATA_DIR / "series_clip_embeddings.parquet"
 WATCH_PARQUET = DATA_DIR / "watch_history_sparse.parquet"
+CT_CL_PARQUET = DATA_DIR / "vod_ct_cl.parquet"
 
 
 # ─────────────────────────────── PHASE 1: DUMP ───────────────────────────────
@@ -118,11 +119,32 @@ def dump_watch_history():
         conn.close()
 
 
+def dump_vod_ct_cl():
+    """VOD별 ct_cl(콘텐츠 분류) 매핑 parquet 저장."""
+    if CT_CL_PARQUET.exists():
+        return
+
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    print("[dump] vod_ct_cl.parquet ...", end=" ", flush=True)
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT full_asset_id, ct_cl FROM vod WHERE ct_cl IS NOT NULL")
+        rows = cur.fetchall()
+        df = pd.DataFrame(rows, columns=["vod_id_fk", "ct_cl"])
+        df.to_parquet(CT_CL_PARQUET, index=False)
+        print(f"{len(df):,}건")
+        cur.close()
+    finally:
+        conn.close()
+
+
 def dump_all_if_needed(min_vod_count: int):
     """필요한 parquet 파일이 없으면 DB에서 자동 dump."""
     dump_user_clip_embeddings(min_vod_count)
     dump_series_clip_embeddings()
     dump_watch_history()
+    dump_vod_ct_cl()
 
 
 # ─────────────────────────────── PHASE 2: LOAD ───────────────────────────────
@@ -147,6 +169,23 @@ def load_embeddings():
     return user_ids, user_vecs, vod_ids, vod_vecs
 
 
+def load_ct_cl_map(vod_ids: np.ndarray) -> np.ndarray:
+    """VOD별 ct_cl을 정수 인코딩한 배열 반환. vod_ids 순서와 동일."""
+    print("[로드] vod_ct_cl.parquet ...", end=" ", flush=True)
+    ct_df = pd.read_parquet(CT_CL_PARQUET)
+    ct_map = dict(zip(ct_df["vod_id_fk"], ct_df["ct_cl"]))
+
+    # ct_cl -> 정수 인코딩 (같은 ct_cl끼리 비교 위해)
+    unique_labels = sorted(set(ct_map.values()))
+    label2int = {label: i + 1 for i, label in enumerate(unique_labels)}  # 0은 unknown용
+    vod_ct_cls = np.array(
+        [label2int.get(ct_map.get(vid, ""), 0) for vid in vod_ids],
+        dtype=np.int16,
+    )
+    print(f"{len(ct_df):,}건, ct_cl {len(unique_labels)}종")
+    return vod_ct_cls
+
+
 def load_watch_map(vod_id2idx: dict) -> dict[str, np.ndarray]:
     """watch_history를 유저별 인덱스 배열로 변환."""
     print("[로드] watch_history_sparse.parquet ...", end=" ", flush=True)
@@ -167,9 +206,16 @@ def load_watch_map(vod_id2idx: dict) -> dict[str, np.ndarray]:
 def _process_batch_worker(args):
     """멀티프로세스 워커 — pickle 직렬화를 위해 top-level 함수로 정의.
 
-    args: (batch_user_ids, batch_user_vecs, vod_ids, vod_vecs, watch_map, top_n)
+    args: (batch_user_ids, batch_user_vecs, vod_ids, vod_vecs,
+           vod_ct_cls, watch_map, top_n)
+
+    Returns:
+        [(user_id_fk, source_vod_id, vod_id_fk, rank, score), ...]
+        source_vod_id: 추천 VOD와 같은 ct_cl인 시청 VOD 중 CLIP 유사도 최고.
+                       같은 ct_cl 시청 VOD가 없으면 None.
     """
-    batch_user_ids, batch_user_vecs, vod_ids, vod_vecs, watch_map, top_n = args
+    (batch_user_ids, batch_user_vecs, vod_ids, vod_vecs,
+     vod_ct_cls, watch_map, top_n) = args
     B = len(batch_user_ids)
 
     # (B, 512) @ (512, V) → (B, V) 유사도 행렬
@@ -192,13 +238,38 @@ def _process_batch_worker(args):
             top_idx = np.argpartition(scores, -top_n)[-top_n:]
             top_idx = top_idx[np.argsort(scores[top_idx])[::-1]]
 
-        for rank, idx in enumerate(top_idx, 1):
+        # source VOD 매칭: 같은 ct_cl 시청 VOD 중 CLIP 유사도 최고
+        source_ids_list = [None] * len(top_idx)
+        if watched_indices is not None and len(watched_indices) > 0:
+            watched_vecs = vod_vecs[watched_indices]       # (W, 512)
+            watched_ct = vod_ct_cls[watched_indices]       # (W,)
+            rec_vecs = vod_vecs[top_idx]                   # (N, 512)
+            # (N, 512) @ (512, W) → (N, W)
+            source_sims = rec_vecs @ watched_vecs.T
+
+            for rank_i, rec_idx in enumerate(top_idx):
+                rec_ct = vod_ct_cls[rec_idx]
+                if rec_ct == 0:
+                    # ct_cl unknown이면 source 매칭 안 함
+                    continue
+                # 같은 ct_cl인 시청 VOD만 필터
+                same_ct_mask = (watched_ct == rec_ct)
+                if not same_ct_mask.any():
+                    continue
+                sims_row = source_sims[rank_i].copy()
+                sims_row[~same_ct_mask] = -2.0
+                best_w = np.argmax(sims_row)
+                source_ids_list[rank_i] = vod_ids[watched_indices[best_w]]
+
+        for rank_i, idx in enumerate(top_idx):
+            rank = rank_i + 1
             if scores[idx] <= 0:
                 break
             all_rows.append((
-                user_id,          # user_id_fk
-                vod_ids[idx],     # vod_id_fk
-                rank,             # rank
+                user_id,                    # user_id_fk
+                source_ids_list[rank_i],    # source_vod_id (같은 ct_cl만)
+                vod_ids[idx],               # vod_id_fk
+                rank,                       # rank
                 round(min(float(scores[idx]), 1.0), 6),  # score
             ))
 
@@ -211,7 +282,7 @@ def export_to_db_copy(records: list[tuple]):
     """COPY 프로토콜로 serving.vod_recommendation에 벌크 적재.
 
     execute_batch 대비 5~10배 빠름.
-    records: [(user_id_fk, vod_id_fk, rank, score), ...]
+    records: [(user_id_fk, source_vod_id, vod_id_fk, rank, score), ...]
     """
     if not records:
         print("[DB] 저장할 레코드 없음")
@@ -241,9 +312,9 @@ def export_to_db_copy(records: list[tuple]):
     for chunk_start in range(0, len(records), CHUNK_SIZE):
         chunk = records[chunk_start:chunk_start + CHUNK_SIZE]
         buf = io.StringIO()
-        for user_id, vod_id, rank, score in chunk:
-            # CSV 행: user_id_fk, source_vod_id(NULL), vod_id_fk, rank, score, type
-            buf.write(f"{user_id},\\N,{vod_id},{rank},{score},VISUAL_SIMILARITY\n")
+        for user_id, source_vod_id, vod_id, rank, score in chunk:
+            src = source_vod_id if source_vod_id is not None else "\\N"
+            buf.write(f"{user_id},{src},{vod_id},{rank},{score},VISUAL_SIMILARITY\n")
         buf.seek(0)
         cur.copy_expert(COPY_SQL, buf)
         total += len(chunk)
@@ -286,6 +357,7 @@ def main():
 
     # PHASE 2: load
     user_ids, user_vecs, vod_ids, vod_vecs = load_embeddings()
+    vod_ct_cls = load_ct_cl_map(vod_ids)
     vod_id2idx = {vid: i for i, vid in enumerate(vod_ids)}
     watch_map = load_watch_map(vod_id2idx)
 
@@ -313,7 +385,7 @@ def main():
         batch_user_vecs = user_vecs[batch_idx]
         batch_args.append((
             batch_user_ids, batch_user_vecs,
-            vod_ids, vod_vecs, watch_map, top_n,
+            vod_ids, vod_vecs, vod_ct_cls, watch_map, top_n,
         ))
 
     all_rows = []
@@ -346,11 +418,12 @@ def main():
 
     # PHASE 4: export
     if args.dry_run:
-        print("dry-run 모드 — DB 저장 생략")
+        print("dry-run -- DB 저장 생략")
         if all_rows:
             print("\n[샘플 결과]")
-            for uid, vid, rank, score in all_rows[:5]:
-                print(f"  user={uid[:16]}... → vod={vid} rank={rank} score={score}")
+            for uid, src_vid, vid, rank, score in all_rows[:10]:
+                src = src_vid or "N/A"
+                print(f"  user={uid[:16]}... vod={vid} rank={rank} score={score} source={src}")
     else:
         export_to_db_copy(all_rows)
 
