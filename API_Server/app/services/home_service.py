@@ -206,10 +206,48 @@ class HomeService(BaseService):
             except Exception:
                 pass
 
-            # 3) TOP10
+            # 3) TOP10 — hybrid_recommendation(source_title 포함) + tag_recommendation 혼합
             try:
                 segment_id = await get_segment_id(conn, user_id)
-                top10_rows = await conn.fetch(
+
+                # 3-a) hybrid_recommendation에서 VISUAL_SIMILARITY source_title 포함 VOD
+                hybrid_table = "serving.hybrid_recommendation_test" if is_test else "serving.hybrid_recommendation"
+                hybrid_rows = await conn.fetch(
+                    f"""
+                    SELECT hr.vod_id_fk, hr.score AS vod_score,
+                           v.series_nm, v.asset_nm, v.poster_url,
+                           rs.rec_sentence,
+                           src.asset_nm AS source_title
+                    FROM {hybrid_table} hr
+                    JOIN public.vod v ON v.full_asset_id = hr.vod_id_fk
+                    LEFT JOIN LATERAL (
+                        SELECT rs2.rec_sentence
+                        FROM serving.rec_sentence rs2
+                        JOIN public.vod v2 ON rs2.vod_id_fk = v2.full_asset_id
+                        WHERE v2.series_nm = v.series_nm
+                          AND rs2.segment_id = $2
+                        LIMIT 1
+                    ) rs ON true
+                    LEFT JOIN LATERAL (
+                        SELECT s.asset_nm
+                        FROM {rec_table} vr
+                        JOIN public.vod s ON s.full_asset_id = vr.source_vod_id
+                        WHERE vr.user_id_fk = $1
+                          AND vr.recommendation_type = 'VISUAL_SIMILARITY'
+                          AND vr.vod_id_fk = hr.vod_id_fk
+                        LIMIT 1
+                    ) src ON true
+                    WHERE hr.user_id_fk = $1
+                      AND (hr.expires_at IS NULL OR hr.expires_at > NOW())
+                      AND v.poster_url IS NOT NULL
+                    ORDER BY hr.rank
+                    LIMIT 10
+                    """,
+                    user_id, segment_id,
+                )
+
+                # 3-b) tag_recommendation에서 보충
+                tag_rows = await conn.fetch(
                     f"""
                     SELECT tr.vod_id_fk, tr.vod_score,
                            tr.tag_category, tr.tag_value,
@@ -233,13 +271,46 @@ class HomeService(BaseService):
                     """,
                     user_id, segment_id,
                 )
-                top10_vods = self.deduplicate_series(top10_rows, limit=10)
+
+                # 3-c) 병합: hybrid 우선 → tag 보충 (시리즈 중복 제거, 최대 10)
+                top10_seen: set[str] = set()
+                top10_vods: list[dict] = []
+
+                for r in hybrid_rows:
+                    nm = r["series_nm"] or r["asset_nm"]
+                    if nm in top10_seen or nm in seen_vods:
+                        continue
+                    top10_seen.add(nm)
+                    top10_vods.append({
+                        "series_nm": nm,
+                        "asset_nm": r["asset_nm"],
+                        "poster_url": r["poster_url"],
+                        "vod_score": r["vod_score"],
+                        "rec_sentence": r["rec_sentence"],
+                        "source_title": r["source_title"],
+                        "rec_reason": "취향 기반 추천",
+                    })
+                    if len(top10_vods) >= 10:
+                        break
+
+                if len(top10_vods) < 10:
+                    tag_deduped = self.deduplicate_series(tag_rows, limit=50)
+                    for v in tag_deduped:
+                        nm = v.get("series_nm") or v.get("asset_nm")
+                        if nm in top10_seen or nm in seen_vods:
+                            continue
+                        top10_seen.add(nm)
+                        cat = v.pop("tag_category", None)
+                        val = v.pop("tag_value", None)
+                        tpl = _REC_REASON_BY_CATEGORY.get(cat)
+                        v["rec_reason"] = tpl.format(value=val) if tpl and val else "취향 기반 추천"
+                        v["source_title"] = None
+                        top10_vods.append(v)
+                        if len(top10_vods) >= 10:
+                            break
+
                 for i, v in enumerate(top10_vods, 1):
                     v["rank"] = i
-                    cat = v.pop("tag_category", None)
-                    val = v.pop("tag_value", None)
-                    tpl = _REC_REASON_BY_CATEGORY.get(cat)
-                    v["rec_reason"] = tpl.format(value=val) if tpl and val else "취향 기반 추천"
                 if top10_vods:
                     sections.append({
                         "genre": f"{user_label}님만을 위한 추천 시리즈 TOP10",
