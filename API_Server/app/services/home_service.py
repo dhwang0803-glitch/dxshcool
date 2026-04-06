@@ -185,7 +185,6 @@ class HomeService(BaseService):
                     if genre not in genre_groups:
                         genre_groups[genre] = []
                     if len(genre_groups[genre]) < 10:
-                        seen_vods.add(nm)
                         genre_groups[genre].append({
                             "series_nm": nm,
                             "asset_nm": r["asset_nm"],
@@ -199,6 +198,8 @@ class HomeService(BaseService):
                 )[:2]
                 for genre, vods in top_genres:
                     if vods:
+                        for v in vods:
+                            seen_vods.add(v["series_nm"])
                         sections.append({
                             "genre": f"나의 취향과 비슷한 {genre}",
                             "vod_list": vods,
