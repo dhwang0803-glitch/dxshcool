@@ -192,6 +192,11 @@ class RecommendService(BaseService):
                         source_map = await self.find_source_vods(
                             conn, user_id, rec_nms,
                         )
+                        log.info(
+                            "find_source_vods user=%s rec_nms=%d source_map=%d keys=%s",
+                            user_id[:8], len(rec_nms), len(source_map),
+                            list(source_map.keys())[:3],
+                        )
                     except Exception:
                         log.exception("find_source_vods failed for user=%s", user_id)
                         source_map = {}
