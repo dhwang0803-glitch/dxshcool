@@ -155,76 +155,100 @@ class HomeService(BaseService):
                 })
             sections.extend(grouped[k] for k in sorted(grouped.keys()))
 
-            # 2) vector 배너
+            # 2) vector 배너 — 파이프라인 VISUAL_SIMILARITY 결과 사용
+            rec_table = "serving.vod_recommendation_test" if is_test else "serving.vod_recommendation"
             try:
-                await conn.execute("SET ivfflat.probes = 5")
-                ue_row = await conn.fetchrow(
-                    "SELECT (embedding::real[])[513:896]::vector(384) AS meta_vec "
-                    "FROM public.user_embedding WHERE user_id_fk = $1",
+                vector_rows = await conn.fetch(
+                    f"""
+                    SELECT vr.vod_id_fk, vr.score, vr.source_vod_id,
+                           v.series_nm, v.asset_nm, v.poster_url, v.ct_cl,
+                           v.genre_detail,
+                           src.asset_nm AS source_title
+                    FROM {rec_table} vr
+                    JOIN public.vod v ON v.full_asset_id = vr.vod_id_fk
+                    LEFT JOIN public.vod src ON src.full_asset_id = vr.source_vod_id
+                    WHERE vr.user_id_fk = $1
+                      AND vr.recommendation_type = 'VISUAL_SIMILARITY'
+                      AND v.poster_url IS NOT NULL
+                      AND (vr.expires_at IS NULL OR vr.expires_at > NOW())
+                    ORDER BY vr.score DESC
+                    LIMIT 40
+                    """,
                     user_id,
                 )
-                if ue_row:
-                    vector_rows = await conn.fetch(
-                        """
-                        SELECT se.series_nm,
-                               1 - (se.embedding <=> $1) AS similarity,
-                               se.poster_url, se.ct_cl,
-                               v.asset_nm, v.genre_detail
-                        FROM public.vod_series_embedding se
-                        JOIN public.vod v ON v.full_asset_id = se.representative_vod_id
-                        WHERE se.poster_url IS NOT NULL
-                        ORDER BY se.embedding <=> $1
-                        LIMIT 60
-                        """,
-                        ue_row["meta_vec"],
-                    )
-                    genre_groups: dict[str, list] = {}
-                    for r in vector_rows:
-                        nm = r["series_nm"]
-                        if nm in seen_vods:
-                            continue
-                        genre = _clean_genre_detail(r["genre_detail"]) or r["ct_cl"] or "콘텐츠"
-                        if genre not in genre_groups:
-                            genre_groups[genre] = []
-                        if len(genre_groups[genre]) < 10:
-                            seen_vods.add(nm)
-                            genre_groups[genre].append({
-                                "series_nm": nm,
-                                "asset_nm": r["asset_nm"],
-                                "poster_url": r["poster_url"],
-                                "score": round(float(r["similarity"]), 4),
-                            })
-                    top_genres = sorted(
-                        ((g, v) for g, v in genre_groups.items() if len(v) >= 10),
-                        key=lambda x: -len(x[1]),
-                    )[:2]
-                    # 벡터 배너 VOD에 근거 시청 VOD 매칭
-                    all_vector_nms = [
-                        v["series_nm"]
-                        for _, vods in top_genres
-                        for v in vods
-                    ]
-                    try:
-                        source_map = await self.find_source_vods(
-                            conn, user_id, all_vector_nms,
-                        )
-                    except Exception:
-                        source_map = {}
-                    for genre, vods in top_genres:
-                        if vods:
-                            for v in vods:
-                                v["source_title"] = source_map.get(v["series_nm"])
-                            sections.append({
-                                "genre": f"나의 취향과 비슷한 {genre}",
-                                "vod_list": vods,
-                            })
+                genre_groups: dict[str, list] = {}
+                for r in vector_rows:
+                    nm = r["series_nm"] or r["asset_nm"]
+                    if nm in seen_vods:
+                        continue
+                    genre = _clean_genre_detail(r["genre_detail"]) or r["ct_cl"] or "콘텐츠"
+                    if genre not in genre_groups:
+                        genre_groups[genre] = []
+                    if len(genre_groups[genre]) < 10:
+                        genre_groups[genre].append({
+                            "series_nm": nm,
+                            "asset_nm": r["asset_nm"],
+                            "poster_url": r["poster_url"],
+                            "score": round(float(r["score"]), 4),
+                            "source_title": r["source_title"],
+                        })
+                top_genres = sorted(
+                    ((g, v) for g, v in genre_groups.items() if len(v) >= 3),
+                    key=lambda x: -len(x[1]),
+                )[:2]
+                for genre, vods in top_genres:
+                    if vods:
+                        for v in vods:
+                            seen_vods.add(v["series_nm"])
+                        sections.append({
+                            "genre": f"나의 취향과 비슷한 {genre}",
+                            "vod_list": vods,
+                        })
             except Exception:
                 pass
 
-            # 3) TOP10
+            # 3) TOP10 — hybrid_recommendation(source_title 포함) + tag_recommendation 혼합
             try:
                 segment_id = await get_segment_id(conn, user_id)
-                top10_rows = await conn.fetch(
+
+                # 3-a) hybrid_recommendation에서 VISUAL_SIMILARITY source_title 포함 VOD
+                hybrid_table = "serving.hybrid_recommendation_test" if is_test else "serving.hybrid_recommendation"
+                hybrid_rows = await conn.fetch(
+                    f"""
+                    SELECT hr.vod_id_fk, hr.score AS vod_score,
+                           v.series_nm, v.asset_nm, v.poster_url,
+                           rs.rec_sentence,
+                           src.series_title AS source_title
+                    FROM {hybrid_table} hr
+                    JOIN public.vod v ON v.full_asset_id = hr.vod_id_fk
+                    LEFT JOIN LATERAL (
+                        SELECT rs2.rec_sentence
+                        FROM serving.rec_sentence rs2
+                        JOIN public.vod v2 ON rs2.vod_id_fk = v2.full_asset_id
+                        WHERE v2.series_nm = v.series_nm
+                          AND rs2.segment_id = $2
+                        LIMIT 1
+                    ) rs ON true
+                    LEFT JOIN LATERAL (
+                        SELECT COALESCE(s.series_nm, s.asset_nm) AS series_title
+                        FROM {rec_table} vr
+                        JOIN public.vod s ON s.full_asset_id = vr.source_vod_id
+                        WHERE vr.user_id_fk = $1
+                          AND vr.recommendation_type = 'VISUAL_SIMILARITY'
+                          AND vr.vod_id_fk = hr.vod_id_fk
+                        LIMIT 1
+                    ) src ON true
+                    WHERE hr.user_id_fk = $1
+                      AND (hr.expires_at IS NULL OR hr.expires_at > NOW())
+                      AND v.poster_url IS NOT NULL
+                    ORDER BY hr.rank
+                    LIMIT 10
+                    """,
+                    user_id, segment_id,
+                )
+
+                # 3-b) tag_recommendation에서 보충
+                tag_rows = await conn.fetch(
                     f"""
                     SELECT tr.vod_id_fk, tr.vod_score,
                            tr.tag_category, tr.tag_value,
@@ -248,13 +272,46 @@ class HomeService(BaseService):
                     """,
                     user_id, segment_id,
                 )
-                top10_vods = self.deduplicate_series(top10_rows, limit=10)
+
+                # 3-c) 병합: hybrid 우선 → tag 보충 (시리즈 중복 제거, 최대 10)
+                top10_seen: set[str] = set()
+                top10_vods: list[dict] = []
+
+                for r in hybrid_rows:
+                    nm = r["series_nm"] or r["asset_nm"]
+                    if nm in top10_seen or nm in seen_vods:
+                        continue
+                    top10_seen.add(nm)
+                    top10_vods.append({
+                        "series_nm": nm,
+                        "asset_nm": r["asset_nm"],
+                        "poster_url": r["poster_url"],
+                        "vod_score": r["vod_score"],
+                        "rec_sentence": r["rec_sentence"],
+                        "source_title": r["source_title"],
+                        "rec_reason": "취향 기반 추천",
+                    })
+                    if len(top10_vods) >= 10:
+                        break
+
+                if len(top10_vods) < 10:
+                    tag_deduped = self.deduplicate_series(tag_rows, limit=50)
+                    for v in tag_deduped:
+                        nm = v.get("series_nm") or v.get("asset_nm")
+                        if nm in top10_seen or nm in seen_vods:
+                            continue
+                        top10_seen.add(nm)
+                        cat = v.pop("tag_category", None)
+                        val = v.pop("tag_value", None)
+                        tpl = _REC_REASON_BY_CATEGORY.get(cat)
+                        v["rec_reason"] = tpl.format(value=val) if tpl and val else "취향 기반 추천"
+                        v["source_title"] = None
+                        top10_vods.append(v)
+                        if len(top10_vods) >= 10:
+                            break
+
                 for i, v in enumerate(top10_vods, 1):
                     v["rank"] = i
-                    cat = v.pop("tag_category", None)
-                    val = v.pop("tag_value", None)
-                    tpl = _REC_REASON_BY_CATEGORY.get(cat)
-                    v["rec_reason"] = tpl.format(value=val) if tpl and val else "취향 기반 추천"
                 if top10_vods:
                     sections.append({
                         "genre": f"{user_label}님만을 위한 추천 시리즈 TOP10",

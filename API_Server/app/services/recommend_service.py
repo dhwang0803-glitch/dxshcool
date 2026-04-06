@@ -159,54 +159,53 @@ class RecommendService(BaseService):
         except Exception:
             pass
 
-        # 3) vector similarity
+        # 3) vector similarity — 파이프라인 vod_recommendation VISUAL_SIMILARITY 결과 사용
+        rec_table = "serving.vod_recommendation_test" if is_test else "serving.vod_recommendation"
         vector_pattern = None
         try:
             async with await self.acquire() as conn:
-                await conn.execute("SET ivfflat.probes = 5")
-                ue_row = await conn.fetchrow(
-                    "SELECT (embedding::real[])[513:896]::vector(384) AS meta_vec "
-                    "FROM public.user_embedding WHERE user_id_fk = $1",
+                vector_rows = await conn.fetch(
+                    f"""
+                    SELECT vr.vod_id_fk, vr.score, vr.source_vod_id,
+                           v.series_nm, v.asset_nm, v.poster_url,
+                           src.asset_nm AS source_title
+                    FROM {rec_table} vr
+                    JOIN public.vod v ON v.full_asset_id = vr.vod_id_fk
+                    LEFT JOIN public.vod src ON src.full_asset_id = vr.source_vod_id
+                    WHERE vr.user_id_fk = $1
+                      AND vr.recommendation_type = 'VISUAL_SIMILARITY'
+                      AND v.poster_url IS NOT NULL
+                      AND (vr.expires_at IS NULL OR vr.expires_at > NOW())
+                    ORDER BY vr.score DESC
+                    LIMIT 20
+                    """,
                     user_id,
                 )
-                if ue_row:
-                    vector_rows = await conn.fetch(
-                        """
-                        SELECT se.series_nm,
-                               1 - (se.embedding <=> $1) AS similarity,
-                               v.asset_nm, se.poster_url
-                        FROM public.vod_series_embedding se
-                        JOIN public.vod v ON v.full_asset_id = se.representative_vod_id
-                        WHERE se.poster_url IS NOT NULL
-                        ORDER BY se.embedding <=> $1
-                        LIMIT 10
-                        """,
-                        ue_row["meta_vec"],
-                    )
-                    rec_nms = [r["series_nm"] for r in vector_rows]
-                    try:
-                        source_map = await self.find_source_vods(
-                            conn, user_id, rec_nms,
-                        )
-                    except Exception:
-                        source_map = {}
-                    vod_list = [
-                        {
-                            "series_id": r["series_nm"],
-                            "asset_nm": r["asset_nm"],
-                            "poster_url": r["poster_url"],
-                            "score": round(float(r["similarity"]), 4),
-                            "source_title": source_map.get(r["series_nm"]),
-                        }
-                        for r in vector_rows
-                    ]
-                    if vod_list:
-                        next_rank = max((p["pattern_rank"] for p in patterns), default=0) + 1
-                        vector_pattern = {
-                            "pattern_rank": next_rank,
-                            "pattern_reason": "나의 취향과 비슷한 콘텐츠",
-                            "vod_list": vod_list,
-                        }
+                # 시리즈 중복 제거
+                seen_series = set()
+                vod_list = []
+                for r in vector_rows:
+                    sid = r["series_nm"] or r["asset_nm"]
+                    if sid in seen_series:
+                        continue
+                    seen_series.add(sid)
+                    vod_list.append({
+                        "series_id": sid,
+                        "asset_nm": r["asset_nm"],
+                        "poster_url": r["poster_url"],
+                        "score": round(float(r["score"]), 4),
+                        "source_title": r["source_title"],
+                    })
+                    if len(vod_list) >= 10:
+                        break
+
+                if vod_list:
+                    next_rank = max((p["pattern_rank"] for p in patterns), default=0) + 1
+                    vector_pattern = {
+                        "pattern_rank": next_rank,
+                        "pattern_reason": "나의 취향과 비슷한 콘텐츠",
+                        "vod_list": vod_list,
+                    }
         except Exception:
             pass
 
