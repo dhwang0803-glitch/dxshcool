@@ -184,9 +184,12 @@ class RecommendService(BaseService):
                         ue_row["meta_vec"],
                     )
                     rec_nms = [r["series_nm"] for r in vector_rows]
-                    source_map = await self.find_source_vods(
-                        conn, user_id, rec_nms,
-                    )
+                    try:
+                        source_map = await self.find_source_vods(
+                            conn, user_id, rec_nms,
+                        )
+                    except Exception:
+                        source_map = {}
                     vod_list = [
                         {
                             "series_id": r["series_nm"],
