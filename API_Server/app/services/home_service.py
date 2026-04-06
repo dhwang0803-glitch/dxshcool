@@ -19,6 +19,15 @@ _TAG_LABEL = {
     "cold_genre_detail": "{user}님이 좋아할만한 {value} 시리즈",
 }
 
+_REC_REASON_BY_CATEGORY = {
+    "actor_lead": "{value} 님 작품",
+    "actor_guest": "{value} 배우 출연작",
+    "director": "{value} 감독 작품",
+    "genre": "{value} 장르",
+    "genre_detail": "{value} 장르",
+    "cold_genre_detail": "{value} 장르",
+}
+
 
 def _clean_genre_detail(raw: str | None) -> str | None:
     if not raw or not raw.strip():
@@ -189,8 +198,22 @@ class HomeService(BaseService):
                         ((g, v) for g, v in genre_groups.items() if len(v) >= 10),
                         key=lambda x: -len(x[1]),
                     )[:2]
+                    # 벡터 배너 VOD에 근거 시청 VOD 매칭
+                    all_vector_nms = [
+                        v["series_nm"]
+                        for _, vods in top_genres
+                        for v in vods
+                    ]
+                    try:
+                        source_map = await self.find_source_vods(
+                            conn, user_id, all_vector_nms,
+                        )
+                    except Exception:
+                        source_map = {}
                     for genre, vods in top_genres:
                         if vods:
+                            for v in vods:
+                                v["source_title"] = source_map.get(v["series_nm"])
                             sections.append({
                                 "genre": f"나의 취향과 비슷한 {genre}",
                                 "vod_list": vods,
@@ -204,6 +227,7 @@ class HomeService(BaseService):
                 top10_rows = await conn.fetch(
                     f"""
                     SELECT tr.vod_id_fk, tr.vod_score,
+                           tr.tag_category, tr.tag_value,
                            v.series_nm, v.asset_nm, v.poster_url,
                            rs.rec_sentence
                     FROM {tag_table} tr
@@ -227,6 +251,10 @@ class HomeService(BaseService):
                 top10_vods = self.deduplicate_series(top10_rows, limit=10)
                 for i, v in enumerate(top10_vods, 1):
                     v["rank"] = i
+                    cat = v.pop("tag_category", None)
+                    val = v.pop("tag_value", None)
+                    tpl = _REC_REASON_BY_CATEGORY.get(cat)
+                    v["rec_reason"] = tpl.format(value=val) if tpl and val else "취향 기반 추천"
                 if top10_vods:
                     sections.append({
                         "genre": f"{user_label}님만을 위한 추천 시리즈 TOP10",

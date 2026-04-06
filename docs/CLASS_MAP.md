@@ -129,8 +129,12 @@ VectorSearchBase (base.py)
 ├── ContentSearcher (content_based.py)
 │   └── search(self, vod_id, conn, top_n=None) → list[dict]     instance
 │
-└── EnsembleScorer (ensemble.py)
-    └── score(clip_results, content_results, alpha=, top_n=) → list[dict]  @staticmethod
+├── EnsembleScorer (ensemble.py)
+│   └── score(clip_results, content_results, alpha=, top_n=) → list[dict]  @staticmethod
+│
+└── VisualSimilarity (visual_similarity.py)
+    ├── extract_clip_vector(embedding_896d) → ndarray(512,)      @staticmethod
+    └── search(self, user_id, conn, top_n=None) → list[dict]     instance
 ```
 
 ### 싱글턴 & 하위호환 별칭
@@ -140,6 +144,7 @@ VectorSearchBase (base.py)
 | ClipSearcher | `clip_searcher` | `get_similar_by_clip` |
 | ContentSearcher | `content_searcher` | `get_similar_by_meta` |
 | EnsembleScorer | `ensemble_scorer` | `ensemble_scores` |
+| VisualSimilarity | `visual_similarity` | `get_visual_recommendations` |
 
 ### db.py
 

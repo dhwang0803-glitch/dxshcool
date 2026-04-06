@@ -41,6 +41,7 @@ class PersonalizedVodItem(BaseModel):
     rank: int | None = None
     rec_reason: str | None = None
     rec_sentence: str | None = None
+    source_title: str | None = None
 
 
 class PersonalizedSectionItem(BaseModel):
