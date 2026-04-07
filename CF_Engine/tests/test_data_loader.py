@@ -1,4 +1,4 @@
-"""tests/test_data_loader.py — data_loader 단위 테스트"""
+"""tests/test_data_loader.py — DataLoader 단위 테스트"""
 
 import sys
 from pathlib import Path
@@ -6,9 +6,10 @@ import numpy as np
 import pytest
 from scipy.sparse import csr_matrix
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, ".")
 
-from src.data_loader import load_matrix
+from CF_Engine.src.data_loader import DataLoader, data_loader, get_conn, load_matrix
+from CF_Engine.src.base import CFBase
 
 
 def _make_conn_stub(rows):
@@ -33,7 +34,7 @@ def test_matrix_shape():
         ("user2", "vod1", 0.8),
     ]
     conn = _make_conn_stub(rows)
-    mat, u_enc, i_enc, u_dec, i_dec = load_matrix(conn, alpha=40)
+    mat, u_enc, i_enc, u_dec, i_dec = data_loader.load_matrix(conn, alpha=40)
 
     assert mat.shape == (2, 2)
     assert mat.nnz == 3
@@ -46,7 +47,7 @@ def test_encoder_consistency():
         ("userA", "vodY", 0.3),
     ]
     conn = _make_conn_stub(rows)
-    mat, u_enc, i_enc, u_dec, i_dec = load_matrix(conn, alpha=40)
+    mat, u_enc, i_enc, u_dec, i_dec = data_loader.load_matrix(conn, alpha=40)
 
     assert len(u_enc) == 2
     assert len(i_enc) == 2
@@ -60,7 +61,19 @@ def test_confidence_values():
     alpha = 40
     rows = [("u1", "v1", 0.5)]
     conn = _make_conn_stub(rows)
-    mat, *_ = load_matrix(conn, alpha=alpha)
+    mat, *_ = data_loader.load_matrix(conn, alpha=alpha)
 
     expected = 1.0 + alpha * 0.5
     assert abs(mat[0, 0] - expected) < 1e-5
+
+
+class TestDataLoaderClass:
+    def test_inherits_base(self):
+        assert issubclass(DataLoader, CFBase)
+
+    def test_singleton(self):
+        assert isinstance(data_loader, DataLoader)
+
+    def test_backward_compat_aliases(self):
+        assert get_conn is CFBase.get_conn
+        assert load_matrix == data_loader.load_matrix

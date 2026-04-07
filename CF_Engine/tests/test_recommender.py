@@ -1,13 +1,14 @@
-"""tests/test_recommender.py — recommender 단위 테스트"""
+"""tests/test_recommender.py — Recommender 단위 테스트"""
 
 import sys
 from pathlib import Path
 import numpy as np
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, ".")
 
-from src.recommender import build_records
+from CF_Engine.src.recommender import Recommender, recommender, build_records, load_vod_series_map
+from CF_Engine.src.base import CFBase
 
 
 def test_build_records_output_format():
@@ -18,8 +19,8 @@ def test_build_records_output_format():
     item_indices = np.array([[0, 1], [2, 0]])
     scores = np.array([[0.9, 0.7], [0.8, 0.6]])
 
-    records = build_records(user_ids, item_indices, scores,
-                            user_dec, item_dec, recommendation_type="CF")
+    records = Recommender.build_records(user_ids, item_indices, scores,
+                                        user_dec, item_dec, recommendation_type="CF")
 
     assert len(records) == 4
     assert records[0]["user_id_fk"] == "user_A"
@@ -36,8 +37,8 @@ def test_build_records_reverse_mapping():
     item_indices = np.array([[1, 0]])
     scores = np.array([[0.95, 0.85]])
 
-    records = build_records(user_ids, item_indices, scores,
-                            user_dec, item_dec)
+    records = Recommender.build_records(user_ids, item_indices, scores,
+                                        user_dec, item_dec)
 
     assert records[0]["vod_id_fk"] == "v2"
     assert records[1]["vod_id_fk"] == "v1"
@@ -50,6 +51,18 @@ def test_recommendation_type_in_records():
     item_indices = np.array([[0]])
     scores = np.array([[0.9]])
 
-    records = build_records(user_ids, item_indices, scores,
-                            user_dec, item_dec, recommendation_type="ALS")
+    records = Recommender.build_records(user_ids, item_indices, scores,
+                                        user_dec, item_dec, recommendation_type="ALS")
     assert records[0]["recommendation_type"] == "ALS"
+
+
+class TestRecommenderClass:
+    def test_inherits_base(self):
+        assert issubclass(Recommender, CFBase)
+
+    def test_singleton(self):
+        assert isinstance(recommender, Recommender)
+
+    def test_backward_compat_aliases(self):
+        assert build_records is Recommender.build_records
+        assert load_vod_series_map is Recommender.load_vod_series_map

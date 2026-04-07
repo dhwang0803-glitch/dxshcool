@@ -22,7 +22,7 @@ API_Server/
 
 | 파일 종류 | 저장 위치 |
 |-----------|-----------|
-| 라우터 (`recommend.py`, `search.py` 등) | `app/routers/` |
+| 라우터 (`recommend.py`, `similar.py` 등) | `app/routers/` |
 | 비즈니스 로직 (DB 쿼리, 결과 조합) | `app/services/` |
 | Pydantic 스키마 (`RecommendResponse` 등) | `app/models/` |
 | FastAPI 앱 (`app = FastAPI()`) | `app/main.py` |
@@ -36,8 +36,8 @@ API_Server/
 ```python
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
-import psycopg2           # DB 연결
-from jose import jwt      # JWT 인증
+import asyncpg             # DB 연결 (asyncpg 커넥션 풀)
+from jose import jwt       # JWT 인증 (셋톱박스 자동 로그인, 만료 없음)
 import uvicorn
 ```
 
@@ -45,11 +45,36 @@ import uvicorn
 
 | 메서드 | 경로 | 설명 | 소스 |
 |--------|------|------|------|
-| GET | `/recommend/{user_id}` | 개인화 추천 | CF_Engine |
-| GET | `/similar/{asset_id}` | 유사 콘텐츠 | Vector_Search |
-| WS/SSE | `/ad/popup` | 실시간 광고 트리거 | Shopping_Ad |
-| GET | `/vod/{asset_id}` | VOD 상세 메타데이터 | DB |
-| POST | `/auth/token` | JWT 발급 | 자체 |
+| GET | `/recommend/{user_id}` | 스마트 추천: top_vod 10건(backdrop 히어로) + 태그 패턴(genre_detail/director/actor_lead/actor_guest/cold_genre_detail) + 벡터 유사도 + rec_sentence | hybrid_recommendation + tag_recommendation + user_embedding + vod_series_embedding + rec_sentence |
+| GET | `/similar/{asset_id}` | 유사 콘텐츠 | Vector_Search (`source_vod_id` + `recommendation_type = 'CONTENT_BASED'`) |
+| WS | `/ad/popup` | 실시간 광고 팝업 (WebSocket) | Shopping_Ad |
+| GET | `/vod/{asset_id}` | VOD 상세 메타데이터 (+is_free, release_year) | DB |
+| POST | `/auth/token` | JWT 발급 (셋톱박스 자동 로그인, 만료 없음) | 자체 |
+| GET | `/home/banner` | 히어로 배너 2단 (popular top 5 히어로 + hybrid top 10 개인화, JWT 선택적) | popular_recommendation + hybrid_recommendation |
+| GET | `/home/sections` | CT_CL별 인기 20선 | popular_recommendation |
+| GET | `/series/{id}/episodes` | 에피소드 목록 (중복 제거) | vod |
+| GET | `/series/{id}/progress` | 시청 진행 현황 | episode_progress |
+| POST | `/series/{id}/episodes/{id}/progress` | 진행률 heartbeat (인메모리 버퍼 → 60초 batch flush) | episode_progress |
+| GET | `/series/{id}/purchase-check` | 구매 여부 확인 | purchase_history |
+| GET | `/series/{id}/purchase-options` | 구매 옵션 (FOD 무료 분기) | vod |
+| GET | `/user/me/watching` | 시청 중 콘텐츠 | episode_progress |
+| GET | `/user/me/profile` | 프로필 (user_name + point_balance) | user + point_history |
+| GET | `/user/me/points` | 포인트 잔액 + 내역 | point_history |
+| GET | `/user/me/history` | 시청 내역 | episode_progress |
+| GET | `/user/me/purchases` | 구매 내역 | purchase_history |
+| GET | `/user/me/wishlist` | 찜 목록 | wishlist |
+| POST | `/purchases` | 포인트 구매 트랜잭션 | purchase/point_history |
+| POST | `/wishlist` | 찜 추가 | wishlist |
+| DELETE | `/wishlist/{series_nm}` | 찜 해제 | wishlist |
+| POST | `/reservations` | 시청예약 등록 | watch_reservation |
+| GET | `/reservations` | 시청예약 목록 (미알림) | watch_reservation |
+| DELETE | `/reservations/{id}` | 시청예약 취소 | watch_reservation |
+| GET | `/home/sections/{user_id}` | 홈 개인화: genre 태그 + cold_genre_detail + 벡터 유사도 2그룹 + TOP10(rec_sentence) 최대 ~10개 배너 | tag_recommendation + user_embedding + vod_series_embedding + rec_sentence |
+| GET | `/user/me/notifications` | 알림 목록 (최신순) | notifications |
+| PATCH | `/user/me/notifications/{id}/read` | 알림 읽음 처리 | notifications |
+| POST | `/user/me/notifications/read-all` | 전체 읽음 처리 | notifications |
+| DELETE | `/user/me/notifications/{id}` | 알림 삭제 | notifications |
+| GET | `/vod/search?q={query}` | GNB 통합 검색 (제목/출연진/감독/장르, 최대 8건) | vod (pg_trgm) |
 
 ## 실행
 
@@ -67,19 +92,41 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 | `public.vod` | `full_asset_id` | VARCHAR(64) | `/vod/{asset_id}` PK 조회 |
 | `public.vod` | `asset_nm`, `genre`, `ct_cl` | VARCHAR | VOD 상세 응답 |
 | `public.vod` | `director`, `cast_lead`, `cast_guest` | VARCHAR/TEXT | VOD 상세 응답 |
-| `public.vod` | `smry`, `rating`, `release_date`, `poster_url` | TEXT/VARCHAR/DATE/TEXT | VOD 상세 응답 |
+| `public.vod` | `smry`, `rating`, `release_date`, `poster_url`, `asset_prod` | TEXT/VARCHAR/DATE/TEXT/VARCHAR | VOD 상세 응답. `release_date` → `release_year`(연도 int) 변환. `asset_prod='FOD'` → `is_free=true` |
 | `public."user"` | `sha2_hash` | VARCHAR | 사용자 존재 여부 확인 (PK) |
-| `serving.vod_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `recommendation_type` | VARCHAR/REAL/INT/VARCHAR | `/recommend/{user_id}` |
+| `public."user"` | `age_grp10` | VARCHAR | 콜드스타트 fallback 세그먼트 결정용 |
+| `public."user"` | `point_balance` | INT | 포인트 잔액 O(1) 조회 (DB 트리거가 point_history INSERT 시 자동 갱신) |
+| `public.user_segment` | `user_id_fk`, `segment_id` | VARCHAR/SMALLINT | K-Means 클러스터 결과 (gen_rec_sentence 브랜치 생성) |
+| `serving.rec_sentence` | `vod_id_fk`, `segment_id`, `rec_sentence` | VARCHAR/SMALLINT/TEXT | VOD × 세그먼트별 맞춤 문구 (gen_rec_sentence 브랜치 생성) |
+| `serving.popular_by_age` | `age_grp10`, `rank`, `vod_id_fk` | VARCHAR/SMALLINT/VARCHAR | 연령대별 인기 VOD (콜드스타트 추천 풀) |
+| `public.episode_progress` | `user_id_fk`, `vod_id_fk`, `series_nm`, `completion_rate`, `watched_at` | VARCHAR/VARCHAR/VARCHAR/SMALLINT/TIMESTAMPTZ | 시청 진행률 조회 (시청중/시청내역) |
+| `public.purchase_history` | `user_id_fk`, `series_nm`, `purchased_at`, `expires_at` | VARCHAR/VARCHAR/TIMESTAMPTZ/TIMESTAMPTZ | 구매 내역·만료 확인 |
+| `public.point_history` | `user_id_fk`, `amount`, `reason`, `created_at` | VARCHAR/INT/VARCHAR/TIMESTAMPTZ | 포인트 내역 조회 |
+| `public.wishlist` | `user_id_fk`, `series_nm` | VARCHAR/VARCHAR | 찜 목록 조회 |
+| `public.watch_reservation` | `reservation_id`, `user_id_fk`, `channel`, `program_name`, `alert_at`, `notified` | SERIAL/VARCHAR/INT/VARCHAR/TIMESTAMPTZ/BOOLEAN | 시청예약 조회·알림 체크 (30초 주기) |
+| `serving.vod_recommendation` | `source_vod_id`, `vod_id_fk`, `rank`, `score`, `recommendation_type`, `expires_at` | VARCHAR/REAL/INT/VARCHAR/TIMESTAMPTZ | `/similar` (source_vod_id 기준). TTL 필터 적용 |
+| `serving.hybrid_recommendation` | `user_id_fk`, `vod_id_fk`, `rank`, `score`, `explanation_tags`, `source_engines`, `expires_at` | VARCHAR/REAL/SMALLINT/JSONB/VARCHAR[]/TIMESTAMPTZ | `/recommend` top_vod + `/home/banner` 2단(rank 1~10 하단 개인화). TTL 필터 적용 |
+| `serving.tag_recommendation` | `user_id_fk`, `tag_category`, `tag_value`, `tag_rank`, `tag_affinity`, `vod_id_fk`, `vod_rank`, `vod_score`, `expires_at` | 각종 | 홈: genre/genre_detail 배너, 추천: director/actor 배너. TTL 필터 적용 |
+| `serving.rec_sentence` | `vod_id_fk`, `segment_id`, `rec_sentence` | VARCHAR/SMALLINT/TEXT | VOD × 세그먼트별 맞춤 문구. user_segment JOIN으로 segment_id 결정 |
+| `public.user_embedding` | `user_id_fk`, `embedding` | VARCHAR/VECTOR(896) | 벡터 유사도 배너: meta part [513:896] 384D 추출 |
+| `public.vod_series_embedding` | `series_nm`, `representative_vod_id`, `embedding`, `ct_cl`, `poster_url` | 각종 | 벡터 유사도 배너/추천: user meta_vec <=> series embedding cosine (시리즈 대표, 에피소드 중복 해소) |
 | `serving.mv_vod_watch_stats` | `vod_id_fk`, `total_watch_count` | VARCHAR/INT | /recommend fallback (인기순) |
+| `public.seasonal_market` | `product_name`, `broadcast_date`, `start_time`, `end_time` | VARCHAR(200)/DATE/TIME/TIME | 제철장터 편성 실시간 조회 (ad_service: KST 기준 가장 가까운 미래 편성 1건) |
 
 ### 다운스트림 (쓰기)
 
-| 대상 | 방식 |
-|------|------|
-| `Frontend` | REST JSON 응답 / WebSocket |
+| 테이블 | 컬럼 | 타입 | 비고 |
+|--------|------|------|------|
+| `public.episode_progress` | `user_id_fk`, `vod_id_fk`, `series_nm`, `completion_rate`, `watched_at` | VARCHAR/VARCHAR/VARCHAR/SMALLINT/TIMESTAMPTZ | 인메모리 버퍼 → 60초 batch UPSERT. `ON CONFLICT (user_id_fk, vod_id_fk) DO UPDATE` |
+| `public.purchase_history` | `user_id_fk`, `series_nm`, `points_used`, `purchased_at`, `expires_at` | VARCHAR/VARCHAR/INT/TIMESTAMPTZ/TIMESTAMPTZ | 트랜잭션 INSERT. 중복 구매 시 무시 |
+| `public.point_history` | `user_id_fk`, `amount`, `reason` | VARCHAR/INT/VARCHAR | 트랜잭션 INSERT. DB 트리거가 `user.point_balance` 자동 갱신 + `NOTIFY user_activity` |
+| `public.wishlist` | `user_id_fk`, `series_nm` | VARCHAR/VARCHAR | INSERT/DELETE. DB 트리거 `NOTIFY user_activity` |
+| `public.watch_reservation` | `user_id_fk`, `channel`, `program_name`, `alert_at` | VARCHAR/INT/VARCHAR/TIMESTAMPTZ | INSERT/DELETE. `notified` 플래그 UPDATE (알림 전송 후) |
+| `Frontend` | — | — | REST JSON 응답 / WebSocket (광고 팝업 + 시청예약 알림 + 마이페이지 실시간 갱신) |
 
-> API 서버는 Gold 레이어(serving.*)에서 최종 결과만 읽어 JSON으로 전달한다.
-> 벡터 연산·집계는 수행하지 않는다.
+> API 서버는 Gold 레이어(serving.*)에서 추천 결과를 읽고, public 스키마에 사용자 활동을 기록한다.
+> 홈/추천 페이지에서 실시간 벡터 유사도 검색(user_embedding meta part 384D <=> vod_meta_embedding)을 수행한다.
+> 실시간 갱신은 PG LISTEN/NOTIFY + 인메모리 버퍼(방안 A)로 처리한다.
 
 ---
 

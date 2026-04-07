@@ -31,10 +31,14 @@ from src.content_based import get_similar_by_meta
 from src.clip_based import get_similar_by_clip
 from src.ensemble import ensemble_scores, load_config
 
-
 def process_vod(vod_id: str, conn, alpha: float, top_n: int) -> list[dict]:
-    content_results = get_similar_by_meta(vod_id, conn, top_n=top_n * 2)
-    clip_results = get_similar_by_clip(vod_id, conn, top_n=top_n * 2)
+    """시리즈 대표 VOD 기준 유사 콘텐츠 검색.
+
+    get_similar_by_meta가 vod_series_embedding을 사용하므로
+    결과가 이미 시리즈 단위로 중복 제거되어 있다.
+    """
+    content_results = get_similar_by_meta(vod_id, conn, top_n=top_n)
+    clip_results = get_similar_by_clip(vod_id, conn, top_n=top_n)
     results = ensemble_scores(clip_results, content_results, alpha=alpha, top_n=top_n)
 
     rows = []
@@ -71,16 +75,17 @@ def main():
         if args.vod_id:
             vod_ids = [args.vod_id]
         else:
+            # 시리즈 대표 VOD만 처리 (14.8K vs 기존 166K 에피소드)
             cur = conn.cursor()
             cur.execute(
-                "SELECT DISTINCT vod_id_fk FROM vod_meta_embedding ORDER BY vod_id_fk"
+                "SELECT representative_vod_id FROM vod_series_embedding ORDER BY series_nm"
             )
             vod_ids = [r[0] for r in cur.fetchall()]
             if args.limit:
                 vod_ids = vod_ids[: args.limit]
 
         total = len(vod_ids)
-        print(f"[시작] 대상 VOD {total:,}건  alpha={alpha}  top_n={top_n}")
+        print(f"[시작] 대상 시리즈 {total:,}건  alpha={alpha}  top_n={top_n}")
 
         all_rows = []
         for i, vod_id in enumerate(vod_ids, 1):

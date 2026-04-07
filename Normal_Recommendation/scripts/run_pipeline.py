@@ -11,12 +11,14 @@ import os
 import sys
 from datetime import date
 
+sys.stdout.reconfigure(encoding="utf-8")
+
 import pandas as pd
 import yaml
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from src.db import get_conn
+from src.db import get_conn, load_watch_stats
 from src.popularity import (
     aggregate_by_series,
     build_recommendations,
@@ -42,16 +44,16 @@ def run(output_mode: str, dry_run: bool) -> None:
         vod_df = load_vod_data(conn)
         print(f"[INFO] vod: {len(vod_df):,}건")
 
+        print("[INFO] watch_history 통계 집계 중...")
+        watch_stats = load_watch_stats(conn)
+        print(f"[INFO] watch_stats: {len(watch_stats):,}건")
+
     print("[INFO] 시리즈 단위 집약 중...")
     agg_df = aggregate_by_series(vod_df)
     print(f"[INFO] 집약 후: {len(agg_df):,}건")
 
     print("[INFO] 인기 점수 계산 중...")
-    scored_df = calc_popularity_score(
-        agg_df,
-        rating_weight=pop_cfg["rating_weight"],
-        recency_weight=pop_cfg["recency_weight"],
-    )
+    scored_df = calc_popularity_score(agg_df, watch_stats, pop_cfg)
 
     print("[INFO] 장르별 Top-N 추천 결과 생성 중...")
     result_df = build_recommendations(scored_df, top_n=pop_cfg["top_n"])

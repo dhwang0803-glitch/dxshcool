@@ -52,15 +52,15 @@ User_Embedding/
     └── reports/  ← 실험 결과 리포트
 ```
 
-| 파일 종류 | 저장 위치 | 상태 |
-|-----------|-----------|------|
-| VOD 결합 임베딩 로더 | `src/vod_embedding_loader.py` | 🔲 예정 |
-| 유저 임베딩 생성 | `src/user_embedder.py` | 🔲 예정 |
-| watch_history 데이터 로더 | `src/data_loader.py` | 🔲 예정 |
-| DB 연결 헬퍼 | `src/db.py` | 🔲 예정 |
-| 임베딩 생성 + 적재 실행 | `scripts/run_embed.py` | 🔲 예정 |
-| pytest | `tests/` | 🔲 예정 |
-| 파이프라인 설정 | `config/embed_config.yaml` | 🔲 예정 |
+| 파일 종류 | 저장 위치 |
+|-----------|-----------|
+| VOD 결합 임베딩 로더 | `src/vod_embedding_loader.py` |
+| 유저 임베딩 생성 | `src/user_embedder.py` |
+| watch_history 데이터 로더 | `src/data_loader.py` |
+| DB 연결 헬퍼 | `src/db.py` |
+| 임베딩 생성 + 적재 실행 | `scripts/run_embed.py` |
+| pytest | `tests/test_data_loader.py`, `test_user_embedder.py`, `test_vod_loader.py` |
+| 파이프라인 설정 | `config/embed_config.yaml` |
 
 **`User_Embedding/` 루트 또는 프로젝트 루트에 `.py` 파일 직접 생성 금지.**
 

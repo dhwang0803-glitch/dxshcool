@@ -1,3 +1,6 @@
+> ℹ️ Phase 2 기록. 현재 CLIP 쿼리는 v4(115개), threshold 0.30.
+> 최신 → `docs/MATCHING_FLOW.md`
+
 # Phase 2 리포트 — CLIP Zero-shot 실험 결과
 
 - **브랜치**: Object_Detection

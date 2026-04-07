@@ -2,7 +2,7 @@
 
 **브랜치**: Normal_Recommendation
 **스크립트**: `scripts/export_to_db.py`
-**입력**: `data/recommendations_popular_YYYYMMDD.parquet`
+**입력**: `data/popular_top20_by_genre_YYYYMMDD.parquet`
 **출력**: `serving.popular_recommendation` 테이블
 
 > **조장 전용**: DB 쓰기 권한 필요. 팀원은 PLAN_01에서 parquet 저장 후 조장에게 전달.
@@ -61,11 +61,11 @@ expires_at = datetime.now() + timedelta(days=7)  # 1주일 후 만료
 ```bash
 # parquet → DB 적재 (조장 전용)
 python Normal_Recommendation/scripts/export_to_db.py \
-    --from-parquet Normal_Recommendation/data/recommendations_popular_20260317.parquet
+    --from-parquet Normal_Recommendation/data/popular_top20_by_genre_20260319.parquet
 
 # 드라이런
 python Normal_Recommendation/scripts/export_to_db.py \
-    --from-parquet Normal_Recommendation/data/recommendations_popular_20260317.parquet \
+    --from-parquet Normal_Recommendation/data/popular_top20_by_genre_20260319.parquet \
     --dry-run
 ```
 

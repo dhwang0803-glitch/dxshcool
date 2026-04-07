@@ -6,7 +6,8 @@
 
 시청 이력(watch_history) 기반 **협업 필터링(Collaborative Filtering)** 추천 엔진.
 ALS(Alternating Least Squares) 행렬 분해로 User-Item 잠재 벡터를 학습하고,
-추천 결과를 DB에 저장하여 API_Server가 실시간으로 서빙할 수 있게 한다.
+추천 후보(top 20)를 `serving.vod_recommendation`에 저장한다.
+이후 **Hybrid_Layer**가 Vector_Search 후보와 합쳐 리랭킹 → `serving.hybrid_recommendation` → API_Server 서빙.
 
 ## 파일 위치 규칙 (MANDATORY)
 
@@ -26,8 +27,11 @@ CF_Engine/
 | 추천 결과 포매터 | `src/recommender.py` |
 | 모델 학습 실행 | `scripts/train.py` |
 | 모델 평가 (NDCG, MRR) | `scripts/evaluate.py` |
+| 전체 평가 실행 | `scripts/full_eval.py` |
 | 추천 결과 DB 적재 | `scripts/export_to_db.py` |
-| pytest | `tests/` |
+| 추천 결과 검사 | `scripts/inspect_recommendations.py` |
+| 유사 추천 복사 | `scripts/copy_similar_recommendations.py` |
+| pytest | `tests/test_als_model.py`, `test_data_loader.py`, `test_recommender.py` |
 | 하이퍼파라미터 설정 | `config/als_config.yaml` |
 
 **`CF_Engine/` 루트 또는 프로젝트 루트에 `.py` 파일 직접 생성 금지.**
@@ -48,52 +52,21 @@ from dotenv import load_dotenv
 watch_history 테이블 로드
     → User-Item 희소 행렬 구성
     → ALS 학습 (factors=128, iterations=20, regularization=0.01)
-    → 유저별 Top-K 추천 생성
-    → [권한에 따라 분기] ─┬─ DB 쓰기 권한 있음 (조장) → serving.vod_recommendation upsert
+    → 유저별 Top-20 추천 생성
+    → [권한에 따라 분기] ─┬─ DB 쓰기 권한 있음 (조장) → serving.vod_recommendation DELETE+INSERT
                           └─ DB 쓰기 권한 없음 (팀원) → data/cf_recommendations_YYYYMMDD.parquet 저장
-    → API_Server /recommend/{user_id} 서빙
+    → Hybrid_Layer가 소비 → 리랭킹 → serving.hybrid_recommendation → API_Server 서빙
 ```
 
-## ⚠️ DB 쓰기 권한 분리 (MANDATORY)
-
-### 배경
-- **팀원**: DB 읽기 권한만 보유 — `watch_history` 로드는 가능, `serving.vod_recommendation` 직접 INSERT 불가
-- **조장 (dhwang0803)**: DB 쓰기 권한 보유 — parquet 파일을 받아 DB에 최종 적재
-
-### `scripts/train.py` 실행 방법
+## 실행 방법
 
 ```bash
-# 팀원 (DB 쓰기 권한 없음) — parquet 출력
-python scripts/train.py --output parquet
-# → data/cf_recommendations_YYYYMMDD.parquet 생성 후 조장에게 전달
-
-# 조장 — parquet 받아서 DB 직접 적재
-python scripts/train.py --from-parquet data/cf_recommendations_YYYYMMDD.parquet
-# → serving.vod_recommendation DELETE + INSERT
-
-# 조장 — DB 직접 학습 + 적재 (1회성 전체 실행)
+# DB 학습 + 적재
 python scripts/train.py
+
+# DB 저장 없이 추천 결과만 확인
+python scripts/train.py --dry-run
 ```
-
-### Parquet 스키마
-
-```python
-# data/cf_recommendations_YYYYMMDD.parquet
-# 컬럼: user_id_fk, vod_id_fk, rank, score, recommendation_type
-# 타입: str,        str,        int,  float, str
-```
-
-### 구현 요구사항 (scripts/train.py 수정 필요)
-
-| 옵션 | 동작 |
-|------|------|
-| `(없음)` | DB 학습 + serving.vod_recommendation 직접 적재 (조장 전용) |
-| `--output parquet` | DB 읽기 + 추천 생성 + parquet 저장 (팀원용) |
-| `--from-parquet <파일>` | parquet → serving.vod_recommendation 적재 (조장 전용) |
-| `--dry-run` | DB 저장/parquet 저장 없이 추천 결과만 로그 출력 |
-
-> `--output parquet` 모드는 DB 쓰기를 시도하지 않으므로 팀원 환경에서 안전하게 실행 가능.
-> `--from-parquet` 모드는 `export_to_db.py`의 `export()` 함수를 재사용.
 
 ### recommendation_type 확정값
 
@@ -103,9 +76,10 @@ python scripts/train.py
 
 ### serving.vod_recommendation UNIQUE constraint
 
-- **확인 완료**: `UNIQUE (user_id_fk, vod_id_fk)`
-- recommendation_type 미포함 → 타입별 공존 불가
-- **DELETE+INSERT 패턴 유지** (UPSERT 전환 불필요)
+- **변경 완료 (2026-03-20)**: `UNIQUE (user_id_fk, vod_id_fk, recommendation_type)`
+- recommendation_type 포함 → CF/Vector/Hybrid 타입별 독립 저장 가능
+- Cloud Run Jobs 독립 실행 시 동일 user-vod 쌍 충돌 방지
+- UPSERT(`ON CONFLICT ... DO UPDATE`) 전환 가능 (현재 DELETE+INSERT도 정상 동작)
 
 ## 인터페이스
 
@@ -121,8 +95,13 @@ python scripts/train.py
 
 | 테이블 | 컬럼 | 타입 | 비고 |
 |--------|------|------|------|
-| `serving.vod_recommendation` | `user_id_fk` | VARCHAR | UNIQUE(user_id_fk, vod_id_fk) |
-| `serving.vod_recommendation` | `vod_id_fk` | VARCHAR | UNIQUE(user_id_fk, vod_id_fk) |
+| `serving.vod_recommendation` | `user_id_fk` | VARCHAR | UNIQUE(user_id_fk, vod_id_fk, recommendation_type) |
+| `serving.vod_recommendation` | `vod_id_fk` | VARCHAR | UNIQUE(user_id_fk, vod_id_fk, recommendation_type) |
 | `serving.vod_recommendation` | `rank` | SMALLINT | Top-K 순위 |
 | `serving.vod_recommendation` | `score` | REAL | ALS 추천 점수 |
 | `serving.vod_recommendation` | `recommendation_type` | VARCHAR | 고정값: `'COLLABORATIVE'` |
+| `serving.popular_recommendation` | `ct_cl` | VARCHAR(64) | CT_CL별 Top-N |
+| `serving.popular_recommendation` | `rank` | SMALLINT | 순위 |
+| `serving.popular_recommendation` | `vod_id_fk` | VARCHAR(64) | FK → vod |
+| `serving.popular_recommendation` | `score` | REAL | 인기 점수 |
+| `serving.popular_recommendation` | `recommendation_type` | VARCHAR(32) | 고정값: `'POPULAR'` |

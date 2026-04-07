@@ -11,6 +11,8 @@ _root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, _root)
 
 from Poster_Collection.src import image_downloader
+from Poster_Collection.src.image_downloader import ImageDownloader
+from Poster_Collection.src.base import PosterBase
 
 
 class TestSafeFilename:
@@ -86,3 +88,23 @@ class TestDownload:
         with tempfile.TemporaryDirectory() as tmpdir:
             result = image_downloader.download("1006", "http://example.com/img.jpg", tmpdir)
             assert result is not None
+
+
+class TestImageDownloaderClass:
+    """클래스 구조 및 하위호환 검증."""
+
+    def test_inherits_poster_base(self):
+        assert issubclass(ImageDownloader, PosterBase)
+
+    def test_backward_compat_download(self):
+        assert callable(image_downloader.download)
+
+    def test_backward_compat_safe_filename(self):
+        assert callable(image_downloader._safe_filename)
+
+    def test_class_download_same_as_module(self):
+        """클래스 메서드와 모듈 별칭이 동일 함수."""
+        assert image_downloader.download is ImageDownloader.download
+
+    def test_class_safe_filename_same_as_module(self):
+        assert image_downloader._safe_filename is ImageDownloader._safe_filename
