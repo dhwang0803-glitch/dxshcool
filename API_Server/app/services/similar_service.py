@@ -39,33 +39,47 @@ class SimilarService(BaseService):
         except Exception:
             pass
 
-        # Fallback: 동일 ct_cl 내 임베딩 cosine 유사도 (embedding 미보유 시리즈 대응)
+        # Fallback: 동일 genre_detail 기반 — 임베딩 미보유 시리즈 대응
+        # genre_detail 매칭 건수 우선, 동점 시 시리즈명 고정 순서
         items = await self.query(
             """
-            WITH src_ct AS (
-                SELECT v.ct_cl
+            WITH src_tags AS (
+                SELECT UNNEST(STRING_TO_ARRAY(v.genre_detail, ',')) AS tag,
+                       v.ct_cl
                 FROM public.vod v
                 WHERE v.full_asset_id = $1 OR v.series_nm = $1
                 LIMIT 1
+            ),
+            candidates AS (
+                SELECT se.representative_vod_id,
+                       se.series_nm,
+                       se.ct_cl,
+                       se.poster_url,
+                       COUNT(st.tag) AS match_count
+                FROM public.vod_series_embedding se
+                JOIN public.vod v2
+                    ON COALESCE(v2.series_nm, v2.asset_nm) = se.series_nm
+                CROSS JOIN src_tags st
+                WHERE se.series_nm <> $1
+                  AND se.ct_cl = st.ct_cl
+                  AND v2.genre_detail LIKE '%' || TRIM(st.tag) || '%'
+                  AND COALESCE(se.poster_url, '') <> ''
+                GROUP BY se.representative_vod_id, se.series_nm, se.ct_cl, se.poster_url
             )
-            SELECT se.representative_vod_id AS asset_id,
-                   se.series_nm AS title,
-                   se.ct_cl AS genre,
-                   se.poster_url,
-                   NULL::float AS score,
-                   ROW_NUMBER() OVER ()::int AS rank
-            FROM public.vod_series_embedding se, src_ct
-            WHERE se.ct_cl = src_ct.ct_cl
-              AND se.series_nm <> $1
-              AND COALESCE(se.poster_url, '') <> ''
-              AND se.embedding IS NOT NULL
-            ORDER BY RANDOM()
+            SELECT representative_vod_id AS asset_id,
+                   series_nm AS title,
+                   ct_cl AS genre,
+                   poster_url,
+                   match_count::float AS score,
+                   ROW_NUMBER() OVER (ORDER BY match_count DESC, series_nm) AS rank
+            FROM candidates
+            ORDER BY match_count DESC, series_nm
             LIMIT $2
             """,
             asset_id,
             limit,
         )
-        return {"items": items, "source": "ct_cl_fallback"}
+        return {"items": items, "source": "genre_detail_fallback"}
 
 
 similar_service = SimilarService()
