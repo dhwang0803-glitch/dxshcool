@@ -7,31 +7,44 @@ class SimilarService(BaseService):
 
         asset_id는 full_asset_id 또는 series_nm 모두 허용.
         """
+        # Step 0: asset_id → series_nm 해석 (인덱스 직접 조회, vod full scan 회피)
+        series_nm = asset_id
+        try:
+            row = await self.query_one(
+                "SELECT series_nm FROM public.vod_series_embedding WHERE series_nm = $1",
+                asset_id,
+            )
+            if not row:
+                # full_asset_id로 들어온 경우 → vod에서 series_nm 조회
+                row = await self.query_one(
+                    "SELECT COALESCE(series_nm, asset_nm) AS series_nm "
+                    "FROM public.vod WHERE full_asset_id = $1 LIMIT 1",
+                    asset_id,
+                )
+            if row:
+                series_nm = row["series_nm"]
+        except Exception:
+            pass
+
         # Primary: vod_series_embedding cosine similarity (메타데이터 384D)
         try:
             items = await self.query(
                 """
-                WITH base AS (
-                    SELECT se.series_nm, se.embedding
-                    FROM public.vod_series_embedding se
-                    LEFT JOIN public.vod src
-                        ON COALESCE(src.series_nm, src.asset_nm) = se.series_nm
-                    WHERE src.full_asset_id = $1 OR se.series_nm = $1
-                    LIMIT 1
-                )
                 SELECT se2.representative_vod_id AS asset_id,
                        se2.series_nm AS title,
                        se2.ct_cl AS genre,
                        se2.poster_url,
                        1 - (se2.embedding <=> base.embedding) AS score,
                        ROW_NUMBER() OVER (ORDER BY se2.embedding <=> base.embedding) AS rank
-                FROM public.vod_series_embedding se2, base
-                WHERE se2.series_nm <> base.series_nm
+                FROM public.vod_series_embedding se2,
+                     public.vod_series_embedding base
+                WHERE base.series_nm = $1
+                  AND se2.series_nm <> $1
                   AND COALESCE(se2.poster_url, '') <> ''
                 ORDER BY se2.embedding <=> base.embedding
                 LIMIT $2
                 """,
-                asset_id,
+                series_nm,
                 limit,
             )
             if items:
@@ -47,7 +60,7 @@ class SimilarService(BaseService):
                 SELECT UNNEST(STRING_TO_ARRAY(v.genre_detail, ',')) AS tag,
                        v.ct_cl
                 FROM public.vod v
-                WHERE v.full_asset_id = $1 OR v.series_nm = $1
+                WHERE COALESCE(v.series_nm, v.asset_nm) = $1
                 LIMIT 1
             ),
             candidates AS (
@@ -60,7 +73,7 @@ class SimilarService(BaseService):
                 JOIN public.vod v2
                     ON COALESCE(v2.series_nm, v2.asset_nm) = se.series_nm
                 CROSS JOIN src_tags st
-                WHERE se.series_nm <> $1
+                WHERE se.series_nm <> $1::text
                   AND se.ct_cl = st.ct_cl
                   AND v2.genre_detail LIKE '%' || TRIM(st.tag) || '%'
                   AND COALESCE(se.poster_url, '') <> ''
