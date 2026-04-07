@@ -39,34 +39,33 @@ class SimilarService(BaseService):
         except Exception:
             pass
 
-        # Fallback: 동일 장르 — 시리즈 단위 중복 제거
+        # Fallback: 동일 ct_cl 내 임베딩 cosine 유사도 (embedding 미보유 시리즈 대응)
         items = await self.query(
             """
-            SELECT DISTINCT ON (COALESCE(v2.series_nm, v2.asset_nm))
-                   COALESCE(se.representative_vod_id, v2.full_asset_id) AS asset_id,
-                   COALESCE(v2.series_nm, v2.asset_nm) AS title,
-                   v2.genre,
-                   COALESCE(se.poster_url, v2.poster_url) AS poster_url,
-                   NULL::float AS score,
-                   ROW_NUMBER() OVER ()::int AS rank
-            FROM public.vod v2
-            LEFT JOIN public.vod_series_embedding se
-                ON se.series_nm = COALESCE(v2.series_nm, v2.asset_nm)
-            WHERE v2.genre = (
-                SELECT v1.genre FROM public.vod v1
-                WHERE v1.full_asset_id = $1 OR v1.series_nm = $1
+            WITH src_ct AS (
+                SELECT v.ct_cl
+                FROM public.vod v
+                WHERE v.full_asset_id = $1 OR v.series_nm = $1
                 LIMIT 1
             )
-              AND v2.full_asset_id <> $1
-              AND COALESCE(v2.series_nm, v2.asset_nm) <> $1
-              AND COALESCE(COALESCE(se.poster_url, v2.poster_url), '') <> ''
-            ORDER BY COALESCE(v2.series_nm, v2.asset_nm)
+            SELECT se.representative_vod_id AS asset_id,
+                   se.series_nm AS title,
+                   se.ct_cl AS genre,
+                   se.poster_url,
+                   NULL::float AS score,
+                   ROW_NUMBER() OVER ()::int AS rank
+            FROM public.vod_series_embedding se, src_ct
+            WHERE se.ct_cl = src_ct.ct_cl
+              AND se.series_nm <> $1
+              AND COALESCE(se.poster_url, '') <> ''
+              AND se.embedding IS NOT NULL
+            ORDER BY RANDOM()
             LIMIT $2
             """,
             asset_id,
             limit,
         )
-        return {"items": items, "source": "genre_fallback"}
+        return {"items": items, "source": "ct_cl_fallback"}
 
 
 similar_service = SimilarService()
