@@ -445,7 +445,11 @@ class Reranker(HybridBase):
                 ))
         log.info("스코어링 완료: %d rows", len(all_rows))
 
-        # ── Step 4: 배치 INSERT ──────────────────────────────────
+        # ── Step 4: 배치 INSERT (커넥션 재생성) ─────────────────
+        conn.close()
+        conn = self.get_conn()
+        log.info("DB 커넥션 재생성 완료 (INSERT용)")
+
         insert_batch = user_chunk_size * top_n
         total_inserted = self.batch_upsert(
             conn,
