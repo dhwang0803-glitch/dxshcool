@@ -179,6 +179,7 @@ class RecommendService(BaseService):
                 if group_key not in grouped:
                     grouped[group_key] = {
                         "sort_rank": rank,
+                        "tag_affinity": float(r["tag_affinity"] or 0),
                         "pattern_reason": _make_reason(category, tag_value, user_label, segment_id),
                         "vod_list": [],
                     }
