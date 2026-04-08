@@ -58,3 +58,15 @@ class PurchaseOptionsResponse(BaseModel):
     series_nm: str
     is_free: bool
     options: list[PurchaseOption]
+
+
+class SeriesDetailResponse(BaseModel):
+    series_nm: str
+    genre: str | None
+    rating: str | None
+    director: str | None
+    cast_lead: str | None
+    cast_guest: str | None
+    smry: str | None
+    poster_url: str | None
+    backdrop_url: str | None
