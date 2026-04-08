@@ -32,6 +32,7 @@ class SeriesProgressResponse(BaseModel):
 
 class ProgressUpdateRequest(BaseModel):
     completion_rate: int
+    immediate: bool = False
 
 
 class ProgressUpdateResponse(BaseModel):
