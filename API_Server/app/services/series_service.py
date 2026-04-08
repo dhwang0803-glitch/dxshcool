@@ -47,7 +47,7 @@ class SeriesService(BaseService):
         last = rows[0] if rows else None
         return {
             "series_nm": series_nm,
-            "last_episode": last["episode_title"] if last else None,
+            "last_episode": last["asset_nm"] if last else None,
             "last_completion_rate": last["completion_rate"] if last else None,
             "episodes": [
                 {
