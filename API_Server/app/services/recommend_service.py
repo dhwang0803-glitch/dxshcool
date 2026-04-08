@@ -14,7 +14,7 @@ _FALLBACK_TEMPLATES = {
     "genre_detail": "즐겨 보는 {value} 시리즈",
     "director": "{value} 감독 작품 모아보기",
     "actor_lead": "{value} 출연 시리즈 모아보기",
-    "actor_guest": "{value} 게스트 출연 프로그램 모아보기",
+    "actor_guest": "{value} 출연작 모아보기",
     "cold_genre_detail": "{user}님을 위한 {value} 추천",
 }
 

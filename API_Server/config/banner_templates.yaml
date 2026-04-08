@@ -19,7 +19,7 @@ templates:
     genre_detail: "즐겨 보는 {value} 시리즈"
     director: "{value} 감독 작품 모아보기"
     actor_lead: "{value} 출연 시리즈 모아보기"
-    actor_guest: "{value} 게스트 출연 프로그램 모아보기"
+    actor_guest: "{value} 출연작 모아보기"
     cold_genre_detail: "{user}님을 위한 {value} 추천"
 
   # segment 0 — 키즈/애니
@@ -33,7 +33,7 @@ templates:
     genre_detail: "재미 보장! {value} 추천작"
     director: "{value} 감독의 색다른 작품들"
     actor_lead: "{value} 출연 시리즈 몰아보기"
-    actor_guest: "{value} 게스트 출연 프로그램 몰아보기"
+    actor_guest: "{value} 출연작 몰아보기"
 
   # segment 4 — 메인스트림 드라마
   4:
