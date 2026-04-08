@@ -6,6 +6,7 @@ from app.models.series import (
     ProgressUpdateResponse,
     PurchaseCheckResponse,
     PurchaseOptionsResponse,
+    SeriesDetailResponse,
     SeriesProgressResponse,
 )
 from app.routers.auth import get_current_user
@@ -19,6 +20,15 @@ from app.services.exceptions import (
 )
 
 router = APIRouter()
+
+
+@router.get("/{series_nm}/detail", response_model=SeriesDetailResponse)
+async def series_detail(series_nm: str):
+    """시리즈 상세 메타데이터 (감독, 출연진, 줄거리 등)."""
+    data = await series_service.get_detail(series_nm)
+    if not data:
+        raise SERIES_NOT_FOUND()
+    return SeriesDetailResponse(**data)
 
 
 @router.get("/{series_nm}/episodes", response_model=EpisodesResponse)
