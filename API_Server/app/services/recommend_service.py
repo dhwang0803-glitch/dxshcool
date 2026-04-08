@@ -152,9 +152,14 @@ class RecommendService(BaseService):
                     f"""
                     SELECT tr.tag_category, tr.tag_value, tr.tag_rank,
                            tr.tag_affinity, tr.vod_id_fk, tr.vod_rank, tr.vod_score,
-                           v.series_nm, v.asset_nm, v.poster_url, v.ct_cl
+                           v.series_nm, v.asset_nm, v.poster_url, v.ct_cl,
+                           vt.confidence AS vod_confidence
                     FROM {tag_table} tr
                     JOIN public.vod v ON tr.vod_id_fk = v.full_asset_id
+                    LEFT JOIN public.vod_tag vt
+                         ON vt.vod_id_fk = tr.vod_id_fk
+                        AND vt.tag_category = tr.tag_category
+                        AND vt.tag_value = tr.tag_value
                     WHERE tr.user_id_fk = $1
                       AND (tr.tag_category IN ('genre_detail', 'director', 'actor_lead', 'actor_guest')
                            OR (tr.tag_category = 'cold_genre_detail' AND tr.tag_rank >= 4))
@@ -196,6 +201,7 @@ class RecommendService(BaseService):
                     "asset_nm": r["asset_nm"] if is_actor_variety else nm,
                     "poster_url": r["poster_url"],
                     "score": r["vod_score"],
+                    "confidence": float(r["vod_confidence"] or 0),
                 })
 
             patterns = []
