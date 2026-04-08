@@ -11,11 +11,11 @@ from app.services.rec_sentence_service import get_rec_sentences, get_segment_id
 _CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "banner_templates.yaml"
 
 _FALLBACK_TEMPLATES = {
-    "genre_detail": "{value} 장르를 즐겨 보셨어요",
-    "director": "{value} 감독 작품을 즐겨 보셨어요",
-    "actor_lead": "{value} 출연작을 자주 보셨어요",
-    "actor_guest": "{value} 님이 출연한 프로그램을 모아봤어요",
-    "cold_genre_detail": "{user}님이 좋아할만한 {value} 시리즈",
+    "genre_detail": "즐겨 보는 {value} 시리즈",
+    "director": "{value} 감독 작품 모아보기",
+    "actor_lead": "{value} 출연 시리즈 모아보기",
+    "actor_guest": "{value} 게스트 출연 프로그램 모아보기",
+    "cold_genre_detail": "{user}님을 위한 {value} 추천",
 }
 
 
