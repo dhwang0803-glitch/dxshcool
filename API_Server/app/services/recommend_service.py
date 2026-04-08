@@ -52,7 +52,7 @@ class RecommendService(BaseService):
                     top_vods.append({
                         "vod_id": row["vod_id_fk"],
                         "series_id": sid,
-                        "asset_nm": row["asset_nm"],
+                        "asset_nm": sid,
                         "poster_url": row["poster_url"],
                         "backdrop_url": row["backdrop_url"],
                     })
@@ -86,7 +86,7 @@ class RecommendService(BaseService):
                             top_vods.append({
                                 "vod_id": row["vod_id_fk"],
                                 "series_id": sid,
-                                "asset_nm": row["asset_nm"],
+                                "asset_nm": sid,
                                 "poster_url": row["poster_url"],
                                 "backdrop_url": row["backdrop_url"],
                             })
@@ -144,7 +144,7 @@ class RecommendService(BaseService):
 
                 grouped[group_key]["vod_list"].append({
                     "series_id": r["series_nm"] or r["asset_nm"],
-                    "asset_nm": r["asset_nm"],
+                    "asset_nm": r["asset_nm"] if is_actor_variety else nm,
                     "poster_url": r["poster_url"],
                     "score": r["vod_score"],
                 })
@@ -191,7 +191,7 @@ class RecommendService(BaseService):
                     seen_series.add(sid)
                     vod_list.append({
                         "series_id": sid,
-                        "asset_nm": r["asset_nm"],
+                        "asset_nm": sid,
                         "poster_url": r["poster_url"],
                         "score": round(float(r["score"]), 4),
                         "source_title": r["source_title"],
@@ -248,7 +248,7 @@ class RecommendService(BaseService):
                     {
                         "vod_id": r["vod_id_fk"],
                         "series_id": r["series_nm"] or r["asset_nm"],
-                        "asset_nm": r["asset_nm"],
+                        "asset_nm": r["series_nm"] or r["asset_nm"],
                         "poster_url": r["poster_url"],
                         "backdrop_url": r["backdrop_url"],
                     }
@@ -260,7 +260,7 @@ class RecommendService(BaseService):
                     "vod_list": [
                         {
                             "series_id": r["series_nm"] or r["asset_nm"],
-                            "asset_nm": r["asset_nm"],
+                            "asset_nm": r["series_nm"] or r["asset_nm"],
                             "poster_url": r["poster_url"],
                             "score": r["score"],
                         }
