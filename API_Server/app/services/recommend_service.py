@@ -19,11 +19,16 @@ _FALLBACK_TEMPLATES = {
 }
 
 
+_FALLBACK_VALUE_OVERRIDES = {
+    "genre_detail": {"드라마틱": "드라마틱한 영화"},
+}
+
+
 def _load_banner_config() -> dict:
     try:
         with open(_CONFIG_PATH, encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
-    except FileNotFoundError:
+    except Exception:
         return {}
 
 
@@ -32,7 +37,7 @@ _BANNER_CFG = _load_banner_config()
 
 def _override_value(tag_category: str, tag_value: str) -> str:
     """혼동 방지 값 변환 (e.g. 드라마틱 → 드라마틱한 영화)."""
-    overrides = _BANNER_CFG.get("value_overrides", {}).get(tag_category, {})
+    overrides = _BANNER_CFG.get("value_overrides", _FALLBACK_VALUE_OVERRIDES).get(tag_category, {})
     return overrides.get(tag_value, tag_value)
 
 
