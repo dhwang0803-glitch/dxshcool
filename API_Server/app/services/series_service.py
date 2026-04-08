@@ -192,5 +192,5 @@ get_series_progress = series_service.get_progress
 update_episode_progress = series_service.update_progress
 check_purchase = series_service.check_purchase
 resolve_vod_id = series_service.resolve_vod_id
-get_series_detail = series_service.get_detail
+get_detail = series_service.get_detail
 get_purchase_options = series_service.get_purchase_options
