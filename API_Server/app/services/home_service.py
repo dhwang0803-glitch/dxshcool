@@ -150,7 +150,7 @@ class HomeService(BaseService):
                     }
                 grouped[rank_key]["vod_list"].append({
                     "series_nm": nm,
-                    "asset_nm": r["asset_nm"],
+                    "asset_nm": nm,
                     "poster_url": r["poster_url"],
                 })
             sections.extend(grouped[k] for k in sorted(grouped.keys()))
@@ -187,7 +187,7 @@ class HomeService(BaseService):
                     if len(genre_groups[genre]) < 10:
                         genre_groups[genre].append({
                             "series_nm": nm,
-                            "asset_nm": r["asset_nm"],
+                            "asset_nm": nm,
                             "poster_url": r["poster_url"],
                             "score": round(float(r["score"]), 4),
                             "source_title": r["source_title"],
@@ -284,7 +284,7 @@ class HomeService(BaseService):
                     top10_seen.add(nm)
                     top10_vods.append({
                         "series_nm": nm,
-                        "asset_nm": r["asset_nm"],
+                        "asset_nm": nm,
                         "poster_url": r["poster_url"],
                         "vod_score": r["vod_score"],
                         "rec_sentence": r["rec_sentence"],
@@ -306,6 +306,7 @@ class HomeService(BaseService):
                         tpl = _REC_REASON_BY_CATEGORY.get(cat)
                         v["rec_reason"] = tpl.format(value=val) if tpl and val else "취향 기반 추천"
                         v["source_title"] = None
+                        v["asset_nm"] = nm
                         top10_vods.append(v)
                         if len(top10_vods) >= 10:
                             break

@@ -159,15 +159,16 @@ def save_checkpoint(ckpt: dict) -> None:
 # VOD 조회
 # ---------------------------------------------------------------------------
 
-def fetch_all_vods() -> list:
+def fetch_all_vods(rag_source: str | None = None) -> list:
     """
-    전체 VOD 메타데이터 조회.
-    is_active 컬럼이 없으므로 WHERE 조건 없이 전체 조회.
+    VOD 메타데이터 조회.
+    rag_source가 지정되면 해당 rag_source만 필터링.
     """
-    logger.info("VOD 메타데이터 로딩 중...")
+    label = f"rag_source={rag_source}" if rag_source else "전체"
+    logger.info(f"VOD 메타데이터 로딩 중... ({label})")
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
+            sql = """
                 SELECT
                     full_asset_id,
                     asset_nm,
@@ -180,10 +181,15 @@ def fetch_all_vods() -> list:
                     smry,
                     release_date
                 FROM vod
-                ORDER BY full_asset_id
-            """)
+            """
+            params: tuple = ()
+            if rag_source:
+                sql += " WHERE rag_source = %s"
+                params = (rag_source,)
+            sql += " ORDER BY full_asset_id"
+            cur.execute(sql, params)
             rows = fetch_all_as_dict(cur)
-    logger.info(f"  전체 VOD: {len(rows):,}건 로드 완료")
+    logger.info(f"  VOD: {len(rows):,}건 로드 완료 ({label})")
     return rows
 
 
@@ -191,7 +197,7 @@ def fetch_all_vods() -> list:
 # 메인 파이프라인
 # ---------------------------------------------------------------------------
 
-def run(output_path: str, upload_db: bool = False) -> None:
+def run(output_path: str, upload_db: bool = False, rag_source: str | None = None) -> None:
     logger.info("=== VOD 메타데이터 임베딩 → Parquet 파이프라인 시작 (v2: 에피소드별 개별 임베딩) ===")
 
     # 1. 체크포인트 로드
@@ -220,8 +226,8 @@ def run(output_path: str, upload_db: bool = False) -> None:
     logger.info(f"임베딩 모델 로드: {config.EMBEDDING_MODEL}")
     model = SentenceTransformer(config.EMBEDDING_MODEL)
 
-    # 3. VOD 전체 조회 (시리즈 그룹핑 없음 — 에피소드별 개별 처리)
-    all_vods = fetch_all_vods()
+    # 3. VOD 조회 (시리즈 그룹핑 없음 — 에피소드별 개별 처리)
+    all_vods = fetch_all_vods(rag_source=rag_source)
     total_vods = len(all_vods)
     logger.info(f"  전체 VOD: {total_vods:,}건 (에피소드별 개별 임베딩)")
 
@@ -329,6 +335,11 @@ if __name__ == "__main__":
         metavar="PARQUET_PATH",
         help="기존 parquet 파일을 DB에 직접 적재 (--upload-db 필요, 임베딩 재계산 생략)",
     )
+    parser.add_argument(
+        "--rag-source",
+        default=None,
+        help="특정 rag_source만 필터링 (예: TMDB_NEW_2025)",
+    )
     args = parser.parse_args()
 
     if args.from_parquet:
@@ -337,4 +348,4 @@ if __name__ == "__main__":
             sys.exit(1)
         upload_from_parquet(args.from_parquet)
     else:
-        run(args.output, upload_db=args.upload_db)
+        run(args.output, upload_db=args.upload_db, rag_source=args.rag_source)
