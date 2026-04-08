@@ -136,7 +136,7 @@ class RecommendService(BaseService):
                     }
                     seen_per_group[group_key] = set()
 
-                is_actor_variety = (category in ("actor_guest", "director") and ct_cl == "TV 연예/오락")
+                is_actor_variety = (category == "actor_guest" and ct_cl == "TV 연예/오락")
                 if not is_actor_variety:
                     if nm in seen_per_group[group_key]:
                         continue

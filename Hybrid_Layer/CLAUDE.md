@@ -212,11 +212,11 @@ reranker는 **hybrid_score 기준 재정렬만** 수행한다.
 #### 에피소드 단위 유지 조건 (중복제거 제외)
 
 ```python
-is_episode_level = (tag_category in ("actor_guest", "director") and ct_cl == "TV 연예/오락")
+is_episode_level = (tag_category == "actor_guest" and ct_cl == "TV 연예/오락")
 ```
 
 **적용 이유:**
-특정 배우나 감독이 홍보 등 목적으로 여러 TV 연예/오락 프로그램에 게스트(cast_guest)로
+특정 배우가 홍보 등 목적으로 여러 TV 연예/오락 프로그램에 게스트(cast_guest)로
 출연한 경우, 해당 인물의 팬인 유저에게 "영화배우A가 출연한 예능 몰아보기" 형태의
 배너를 제공하기 위해 에피소드 단위 추천을 유지한다.
 
@@ -224,10 +224,12 @@ is_episode_level = (tag_category in ("actor_guest", "director") and ct_cl == "TV
 
 - `actor_lead`(주연)는 에피소드 단위 **제외** → 시리즈 중복제거 적용
   - 이유: 예능 레귤러 출연자의 에피소드 10개가 배너를 독점하는 것 방지
+- `director`는 에피소드 단위 **제외** → 시리즈 중복제거 적용
+  - 이유: 감독은 시리즈 전체를 연출하므로 에피소드 핀포인트가 아닌 시리즈 단위가 적합
 
 #### 시리즈 단위 중복제거 (그 외 모든 경우)
 
-- TV 연예/오락이라도 `tag_category`가 `actor_guest`/`director`가 아니면 시리즈 중복제거
+- TV 연예/오락이라도 `tag_category`가 `actor_guest`가 아니면 시리즈 중복제거
   - 이유: 같은 예능의 에피소드 10개가 하나의 배너를 독점하면 광고 공간 낭비
 - 드라마, 영화, 다큐 등 모든 장르 — 시리즈당 1건만
 

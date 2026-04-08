@@ -208,7 +208,7 @@ class ShelfBuilder(HybridBase):
                     for vod_id, ct_cl, series_nm in candidate_vods:
                         if vod_id in user_watched:
                             continue
-                        is_episode_level = (cat in ("actor_guest", "director") and ct_cl == "TV 연예/오락")
+                        is_episode_level = (cat == "actor_guest" and ct_cl == "TV 연예/오락")
                         if not is_episode_level:
                             if series_nm in seen_series:
                                 continue
