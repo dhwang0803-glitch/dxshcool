@@ -81,9 +81,9 @@ class ShelfBuilder(HybridBase):
             cur.execute(
                 """
                 SELECT t.tag_category, t.tag_value, t.vod_id_fk,
-                       v.ct_cl, v.series_nm
+                       v.ct_cl, v.series_nm, t.confidence
                 FROM (
-                    SELECT vt.tag_category, vt.tag_value, vt.vod_id_fk,
+                    SELECT vt.tag_category, vt.tag_value, vt.vod_id_fk, vt.confidence,
                            ROW_NUMBER() OVER (
                                PARTITION BY vt.tag_category, vt.tag_value
                                ORDER BY vt.confidence DESC
@@ -101,9 +101,9 @@ class ShelfBuilder(HybridBase):
                 """,
                 (tag_cats, tag_vals, _TAG_VOD_BUFFER),
             )
-            for cat, val, vod_id, ct_cl, series_nm in cur.fetchall():
+            for cat, val, vod_id, ct_cl, series_nm, confidence in cur.fetchall():
                 tag_vod_cache.setdefault((cat, val), []).append(
-                    (vod_id, ct_cl or "", series_nm or vod_id)
+                    (vod_id, ct_cl or "", series_nm or vod_id, float(confidence or 0))
                 )
         return tag_vod_cache
 
@@ -205,7 +205,7 @@ class ShelfBuilder(HybridBase):
                     candidate_vods = tag_vod_cache.get((cat, val), [])
                     tag_vods = []
                     seen_series: set = set()
-                    for vod_id, ct_cl, series_nm in candidate_vods:
+                    for vod_id, ct_cl, series_nm, confidence in candidate_vods:
                         if vod_id in user_watched:
                             continue
                         is_episode_level = (cat == "actor_guest" and ct_cl == "TV 연예/오락")
@@ -213,7 +213,7 @@ class ShelfBuilder(HybridBase):
                             if series_nm in seen_series:
                                 continue
                             seen_series.add(series_nm)
-                        tag_vods.append(vod_id)
+                        tag_vods.append((vod_id, confidence))
                         if len(tag_vods) >= vods_per_tag:
                             break
 
@@ -223,11 +223,10 @@ class ShelfBuilder(HybridBase):
                     assigned_rank += 1
                     filled += 1
                     user_assigned_tags.add((cat, val))
-                    vod_score = min(round(aff, 6), 1.0)
-                    for vod_idx, vod_id in enumerate(tag_vods, 1):
+                    for vod_idx, (vod_id, confidence) in enumerate(tag_vods, 1):
                         all_rows.append((
                             user_id, cat, val, assigned_rank, round(aff, 6),
-                            vod_id, vod_idx, vod_score,
+                            vod_id, vod_idx, round(confidence, 6),
                         ))
 
             # Cold start fallback
@@ -245,22 +244,22 @@ class ShelfBuilder(HybridBase):
                         candidate_vods = tag_vod_cache.get(("genre_detail", tag_val), [])
                         tag_vods = []
                         seen_series = set()
-                        for vod_id, _ct_cl, series_nm in candidate_vods:
+                        for vod_id, _ct_cl, series_nm, confidence in candidate_vods:
                             if vod_id in user_watched:
                                 continue
                             if series_nm in seen_series:
                                 continue
                             seen_series.add(series_nm)
-                            tag_vods.append(vod_id)
+                            tag_vods.append((vod_id, confidence))
                             if len(tag_vods) >= vods_per_tag:
                                 break
                         if len(tag_vods) < vods_per_tag:
                             continue
                         cold_rank += 1
-                        for vod_idx, vod_id in enumerate(tag_vods, 1):
+                        for vod_idx, (vod_id, confidence) in enumerate(tag_vods, 1):
                             all_rows.append((
                                 user_id, "cold_genre_detail", tag_val, cold_rank, 0.0,
-                                vod_id, vod_idx, 0.0,
+                                vod_id, vod_idx, round(confidence, 6),
                             ))
 
         return all_rows
