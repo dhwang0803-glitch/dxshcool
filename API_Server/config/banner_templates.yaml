@@ -1,0 +1,42 @@
+# 스마트 추천 페이지 배너 문구 설정
+# recommend_service.py에서 로드하여 세그먼트별 개인화된 배너 제목 생성
+#
+# 플레이스홀더:
+#   {value}  — 태그 값 (value_overrides 적용 후)
+#   {user}   — 유저 라벨 (ID 앞 5자)
+
+# ── 혼동 방지 값 변환 ──────────────────────────────────────
+# genre_detail 중 사용자에게 모호한 용어를 명확하게 변환
+value_overrides:
+  genre_detail:
+    "드라마틱": "드라마틱한 영화"
+
+# ── 세그먼트별 배너 문구 ───────────────────────────────────
+# segment_id가 없거나 해당 세그먼트에 정의가 없으면 default 사용
+# 카테고리별 일부만 오버라이드 가능 (없는 카테고리는 default 폴백)
+templates:
+  default:
+    genre_detail: "{value} 장르를 즐겨 보셨어요"
+    director: "{value} 감독 작품을 즐겨 보셨어요"
+    actor_lead: "{value} 출연작을 자주 보셨어요"
+    actor_guest: "{value} 님이 출연한 프로그램을 모아봤어요"
+    cold_genre_detail: "{user}님이 좋아할만한 {value} 시리즈"
+
+  # segment 0 — 키즈/애니
+  0:
+    genre_detail: "우리 아이가 좋아할 {value}"
+    actor_lead: "{value} 출연 작품을 모아봤어요"
+    cold_genre_detail: "{user}님의 아이를 위한 {value} 추천"
+
+  # segment 1 — 예능/버라이어티
+  1:
+    genre_detail: "재미 보장! {value} 추천작"
+    director: "{value} 감독의 색다른 작품들"
+    actor_lead: "{value} 출연작 몰아보기"
+    actor_guest: "{value} 님이 출연한 프로그램 모음"
+
+  # segment 4 — 메인스트림 드라마
+  4:
+    genre_detail: "몰입감 넘치는 {value} 시리즈"
+    director: "{value} 감독의 세계에 빠져보세요"
+    actor_lead: "{value} 출연작, 놓치셨다면 지금!"
