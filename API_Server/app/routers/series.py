@@ -74,10 +74,21 @@ async def update_progress(
     if body.completion_rate < 0 or body.completion_rate > 100:
         raise INVALID_COMPLETION_RATE()
 
-    # vod_id 조회 (버퍼에 넣기 위해 필요)
+    # vod_id 조회
     vod_id = await series_service.resolve_vod_id(series_nm, asset_nm)
     if not vod_id:
         raise EPISODE_NOT_FOUND()
+
+    if body.immediate:
+        # 페이지 이탈 시: 버퍼 건너뛰고 즉시 DB 반영
+        result = await series_service.update_episode_progress(
+            current_user, series_nm, asset_nm, body.completion_rate
+        )
+        return ProgressUpdateResponse(
+            episode_title=asset_nm,
+            completion_rate=body.completion_rate,
+            watched_at=result["watched_at"] if result else None,
+        )
 
     await buffer_progress(current_user, vod_id, series_nm, body.completion_rate)
 
