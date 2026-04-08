@@ -1,20 +1,55 @@
 """개인화 추천 서비스 — hybrid_recommendation + tag_recommendation 기반."""
 
+from pathlib import Path
+
+import yaml
+
 from app.services.base_service import BaseService
 from app.services.rec_sentence_service import get_rec_sentences, get_segment_id
 
-_REASON_TEMPLATES = {
+# ── 배너 문구 설정 (config/banner_templates.yaml) ─────────
+_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "banner_templates.yaml"
+
+_FALLBACK_TEMPLATES = {
     "genre_detail": "{value} 장르를 즐겨 보셨어요",
     "director": "{value} 감독 작품을 즐겨 보셨어요",
-    "actor_lead": "{value} 배우 출연작을 자주 보셨어요",
-    "actor_guest": "{value} 배우가 출연한 프로그램을 모아봤어요",
+    "actor_lead": "{value} 출연작을 자주 보셨어요",
+    "actor_guest": "{value} 님이 출연한 프로그램을 모아봤어요",
     "cold_genre_detail": "{user}님이 좋아할만한 {value} 시리즈",
 }
 
 
-def _make_reason(tag_category: str, tag_value: str, user_label: str = "") -> str:
-    tpl = _REASON_TEMPLATES.get(tag_category, "{value} 관련 콘텐츠를 즐겨 보셨어요")
-    return tpl.format(value=tag_value, user=user_label)
+def _load_banner_config() -> dict:
+    try:
+        with open(_CONFIG_PATH, encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        return {}
+
+
+_BANNER_CFG = _load_banner_config()
+
+
+def _override_value(tag_category: str, tag_value: str) -> str:
+    """혼동 방지 값 변환 (e.g. 드라마틱 → 드라마틱한 영화)."""
+    overrides = _BANNER_CFG.get("value_overrides", {}).get(tag_category, {})
+    return overrides.get(tag_value, tag_value)
+
+
+def _make_reason(
+    tag_category: str, tag_value: str,
+    user_label: str = "", segment_id: int | None = None,
+) -> str:
+    """세그먼트별 개인화 배너 문구 생성."""
+    templates = _BANNER_CFG.get("templates", {})
+    seg_tpl = templates.get(segment_id, {}) if segment_id is not None else {}
+    default_tpl = templates.get("default", _FALLBACK_TEMPLATES)
+
+    tpl = seg_tpl.get(tag_category) or default_tpl.get(
+        tag_category, "{value} 관련 콘텐츠를 즐겨 보셨어요"
+    )
+    display_value = _override_value(tag_category, tag_value)
+    return tpl.format(value=display_value, user=user_label)
 
 
 class RecommendService(BaseService):
@@ -22,6 +57,14 @@ class RecommendService(BaseService):
         is_test = await self.is_test_user(user_id)
         hybrid_table = "serving.hybrid_recommendation_test" if is_test else "serving.hybrid_recommendation"
         tag_table = "serving.tag_recommendation_test" if is_test else "serving.tag_recommendation"
+
+        # segment_id 조회 (배너 문구 개인화 + rec_sentence 조회용)
+        segment_id = None
+        try:
+            async with await self.acquire() as conn:
+                segment_id = await get_segment_id(conn, user_id)
+        except Exception:
+            pass
 
         # 1) top_vods: hybrid score 내림차순 top 10 (시리즈 중복 제거)
         top_vods = []
@@ -131,7 +174,7 @@ class RecommendService(BaseService):
                 if group_key not in grouped:
                     grouped[group_key] = {
                         "sort_rank": rank,
-                        "pattern_reason": _make_reason(category, tag_value, user_label),
+                        "pattern_reason": _make_reason(category, tag_value, user_label, segment_id),
                         "vod_list": [],
                     }
                     seen_per_group[group_key] = set()
@@ -216,7 +259,8 @@ class RecommendService(BaseService):
             if top_vods:
                 try:
                     async with await self.acquire() as conn:
-                        segment_id = await get_segment_id(conn, user_id)
+                        if segment_id is None:
+                            segment_id = await get_segment_id(conn, user_id)
                         vod_ids = [v["vod_id"] for v in top_vods]
                         rec_map = await get_rec_sentences(conn, vod_ids, segment_id)
                     for v in top_vods:
