@@ -16,11 +16,13 @@ class PatternVodItem(BaseModel):
     asset_nm: str
     poster_url: str | None
     score: float | None
+    confidence: float | None = None
     source_title: str | None = None
 
 
 class PatternItem(BaseModel):
     pattern_rank: int
+    tag_affinity: float | None = None
     pattern_reason: str
     vod_list: list[PatternVodItem]
 
