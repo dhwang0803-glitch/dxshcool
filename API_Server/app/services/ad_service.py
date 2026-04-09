@@ -12,7 +12,7 @@ log = logging.getLogger(__name__)
 # OCI Object Storage base URL (광고 GIF 서빙용)
 _OCI_REGION = os.getenv("OCI_REGION")
 _OCI_NAMESPACE = os.getenv("OCI_NAMESPACE")
-_OCI_AD_BUCKET = os.getenv("OCI_AD_BUCKET", "vod-ad-gifs")
+_OCI_BUCKET = os.getenv("OCI_BUCKET_NAME")
 
 
 def _to_oci_url(relative_path: str | None) -> str | None:
@@ -21,13 +21,13 @@ def _to_oci_url(relative_path: str | None) -> str | None:
         return None
     if relative_path.startswith("http"):
         return relative_path
-    if not _OCI_REGION or not _OCI_NAMESPACE:
+    if not _OCI_REGION or not _OCI_NAMESPACE or not _OCI_BUCKET:
         log.warning("OCI_REGION/OCI_NAMESPACE 미설정 — ad_image_url 그대로 반환")
         return relative_path
     object_name = quote(relative_path, safe="/")
     return (
         f"https://objectstorage.{_OCI_REGION}.oraclecloud.com"
-        f"/n/{_OCI_NAMESPACE}/b/{_OCI_AD_BUCKET}/o/{object_name}"
+        f"/n/{_OCI_NAMESPACE}/b/{_OCI_BUCKET}/o/{object_name}"
     )
 
 
