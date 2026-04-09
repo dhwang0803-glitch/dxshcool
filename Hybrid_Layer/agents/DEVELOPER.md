@@ -202,8 +202,9 @@ DB 왕복 계획:
 7. test_mode: tag_recommendation_test 적재
 
 시리즈 중복제거 기준:
-  is_episode_level = (cat in ("actor_guest", "director") and ct_cl == "TV 연예/오락")
+  is_episode_level = (cat == "actor_guest" and ct_cl == "TV 연예/오락")
   is_episode_level이면 에피소드 단위 유지 (중복제거 제외)
+  director는 시리즈 전체를 연출하므로 항상 시리즈 기준 중복제거
   그 외 모든 경우 → series_nm 기준 중복제거
 ```
 

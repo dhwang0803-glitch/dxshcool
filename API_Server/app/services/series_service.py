@@ -47,7 +47,7 @@ class SeriesService(BaseService):
         last = rows[0] if rows else None
         return {
             "series_nm": series_nm,
-            "last_episode": last["episode_title"] if last else None,
+            "last_episode": last["asset_nm"] if last else None,
             "last_completion_rate": last["completion_rate"] if last else None,
             "episodes": [
                 {
@@ -145,6 +145,22 @@ class SeriesService(BaseService):
         )
         return row["full_asset_id"] if row else None
 
+    async def get_detail(self, series_nm: str) -> dict | None:
+        """시리즈 상세 메타데이터 (대표 1건)."""
+        row = await self.query_one(
+            """
+            SELECT series_nm, genre, rating, director, cast_lead, cast_guest,
+                   smry, poster_url, backdrop_url
+            FROM public.vod
+            WHERE series_nm = $1
+            LIMIT 1
+            """,
+            series_nm,
+        )
+        if not row:
+            return None
+        return dict(row)
+
     async def get_purchase_options(self, series_nm: str) -> dict:
         """구매 옵션 — FOD 시리즈는 무료."""
         row = await self.query_one(
@@ -176,4 +192,5 @@ get_series_progress = series_service.get_progress
 update_episode_progress = series_service.update_progress
 check_purchase = series_service.check_purchase
 resolve_vod_id = series_service.resolve_vod_id
+get_detail = series_service.get_detail
 get_purchase_options = series_service.get_purchase_options

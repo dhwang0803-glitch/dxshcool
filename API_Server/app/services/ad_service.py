@@ -2,9 +2,33 @@
 
 import json
 import logging
+import os
+from urllib.parse import quote
+
 from app.services.db import get_pool
 
 log = logging.getLogger(__name__)
+
+# OCI Object Storage base URL (광고 GIF 서빙용)
+_OCI_REGION = os.getenv("OCI_REGION")
+_OCI_NAMESPACE = os.getenv("OCI_NAMESPACE")
+_OCI_BUCKET = os.getenv("OCI_BUCKET_NAME")
+
+
+def _to_oci_url(relative_path: str | None) -> str | None:
+    """상대경로(ad_gifs/xxx.gif)를 OCI 전체 URL로 변환."""
+    if not relative_path:
+        return None
+    if relative_path.startswith("http"):
+        return relative_path
+    if not _OCI_REGION or not _OCI_NAMESPACE or not _OCI_BUCKET:
+        log.warning("OCI_REGION/OCI_NAMESPACE 미설정 — ad_image_url 그대로 반환")
+        return relative_path
+    object_name = quote(relative_path, safe="/")
+    return (
+        f"https://objectstorage.{_OCI_REGION}.oraclecloud.com"
+        f"/n/{_OCI_NAMESPACE}/b/{_OCI_BUCKET}/o/{object_name}"
+    )
 
 
 async def _get_nearest_schedule(pool, product_name: str) -> dict | None:
@@ -70,7 +94,7 @@ async def get_ads_for_vod(vod_id: str, time_sec: float) -> list[dict]:
             "ad_category": r["ad_category"],
             "signal_source": r["signal_source"],
             "score": float(r["score"]),
-            "ad_image_url": r["ad_image_url"],
+            "ad_image_url": _to_oci_url(r["ad_image_url"]),
             "product_name": r["product_name"],
             "channel": r["channel"],
         }

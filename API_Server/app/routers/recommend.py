@@ -25,6 +25,7 @@ async def recommend(
     patterns = [
         PatternItem(
             pattern_rank=p["pattern_rank"],
+            tag_affinity=p.get("tag_affinity"),
             pattern_reason=p["pattern_reason"],
             vod_list=[PatternVodItem(**v) for v in p["vod_list"]],
         )

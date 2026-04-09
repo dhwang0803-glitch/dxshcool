@@ -3,50 +3,96 @@ from app.services.base_service import BaseService
 
 class SimilarService(BaseService):
     async def get_similar_vods(self, asset_id: str, limit: int = 10) -> dict:
-        # Primary: serving.vod_recommendation (CONTENT_BASED via source_vod_id)
+        """유사 콘텐츠 조회 — vod_series_embedding 384D cosine 유사도 기반.
+
+        asset_id는 full_asset_id 또는 series_nm 모두 허용.
+        """
+        # Step 0: asset_id → series_nm 해석 (인덱스 직접 조회, vod full scan 회피)
+        series_nm = asset_id
         try:
-            items = await self.query(
-                """
-                SELECT r.vod_id_fk AS asset_id, r.rank, r.score,
-                       v.asset_nm AS title, v.genre, v.poster_url
-                FROM serving.vod_recommendation r
-                JOIN public.vod v ON r.vod_id_fk = v.full_asset_id
-                WHERE r.source_vod_id = (
-                    SELECT se.representative_vod_id
-                    FROM public.vod_series_embedding se
-                    JOIN public.vod src ON COALESCE(src.series_nm, src.asset_nm) = se.series_nm
-                    WHERE src.full_asset_id = $1
-                    LIMIT 1
-                )
-                  AND r.recommendation_type IN ('VISUAL_SIMILARITY', 'CONTENT_BASED')
-                  AND (r.expires_at IS NULL OR r.expires_at > NOW())
-                ORDER BY r.rank
-                LIMIT $2
-                """,
+            row = await self.query_one(
+                "SELECT series_nm FROM public.vod_series_embedding WHERE series_nm = $1",
                 asset_id,
-                limit,
             )
-            if items:
-                return {"items": items, "source": "vector_similarity"}
+            if not row:
+                # full_asset_id로 들어온 경우 → vod에서 series_nm 조회
+                row = await self.query_one(
+                    "SELECT COALESCE(series_nm, asset_nm) AS series_nm "
+                    "FROM public.vod WHERE full_asset_id = $1 LIMIT 1",
+                    asset_id,
+                )
+            if row:
+                series_nm = row["series_nm"]
         except Exception:
             pass
 
-        # Fallback: 동일 장르
+        # Primary: vod_series_embedding cosine similarity (메타데이터 384D)
+        try:
+            items = await self.query(
+                """
+                SELECT se2.representative_vod_id AS asset_id,
+                       se2.series_nm AS title,
+                       se2.ct_cl AS genre,
+                       se2.poster_url,
+                       1 - (se2.embedding <=> base.embedding) AS score,
+                       ROW_NUMBER() OVER (ORDER BY se2.embedding <=> base.embedding) AS rank
+                FROM public.vod_series_embedding se2,
+                     public.vod_series_embedding base
+                WHERE base.series_nm = $1
+                  AND se2.series_nm <> $1
+                  AND COALESCE(se2.poster_url, '') <> ''
+                ORDER BY se2.embedding <=> base.embedding
+                LIMIT $2
+                """,
+                series_nm,
+                limit,
+            )
+            if items:
+                return {"items": items, "source": "meta_embedding"}
+        except Exception:
+            pass
+
+        # Fallback: 동일 genre_detail 기반 — 임베딩 미보유 시리즈 대응
+        # genre_detail 매칭 건수 우선, 동점 시 시리즈명 고정 순서
         items = await self.query(
             """
-            SELECT v.full_asset_id AS asset_id, v.asset_nm AS title,
-                   v.genre, v.poster_url,
-                   NULL::float AS score,
-                   ROW_NUMBER() OVER ()::int AS rank
-            FROM public.vod v
-            WHERE v.genre = (SELECT genre FROM public.vod WHERE full_asset_id = $1)
-              AND v.full_asset_id <> $1
+            WITH src_tags AS (
+                SELECT UNNEST(STRING_TO_ARRAY(v.genre_detail, ',')) AS tag,
+                       v.ct_cl
+                FROM public.vod v
+                WHERE COALESCE(v.series_nm, v.asset_nm) = $1
+                LIMIT 1
+            ),
+            candidates AS (
+                SELECT se.representative_vod_id,
+                       se.series_nm,
+                       se.ct_cl,
+                       se.poster_url,
+                       COUNT(st.tag) AS match_count
+                FROM public.vod_series_embedding se
+                JOIN public.vod v2
+                    ON COALESCE(v2.series_nm, v2.asset_nm) = se.series_nm
+                CROSS JOIN src_tags st
+                WHERE se.series_nm <> $1::text
+                  AND se.ct_cl = st.ct_cl
+                  AND v2.genre_detail LIKE '%' || TRIM(st.tag) || '%'
+                  AND COALESCE(se.poster_url, '') <> ''
+                GROUP BY se.representative_vod_id, se.series_nm, se.ct_cl, se.poster_url
+            )
+            SELECT representative_vod_id AS asset_id,
+                   series_nm AS title,
+                   ct_cl AS genre,
+                   poster_url,
+                   match_count::float AS score,
+                   ROW_NUMBER() OVER (ORDER BY match_count DESC, series_nm) AS rank
+            FROM candidates
+            ORDER BY match_count DESC, series_nm
             LIMIT $2
             """,
             asset_id,
             limit,
         )
-        return {"items": items, "source": "genre_fallback"}
+        return {"items": items, "source": "genre_detail_fallback"}
 
 
 similar_service = SimilarService()
