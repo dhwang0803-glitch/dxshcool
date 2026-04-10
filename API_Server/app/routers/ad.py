@@ -17,6 +17,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.models.ad import AdActionMessage, PlaybackUpdateMessage
 from app.services.ad_service import get_ads_for_vod
 from app.services.db import get_pool
+from app.services.notification_service import create_reservation_notification
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -146,6 +147,19 @@ async def _handle_action(user_id: str, action: AdActionMessage):
                     VALUES ($1, $2, $3, $4)
                     """,
                     user_id, channel_no, product_name, alert_at,
+                )
+                # 알림을 즉시 생성 (reservation_checker 30초 대기 없이)
+                await pool.execute(
+                    """
+                    UPDATE public.watch_reservation
+                    SET notified = TRUE
+                    WHERE user_id_fk = $1 AND program_name = $2
+                      AND alert_at = $3 AND notified = FALSE
+                    """,
+                    user_id, product_name, alert_at,
+                )
+                await create_reservation_notification(
+                    user_id, channel_no, product_name,
                 )
                 success = True
                 log.info("reserve_watch: user=%s product=%s ch=%d", user_id, product_name, channel_no)
