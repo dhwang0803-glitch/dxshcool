@@ -1,6 +1,21 @@
 """알림 서비스 — notifications 테이블 CRUD."""
 
+import os
+from urllib.parse import quote
+
 from app.services.base_service import BaseService
+
+# 제철장터 로고 OCI URL
+_OCI_REGION = os.getenv("OCI_REGION")
+_OCI_NAMESPACE = os.getenv("OCI_NAMESPACE")
+_OCI_BUCKET = os.getenv("OCI_BUCKET_NAME")
+
+SEASONAL_MARKET_LOGO: str | None = (
+    f"https://objectstorage.{_OCI_REGION}.oraclecloud.com"
+    f"/n/{_OCI_NAMESPACE}/b/{_OCI_BUCKET}/o/{quote('logos/seasonal_market.jpg', safe='')}"
+    if all((_OCI_REGION, _OCI_NAMESPACE, _OCI_BUCKET))
+    else None
+)
 
 
 class NotificationService(BaseService):
@@ -71,12 +86,13 @@ class NotificationService(BaseService):
         """시청예약 도래 시 알림 생성."""
         await self.execute(
             """
-            INSERT INTO public.notifications (user_id_fk, type, title, message)
-            VALUES ($1, 'reservation', $2, $3)
+            INSERT INTO public.notifications (user_id_fk, type, title, message, image_url)
+            VALUES ($1, 'reservation', $2, $3, $4)
             """,
             user_id,
             program_name,
             f"채널 {channel}번에서 {program_name}이(가) 곧 시작됩니다",
+            SEASONAL_MARKET_LOGO,
         )
 
 
