@@ -12,6 +12,7 @@ from app.models.reservation import (
 )
 from app.routers.auth import get_current_user
 from app.services.db import get_pool
+from app.services.notification_service import create_reservation_notification
 
 router = APIRouter()
 
@@ -36,6 +37,18 @@ async def create_reservation(
             body.program_name,
             body.alert_at,
         )
+        # 즉시 notified 처리 + 알림 생성 (reservation_checker 30초 대기 방지)
+        await conn.execute(
+            """
+            UPDATE public.watch_reservation
+            SET notified = TRUE
+            WHERE reservation_id = $1
+            """,
+            row["reservation_id"],
+        )
+    await create_reservation_notification(
+        current_user, body.channel, body.program_name,
+    )
     return ReservationResponse(**dict(row))
 
 
