@@ -158,8 +158,11 @@ async def _handle_action(user_id: str, action: AdActionMessage):
                     """,
                     user_id, product_name, alert_at,
                 )
+                from app.services.reservation_checker import _get_schedule_text
+                date_str, time_str = await _get_schedule_text(pool, product_name)
                 await create_reservation_notification(
                     user_id, channel_no, product_name,
+                    broadcast_date=date_str, start_time=time_str,
                 )
                 success = True
                 log.info("reserve_watch: user=%s product=%s ch=%d", user_id, product_name, channel_no)

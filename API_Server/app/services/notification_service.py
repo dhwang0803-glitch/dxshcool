@@ -81,9 +81,21 @@ class NotificationService(BaseService):
         return result == "DELETE 1"
 
     async def create_reservation_notification(
-        self, user_id: str, channel: int, program_name: str
+        self,
+        user_id: str,
+        channel: int,
+        program_name: str,
+        broadcast_date: str | None = None,
+        start_time: str | None = None,
     ):
         """시청예약 도래 시 알림 생성."""
+        if broadcast_date and start_time:
+            message = (
+                f"채널 {channel}번에서 {program_name}이(가) "
+                f"{broadcast_date} {start_time}에 시작할 예정입니다"
+            )
+        else:
+            message = f"채널 {channel}번에서 {program_name}이(가) 곧 시작됩니다"
         await self.execute(
             """
             INSERT INTO public.notifications (user_id_fk, type, title, message, image_url)
@@ -91,7 +103,7 @@ class NotificationService(BaseService):
             """,
             user_id,
             program_name,
-            f"채널 {channel}번에서 {program_name}이(가) 곧 시작됩니다",
+            message,
             SEASONAL_MARKET_LOGO,
         )
 
