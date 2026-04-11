@@ -13,6 +13,7 @@ from app.models.reservation import (
 from app.routers.auth import get_current_user
 from app.services.db import get_pool
 from app.services.notification_service import create_reservation_notification
+from app.services.reservation_checker import _get_schedule_text
 
 router = APIRouter()
 
@@ -46,8 +47,10 @@ async def create_reservation(
             """,
             row["reservation_id"],
         )
+    date_str, time_str = await _get_schedule_text(pool, body.program_name)
     await create_reservation_notification(
         current_user, body.channel, body.program_name,
+        broadcast_date=date_str, start_time=time_str,
     )
     return ReservationResponse(**dict(row))
 
