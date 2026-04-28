@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install all skills (local)
+        run: |
+          npx skills add . --yes
+          echo "✅ Successfully installed all skills from local repository"
+
+      - name: Verify all skill files
+        run: |
+          echo "📁 Checking installed skill files..."
+
+          SKILLS_DIR=".agents/skills"
+
+          if [ ! -d "$SKILLS_DIR" ]; then
+            echo "❌ Skills directory not found: $SKILLS_DIR"
+            exit 1
+          fi
+
+          echo "✅ Skills directory exists: $SKILLS_DIR"
+
+          # 설치된 모든 스킬 확인
+          SKILL_COUNT=0
+          for skill_dir in "$SKILLS_DIR"/*; do
+            if [ -d "$skill_dir" ]; then
+              skill_name=$(basename "$skill_dir")
+              echo ""
+              echo "📦 Checking skill: $skill_name"
+
+              if [ -f "$skill_dir/SKILL.md" ]; then
+                echo "  ✅ Found SKILL.md"
+                SKILL_COUNT=$((SKILL_COUNT + 1))
+              else
+                echo "  ❌ SKILL.md not found in $skill_dir"
+                exit 1
+              fi
+            fi
+          done
+
+          echo ""
+          echo "✅ Successfully verified $SKILL_COUNT skills"
+
+          # 최소 1개 이상의 스킬이 설치되었는지 확인
+          if [ $SKILL_COUNT -eq 0 ]; then
+            echo "❌ No skills were installed"
+            exit 1
+          fi
+
+  test-remote:
+    runs-on: ubuntu-latest
+    # main 브랜치에 merge된 후에만 실행
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Install all skills from Skills.sh
+        run: |
+          npx skills add daleseo/korean-skills --yes
+          echo "✅ Successfully installed all skills from GitHub"
+
+      - name: Verify all skill files
+        run: |
+          echo "📁 Checking installed skill files..."
+
+          SKILLS_DIR=".agents/skills"
+
+          if [ ! -d "$SKILLS_DIR" ]; then
+            echo "❌ Skills directory not found: $SKILLS_DIR"
+            exit 1
+          fi
+
+          echo "✅ Skills directory exists: $SKILLS_DIR"
+
+          # 설치된 모든 스킬 확인
+          SKILL_COUNT=0
+          for skill_dir in "$SKILLS_DIR"/*; do
+            if [ -d "$skill_dir" ]; then
+              skill_name=$(basename "$skill_dir")
+              echo ""
+              echo "📦 Checking skill: $skill_name"
+
+              if [ -f "$skill_dir/SKILL.md" ]; then
+                echo "  ✅ Found SKILL.md"
+                SKILL_COUNT=$((SKILL_COUNT + 1))
+              else
+                echo "  ❌ SKILL.md not found in $skill_dir"
+                exit 1
+              fi
+            fi
+          done
+
+          echo ""
+          echo "✅ Successfully verified $SKILL_COUNT skills"
+
+          # 최소 1개 이상의 스킬이 설치되었는지 확인
+          if [ $SKILL_COUNT -eq 0 ]; then
+            echo "❌ No skills were installed"
+            exit 1
+          fi
