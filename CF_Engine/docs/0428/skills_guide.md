@@ -14,7 +14,7 @@
 | scientific-writing | `skills/scientific-writing/` | 영문 | 학술 논문 구조·문단 작성 |
 | humanizer (v2.1.1) | `skills/humanizer/` | 영문 | AI 작성 흔적 제거 |
 | humanizer (v2.5.1) | `skills/humanizer-main/` | 영문 | AI 작성 흔적 제거 (최신) |
-| grammar-checker | `skills/korean-skills-main/skills/grammar-checker/` | 한국어 | 맞춤법·띄어쓰기·문법 검사 |
+|/ | `skills/korean-skills-main/skills/grammar-checker/` | 한국어 | 맞춤법·띄어쓰기·문법 검사 |
 | humanizer (한국어) | `skills/korean-skills-main/skills/humanizer/` | 한국어 | AI 작성 패턴 탐지·교정 |
 | style-guide | `skills/korean-skills-main/skills/style-guide/` | 한국어 | 문서 내 용어·어조 일관성 검사 |
 
